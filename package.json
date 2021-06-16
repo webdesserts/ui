@@ -2,14 +2,15 @@
   "name": "@webdesserts/ui",
   "version": "0.1.0",
   "description": "A collection of common ui components and styles that I use for my apps",
-  "main": "dist/ui",
+  "author": "Michael C Mullins",
+  "license": "MIT",
+  "main": "dist/ui.js",
+  "files": ["dist"],
   "scripts": {
     "build": "lib-scripts build",
     "dev": "lib-scripts dev",
     "prepublish": "lib-scripts build"
   },
-  "author": "Michael C Mullins",
-  "license": "MIT",
   "dependencies": {},
   "devDependencies": {
     "@types/react": "^17.0.11",
