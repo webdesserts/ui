@@ -1,0 +1,7 @@
+{
+  "extends": "./node_modules/@webdesserts/lib-scripts/lib.tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "jsx": "react"
+  }
+}
