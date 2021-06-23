@@ -11,7 +11,7 @@
   "scripts": {
     "build": "lib-scripts build",
     "dev": "lib-scripts dev",
-    "prepublish": "lib-scripts build"
+    "prepare": "lib-scripts build"
   },
   "dependencies": {},
   "devDependencies": {
