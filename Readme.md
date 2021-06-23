@@ -1,0 +1,3 @@
+# Web Desserts UI
+
+This a collection of common styles, colors, and components that I use across my "webdesserts" themed applications. This library is in early development. Will update with more info at a later point in time...
