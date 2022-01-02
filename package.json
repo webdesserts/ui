@@ -17,7 +17,7 @@
   "devDependencies": {
     "@types/react": "^17.0.11",
     "@types/styled-components": "^5.1.10",
-    "@webdesserts/lib-scripts": "^0.1.0",
+    "@webdesserts/lib-scripts": "^0.8.0",
     "styled-components": "^5.3.0",
     "typescript": "^4.3.2"
   },
