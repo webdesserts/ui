@@ -8,7 +8,7 @@ interface HeadingProps extends React.HTMLAttributes<HTMLElement>{
   size: HeadingSizes,
 }
 
-export const Heading = styled.p`
+export const Heading = styled.p<HeadingProps>`
   ${getSizedHeading}
   margin: 0;
   padding: 0;
