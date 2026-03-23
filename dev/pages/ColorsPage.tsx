@@ -15,21 +15,21 @@ type ColorSwatch = {
 const families: { label: string; note?: string; colors: ColorSwatch[] }[] = [
   {
     label: "Purple",
-    note: "Surfaces (hue ~315)",
+    note: "Surfaces, dark text (hue 315\u2192338)",
     colors: [
-      { name: "Purple 5", variable: "--np-purple-5", lch: "lch(5 8.0 315)" },
-      { name: "Purple 10", variable: "--np-purple-10", lch: "lch(10 7.8 318)" },
-      { name: "Purple 15", variable: "--np-purple-15", lch: "lch(15 7.6 322)" },
-      { name: "Purple 20", variable: "--np-purple-20", lch: "lch(20 7.4 328)" },
-      { name: "Purple 30", variable: "--np-purple-30", lch: "lch(30 7.2 335)" },
+      { name: "Purple 10", variable: "--np-purple-10", lch: "lch(10 8.0 315)" },
+      { name: "Purple 15", variable: "--np-purple-15", lch: "lch(15 7.8 318)" },
+      { name: "Purple 20", variable: "--np-purple-20", lch: "lch(20 7.6 322)" },
+      { name: "Purple 30", variable: "--np-purple-30", lch: "lch(30 7.2 328)" },
+      { name: "Purple 45", variable: "--np-purple-45", lch: "lch(45 6.6 338)" },
     ],
   },
   {
     label: "Sepia",
-    note: "Text, borders, light surfaces (hue ~30)",
+    note: "Text, borders, light surfaces (hue 34\u219231)",
     colors: [
-      { name: "Sepia 40", variable: "--np-sepia-40", lch: "lch(40 6.4 35)" },
-      { name: "Sepia 55", variable: "--np-sepia-55", lch: "lch(55 5.8 32)" },
+      { name: "Sepia 60", variable: "--np-sepia-60", lch: "lch(60 5.8 34)" },
+      { name: "Sepia 75", variable: "--np-sepia-75", lch: "lch(75 5.4 32)" },
       { name: "Sepia 85", variable: "--np-sepia-85", lch: "lch(85 5.2 31)" },
       { name: "Sepia 90", variable: "--np-sepia-90", lch: "lch(90 5.0 31)" },
       { name: "Sepia 95", variable: "--np-sepia-95", lch: "lch(95 5.0 31)" },

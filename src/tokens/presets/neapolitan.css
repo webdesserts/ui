@@ -14,21 +14,21 @@
   /* -----------------------------------------------------------------------
    * Raw Palette
    *
-   * Three hue families: purple (surfaces), sepia (text/borders/light
-   * surfaces), and magenta (accent). No neutral grays — sepia provides
-   * the warm tones for both light and dark modes.
+   * Two hue families: purple (surfaces, dark text) and sepia (text, borders,
+   * light surfaces). Lightness = step name. Tight +5 spacing at ends for
+   * subtle surface variations, even +15 in the middle.
    * ----------------------------------------------------------------------- */
 
-  /* Purple — surfaces (hue 315→335, chroma 8→7.2) */
-  --np-purple-5:  lch(5  8.0 315);
-  --np-purple-10: lch(10 7.8 318);
-  --np-purple-15: lch(15 7.6 322);
-  --np-purple-20: lch(20 7.4 328);
-  --np-purple-30: lch(30 7.2 335);
+  /* Purple (hue 315→338, chroma 8→6.6) */
+  --np-purple-10: lch(10 8.0 315);
+  --np-purple-15: lch(15 7.8 318);
+  --np-purple-20: lch(20 7.6 322);
+  --np-purple-30: lch(30 7.2 328);
+  --np-purple-45: lch(45 6.6 338);
 
-  /* Sepia — text, borders, light surfaces (hue 35→31, chroma 6.4→5) */
-  --np-sepia-40: lch(40 6.4 35);
-  --np-sepia-55: lch(55 5.8 32);
+  /* Sepia (hue 34→31, chroma 5.8→5) */
+  --np-sepia-60: lch(60 5.8 34);
+  --np-sepia-75: lch(75 5.4 32);
   --np-sepia-85: lch(85 5.2 31);
   --np-sepia-90: lch(90 5.0 31);
   --np-sepia-95: lch(95 5.0 31);
@@ -44,20 +44,20 @@
   /* Surfaces */
   --surface-base:   light-dark(var(--np-sepia-95), var(--np-purple-10));
   --surface-raised: light-dark(var(--np-sepia-90), var(--np-purple-15));
-  --surface-input:  light-dark(white, var(--np-purple-5));
+  --surface-input:  light-dark(white, var(--np-purple-10));
 
   /* Text */
   --text-primary:   light-dark(var(--np-purple-20), var(--np-sepia-95));
-  --text-secondary: light-dark(var(--np-sepia-40), var(--np-sepia-55));
-  --text-muted:     light-dark(var(--np-sepia-40), var(--np-sepia-40));
+  --text-secondary: light-dark(var(--np-purple-45), var(--np-sepia-60));
+  --text-muted:     light-dark(var(--np-purple-45), var(--np-purple-45));
 
   /* Borders */
   --border-subtle:  light-dark(lch(42 4 30 / 0.15), lch(42 4 30 / 0.15));
-  --border-default: light-dark(var(--np-sepia-55), var(--np-sepia-55));
+  --border-default: light-dark(var(--np-sepia-60), var(--np-sepia-60));
 
   /* Interactive */
   --interactive-border: light-dark(var(--np-sepia-85), var(--np-purple-20));
-  --interactive-bg:     light-dark(var(--np-purple-30), var(--np-sepia-55));
+  --interactive-bg:     light-dark(var(--np-purple-30), var(--np-sepia-60));
   --interactive-text:   light-dark(var(--np-sepia-90), var(--np-purple-10));
 
   /* Accent */
@@ -76,9 +76,6 @@
 
 /* ---------------------------------------------------------------------------
  * @property registrations for smooth transitions
- *
- * Registering semantic color tokens as <color> lets CSS interpolate them
- * during transitions. Without this, custom property changes snap instantly.
  * --------------------------------------------------------------------------- */
 
 @property --surface-base   { syntax: "<color>"; inherits: true; initial-value: transparent; }
