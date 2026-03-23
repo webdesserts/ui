@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Button } from "../src";
 import { ButtonPage } from "./pages/ButtonPage";
 import { ButtonLinkPage } from "./pages/ButtonLinkPage";
 import { IconButtonPage } from "./pages/IconButtonPage";
@@ -58,17 +59,16 @@ export function App() {
             {(Object.entries(pages) as [PageKey, (typeof pages)[PageKey]][])
               .filter(([, page]) => page.section === section)
               .map(([key, { label }]) => (
-                <button
+                <Button
                   key={key}
+                  size="sm"
+                  borderSide="left"
+                  ghost={activePage !== key}
                   onClick={() => setActivePage(key)}
-                  className={`block w-full text-left px-3 py-1.5 rounded-sm text-sm cursor-pointer transition-colors duration-150 ${
-                    activePage === key
-                      ? "bg-interactive-bg text-interactive-text"
-                      : "text-text-secondary hover:text-text-primary"
-                  }`}
+                  className="w-full justify-start"
                 >
                   {label}
-                </button>
+                </Button>
               ))}
           </div>
         ))}
@@ -77,19 +77,18 @@ export function App() {
           <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
             Color Mode
           </p>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col">
             {(["light", "dark", "system"] as const).map((mode) => (
-              <button
+              <Button
                 key={mode}
+                size="sm"
+                borderSide="left"
+                ghost={colorMode !== mode}
                 onClick={() => setColorMode(mode)}
-                className={`w-full text-left px-3 py-1.5 rounded-sm text-xs cursor-pointer transition-colors duration-150 ${
-                  colorMode === mode
-                    ? "bg-interactive-bg text-interactive-text"
-                    : "text-text-secondary hover:text-text-primary"
-                }`}
+                className="w-full justify-start"
               >
                 {mode}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
