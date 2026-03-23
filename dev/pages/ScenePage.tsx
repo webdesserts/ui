@@ -30,8 +30,8 @@ export function ScenePage() {
     focus === "all" || focus === panel;
 
   return (
-    <div className="p-8 space-y-6">
-      <header>
+    <div className="h-screen flex flex-col p-8 gap-6">
+      <header className="shrink-0">
         <h1 className="text-3xl font-light">Scene</h1>
         <p className="text-text-secondary mt-2 text-sm">
           Animated camera that frames focused objects with spring physics.
@@ -39,7 +39,7 @@ export function ScenePage() {
       </header>
 
       {/* Navigation controls */}
-      <section className="space-y-3">
+      <section className="shrink-0 space-y-3">
         <div className="flex gap-2 flex-wrap">
           {(["top-left", "top-right", "bottom-left", "bottom-right", "all"] as const).map(
             (target) => (
@@ -68,44 +68,56 @@ export function ScenePage() {
         </div>
       </section>
 
-      {/* The Scene */}
-      <section className="border border-rule-subtle rounded-sm p-4 overflow-hidden">
+      {/* The Scene — fills remaining space, scrolls when content overflows */}
+      <section className="flex-1 min-h-0 border border-rule-subtle rounded-sm overflow-y-auto flex items-center justify-center">
         <Scene padding={padding}>
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "320px 480px",
-              gridTemplateRows: "240px 360px",
+              gridTemplateRows: "240px auto",
               gap: "32px",
             }}
           >
-            <SceneObject name="top-left" focused={isFocused("top-left")}>
-              <div className={`${panelColors["top-left"]} rounded-sm p-6 h-full flex flex-col justify-between`}>
-                <h2 className="text-lg font-light text-white/90">Top Left</h2>
-                <p className="text-sm text-white/50">320 x 240 — standard</p>
-              </div>
-            </SceneObject>
-
-            <SceneObject name="top-right" focused={isFocused("top-right")}>
-              <div className={`${panelColors["top-right"]} rounded-sm p-6 h-full flex flex-col justify-between`}>
-                <h2 className="text-lg font-light text-white/90">Top Right</h2>
-                <p className="text-sm text-white/50">480 x 240 — wide</p>
-              </div>
-            </SceneObject>
-
-            <SceneObject name="bottom-left" focused={isFocused("bottom-left")}>
-              <div className={`${panelColors["bottom-left"]} rounded-sm p-6 h-full flex flex-col justify-between`}>
-                <h2 className="text-lg font-light text-white/90">Bottom Left</h2>
-                <p className="text-sm text-white/50">320 x 360 — tall</p>
-              </div>
-            </SceneObject>
-
-            <SceneObject name="bottom-right" focused={isFocused("bottom-right")}>
-              <div className={`${panelColors["bottom-right"]} rounded-sm p-6 h-full flex flex-col justify-between`}>
-                <h2 className="text-lg font-light text-white/90">Bottom Right</h2>
-                <p className="text-sm text-white/50">480 x 360 — large</p>
-              </div>
-            </SceneObject>
+            {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(
+              (panel) => {
+                const focused = isFocused(panel);
+                const isTall = panel === "bottom-right";
+                return (
+                  <SceneObject key={panel} name={panel} focused={focused}>
+                    <div
+                      className={`${panelColors[panel]} rounded-sm p-6 h-full flex flex-col transition-[filter,opacity,transform] duration-300`}
+                      style={{
+                        transform: focused ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
+                        opacity: focused ? 1 : 0.4,
+                        filter: focused ? "none" : "grayscale(1)",
+                        cursor: focused ? "default" : "pointer",
+                      }}
+                      onClick={() => !focused && setFocus(panel)}
+                    >
+                      <h2 className="text-lg font-light text-white/90">{panel}</h2>
+                      {isTall && (
+                        <div className="space-y-4 my-4 flex-1">
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <div key={i} className="bg-white/5 rounded-sm p-3">
+                              <p className="text-sm text-white/60">Item {i + 1}</p>
+                              <p className="text-xs text-white/30 mt-1">
+                                This panel is tall enough to need scrolling when focused.
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-sm text-white/50 mt-auto">
+                        {isTall ? "480 x 900+ — scrollable" : `${panel.startsWith("top") ? "240" : "360"}px tall`}
+                        {" · "}
+                        {focused ? "focused" : "click to focus"}
+                      </p>
+                    </div>
+                  </SceneObject>
+                );
+              },
+            )}
           </div>
 
           <CameraDebug />
