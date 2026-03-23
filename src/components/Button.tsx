@@ -13,7 +13,7 @@ import { cn } from "../utils/cn";
  * spread doesn't affect borders.
  */
 const interactiveBase =
-  "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
+  "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Active accent border on press — uses outline so it doesn't conflict with box-shadow composition. */
 const activeBorder =

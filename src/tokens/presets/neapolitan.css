@@ -76,6 +76,11 @@
   --glass-bg:        light-dark(lch(96 5 30 / 0.6), lch(15 7 315 / 0.35));
   --glass-danger-bg: light-dark(lch(50.04 76.64 31.32 / 0.08), lch(50.04 76.64 31.32 / 0.12));
   --glass-blur:      8px;
+
+  /* Pattern */
+  --dot-color: lch(42 4 30 / 0.15);
+  --dot-size: 1px;
+  --dot-spacing: 22px;
 }
 
 /* ---------------------------------------------------------------------------

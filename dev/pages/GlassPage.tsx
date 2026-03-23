@@ -26,12 +26,7 @@ export function GlassPage() {
       </header>
 
       <div
-        className="p-6 rounded-lg space-y-8"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, var(--border-default) 1px, transparent 1px)",
-          backgroundSize: "12px 12px",
-        }}
+        className="p-6 rounded-lg space-y-8 bg-[radial-gradient(circle,var(--dot-color)_var(--dot-size),transparent_var(--dot-size))] bg-[length:var(--dot-spacing)_var(--dot-spacing)]"
       >
         <section className="space-y-3">
           <SectionLabel>Button</SectionLabel>
