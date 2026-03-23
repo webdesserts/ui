@@ -62,18 +62,17 @@ const spreadBase = [
   // ::after setup
   "after:absolute after:-z-1",
   "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
-  "after:transition-[top,left,right,bottom,width,height,margin,background-color]",
-  "after:duration-[350ms] after:ease-in-out",
+  "after:[transition:top_400ms_ease-in-out,left_400ms_ease-in-out,right_400ms_ease-in-out,bottom_400ms_ease-in-out,width_400ms_ease-in-out,height_400ms_ease-in-out,margin_400ms_ease-in-out,background-color_600ms_ease-in]",
   // Hover — fill + text inversion
   "not-disabled:hover:text-interactive-text",
   "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:hover:after:duration-200 not-disabled:hover:after:ease-out",
+  "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
   // Focus-visible — same as hover
   "not-disabled:focus-visible:text-interactive-text",
   "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
   "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:focus-visible:after:duration-200 not-disabled:focus-visible:after:ease-out",
+  "not-disabled:focus-visible:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
 ].join(" ");
 
 /** Bar geometry per border side (resting state position). */
@@ -104,13 +103,13 @@ const spreadBarPartial = [
 const spreadRing = [
   "relative z-0 overflow-hidden",
   "shadow-[inset_0_0_0_2px_var(--spread-bg-rest,var(--interactive-border))]",
-  "transition-[box-shadow,color,opacity] duration-[350ms] ease-in-out",
+  "[transition:box-shadow_400ms_ease-in-out,color_200ms,opacity_200ms]",
   "not-disabled:hover:text-interactive-text",
   "not-disabled:hover:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:hover:duration-200 not-disabled:hover:ease-out",
+  "not-disabled:hover:[transition:box-shadow_250ms,color_200ms,opacity_200ms]",
   "not-disabled:focus-visible:text-interactive-text",
   "not-disabled:focus-visible:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:focus-visible:duration-200 not-disabled:focus-visible:ease-out",
+  "not-disabled:focus-visible:[transition:box-shadow_250ms,color_200ms,opacity_200ms]",
 ].join(" ");
 
 /** Returns spread bar classes for a given border side. */
@@ -218,6 +217,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
           spreadBase,
           spreadBarPartial,
           "bg-transparent text-text-primary no-underline",
+          Tag === "a" && "hover:underline focus-visible:underline",
           "px-0 hover:px-3 focus-visible:px-3 transition-[padding,color] duration-200",
           buttonLinkSizes[size],
           className,

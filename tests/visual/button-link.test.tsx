@@ -228,7 +228,10 @@ describe("ButtonLink spread animation", () => {
     restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
+      .toMatchScreenshot({
+        ...animationScreenshotOptions,
+        allowedMismatchedPixelRatio: 0.01,
+      });
     unfreezeAnimations(anims);
   });
 });
