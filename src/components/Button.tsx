@@ -13,7 +13,7 @@ import { cn } from "../utils/cn";
  * spread doesn't affect borders.
  */
 const interactiveBase =
-  "cursor-pointer transition-[color,opacity] duration-200 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
+  "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Active accent border on press — uses outline so it doesn't conflict with box-shadow composition. */
 const activeBorder =
@@ -58,6 +58,7 @@ const glassBorderSides = {
 /** Base classes shared by all bar spread variants. */
 const spreadBase = [
   "relative z-0 overflow-hidden",
+  "transition-[color,opacity] duration-200",
   // ::after setup
   "after:absolute after:-z-1",
   "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
@@ -103,7 +104,7 @@ const spreadBarPartial = [
 const spreadRing = [
   "relative z-0 overflow-hidden",
   "shadow-[inset_0_0_0_2px_var(--spread-bg-rest,var(--interactive-border))]",
-  "transition-[box-shadow,color] duration-[350ms] ease-in-out",
+  "transition-[box-shadow,color,opacity] duration-[350ms] ease-in-out",
   "not-disabled:hover:text-interactive-text",
   "not-disabled:hover:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
   "not-disabled:hover:duration-200 not-disabled:hover:ease-out",
