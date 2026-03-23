@@ -44,10 +44,23 @@ const families: { label: string; note?: string; colors: ColorSwatch[] }[] = [
     ],
   },
   {
-    label: "Status",
+    label: "Danger",
+    note: "Hue 31.32 — surface tones are composited from danger over theme surfaces",
     colors: [
+      { name: "Danger 20", variable: "--np-danger-20", lch: "lch(18 20 2)" },
+      { name: "Danger 25", variable: "--np-danger-25", lch: "lch(23 28 5)" },
       { name: "Danger", variable: "--np-danger", lch: "lch(50.04 76.64 31.32)" },
+      { name: "Danger 80", variable: "--np-danger-80", lch: "lch(79 22 28)" },
+      { name: "Danger 85", variable: "--np-danger-85", lch: "lch(84 16 31)" },
+    ],
+  },
+  {
+    label: "Success",
+    note: "Hue 155 — surface tones are composited from success over theme surfaces",
+    colors: [
+      { name: "Success 20", variable: "--np-success-20", lch: "lch(27 17 190)" },
       { name: "Success", variable: "--np-success", lch: "lch(65 45 155)" },
+      { name: "Success 85", variable: "--np-success-85", lch: "lch(86 11 130)" },
     ],
   },
 ];

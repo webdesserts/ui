@@ -38,7 +38,10 @@
 
   --color-danger: var(--danger);
   --color-danger-muted: var(--danger-muted);
+  --color-danger-surface: var(--danger-surface);
+  --color-danger-border: var(--danger-border);
   --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
 
   --radius-sm: 2px;
   --radius-md: 4px;

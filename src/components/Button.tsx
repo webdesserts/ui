@@ -306,7 +306,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         : resolvedGlass
           ? `${glassBg} ${glassBorder}`
           : color === "danger"
-            ? "bg-danger-muted"
+            ? "bg-danger-surface"
             : "bg-surface-raised";
 
     const colorClasses =
@@ -328,7 +328,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           className,
         )}
         style={color === "danger" ? {
-          "--spread-bg-rest": "var(--danger-muted)",
+          "--spread-bg-rest": "var(--danger-border)",
           "--spread-bg-hover": "var(--danger)",
         } as React.CSSProperties : undefined}
         {...props}
@@ -391,7 +391,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
         : resolvedGlass
           ? `${glassBg} ${glassBorder}`
           : color === "danger"
-            ? "bg-danger-muted"
+            ? "bg-danger-surface"
             : "bg-surface-raised";
 
     const colorClasses =
@@ -413,7 +413,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
           className,
         )}
         style={color === "danger" ? {
-          "--spread-bg-rest": "var(--danger-muted)",
+          "--spread-bg-rest": "var(--danger-border)",
           "--spread-bg-hover": "var(--danger)",
         } as React.CSSProperties : undefined}
         {...props}

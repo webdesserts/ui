@@ -37,9 +37,30 @@
   --np-magenta-50: lch(50 67.55 6.18);
   --np-magenta-55: lch(57.12 67.55 6.18);
 
-  /* Status */
-  --np-danger: lch(50.04 76.64 31.32);
-  --np-success: lch(65 45 155);
+  /* Danger (hue 31.32)
+   *
+   * Surface tones are computed by alpha-compositing --np-danger at low
+   * opacity over the theme's surface color, then recording the opaque
+   * result. This gives solid colors that visually match the semi-transparent
+   * --danger-muted appearance without alpha dependency.
+   *
+   * --np-danger-20: danger @ 25% over purple-15  → dark theme surface tone
+   * --np-danger-85: danger @ 15% over sepia-90   → light theme surface tone
+   */
+  --np-danger:    lch(50.04 76.64 31.32);
+  --np-danger-20: lch(18 20 2);
+  --np-danger-25: lch(23 28 5);
+  --np-danger-80: lch(79 22 28);
+  --np-danger-85: lch(84 16 31);
+
+  /* Success (hue 155) — same compositing approach as danger.
+   *
+   * --np-success-20: success @ 25% over purple-15  → dark theme surface tone
+   * --np-success-85: success @ 15% over sepia-90   → light theme surface tone
+   */
+  --np-success:    lch(65 45 155);
+  --np-success-20: lch(27 17 190);
+  --np-success-85: lch(86 11 130);
 
   /* -----------------------------------------------------------------------
    * Semantic Tokens — light-dark(light, dark)
@@ -68,9 +89,12 @@
   --accent: light-dark(var(--np-magenta-55), var(--np-magenta-50));
 
   /* Status */
-  --danger:       var(--np-danger);
-  --danger-muted: light-dark(lch(50.04 76.64 31.32 / 0.15), lch(50.04 76.64 31.32 / 0.25));
-  --success:      var(--np-success);
+  --danger:         var(--np-danger);
+  --danger-muted:   light-dark(lch(50.04 76.64 31.32 / 0.15), lch(50.04 76.64 31.32 / 0.25));
+  --danger-surface: light-dark(var(--np-danger-85), var(--np-danger-20));
+  --danger-border:  light-dark(var(--np-danger-80), var(--np-danger-25));
+  --success:         var(--np-success);
+  --success-surface: light-dark(var(--np-success-85), var(--np-success-20));
 
   /* Glass */
   --glass-bg:        light-dark(lch(96 5 30 / 0.6), lch(15 7 315 / 0.35));
@@ -101,6 +125,9 @@
 @property --accent         { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --danger         { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --danger-muted   { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --danger-surface { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --danger-border  { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --success        { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --success-surface { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --glass-bg       { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --glass-danger-bg { syntax: "<color>"; inherits: true; initial-value: transparent; }
