@@ -252,7 +252,9 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
       return () => {
         unregister(id);
       };
-    }, [id, focused, register, unregister]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- register/unregister
+    // close over stable setEntries; including them causes infinite re-renders.
+  }, [id, focused]);
 
     return (
       <div
