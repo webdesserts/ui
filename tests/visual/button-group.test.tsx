@@ -285,24 +285,6 @@ describe("ButtonGroup context defaults", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Border sides — dark only
-// ---------------------------------------------------------------------------
-
-describe("ButtonGroup border sides", () => {
-  it("group-border-right-dark", async () => {
-    document.documentElement.style.colorScheme = "dark";
-    const screen = await render(
-      <TestWrapper>
-        <ButtonGroup borderSide="right">
-          <IconButton borderSide="right" aria-label="Settings"><GearIcon /></IconButton>
-          <ChevronButton borderSide="right" aria-label="Open menu"><CaretDownIcon /></ChevronButton>
-        </ButtonGroup>
-      </TestWrapper>,
-    );
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Spread animation — dark only

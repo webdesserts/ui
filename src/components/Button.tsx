@@ -1,4 +1,4 @@
-import { createContext, forwardRef, useContext } from "react";
+import React, { createContext, forwardRef, useContext } from "react";
 import { cn } from "../utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -414,12 +414,6 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
 // ButtonGroup — unified container for adjacent buttons
 // ---------------------------------------------------------------------------
 
-const groupShadowSides = {
-  bottom: "shadow-[inset_0_-1px_0_var(--interactive-border)]",
-  top: "shadow-[inset_0_1px_0_var(--interactive-border)]",
-  right: "shadow-[inset_-1px_0_0_var(--interactive-border)]",
-  left: "shadow-[inset_1px_0_0_var(--interactive-border)]",
-} as const;
 
 /** Full-perimeter glass border for the group container via ::after pseudo-element. */
 const groupGlassBorder =
@@ -453,14 +447,34 @@ export function ButtonGroup({
   borderSide = "bottom",
   className,
 }: ButtonGroupProps) {
-  const bg = ghost || glass ? "bg-transparent" : "bg-[var(--interactive-border)]";
+  const dividerBg = ghost
+    ? "bg-transparent"
+    : glass
+      ? `bg-glass-bg ${glassBlur}`
+      : "bg-interactive-border";
+
+  const dividerSpread = {
+    bottom: "shadow-[inset_0_-2px_0_var(--interactive-border)]",
+    top: "shadow-[inset_0_2px_0_var(--interactive-border)]",
+  }[borderSide] ?? "";
+
+  // Interleave 1px dividers between children
+  const items = React.Children.toArray(children);
+  const withDividers: React.ReactNode[] = [];
+  items.forEach((child, i) => {
+    if (i > 0) {
+      withDividers.push(
+        <div key={`divider-${i}`} className={`w-px self-stretch ${dividerBg} ${dividerSpread}`} />,
+      );
+    }
+    withDividers.push(child);
+  });
 
   return (
     <ButtonGroupContext.Provider value={{ size, glass: glass || undefined }}>
       <div
         className={cn(
-          `relative inline-flex items-center gap-px ${bg}`,
-          !ghost && groupShadowSides[borderSide],
+          "relative inline-flex items-center bg-transparent",
           "[&_button]:rounded-none",
           groupChildRounding[borderSide],
           // Glass: full-perimeter border on ::after, suppress individual button shadows.
@@ -471,7 +485,7 @@ export function ButtonGroup({
           className,
         )}
       >
-        {children}
+        {withDividers}
       </div>
     </ButtonGroupContext.Provider>
   );
