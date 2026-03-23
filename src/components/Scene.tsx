@@ -134,6 +134,7 @@ function Camera({
     <CameraContext.Provider value={cameraState}>
       {/* Viewport — animates width/height to frame focused objects */}
       <motion.div
+        data-testid="camera-viewport"
         animate={{ width: rect.width, height: rect.height }}
         transition={transition}
         onAnimationStart={() => setTransitioning(true)}
@@ -142,6 +143,7 @@ function Camera({
       >
         {/* Stage — animates x/y to pan to the focused area */}
         <motion.div
+          data-testid="camera-stage"
           animate={{ x: -rect.x, y: -rect.y }}
           transition={transition}
           className="relative transition-none w-fit h-max"
