@@ -16,7 +16,7 @@
  * running. A 200ms transition completes before JS gets another turn, so by the
  * time `freezeAnimationsAt` runs there is nothing to freeze.
  *
- * `withSlowTransitions` solves this by injecting a `<style>` tag that overrides
+ * `slowTransitions` solves this by injecting a `<style>` tag that overrides
  * every transition-duration to 10 seconds. Trigger hover inside the callback,
  * then freeze — the transition is still running and `getAnimations()` returns it.
  * Call the returned `restore()` function after freezing to remove the override.

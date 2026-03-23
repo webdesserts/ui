@@ -78,9 +78,9 @@
   --glass-blur:      8px;
 
   /* Pattern */
-  --dot-color: lch(42 4 30 / 0.15);
-  --dot-size: 1px;
-  --dot-spacing: 22px;
+  --dot-grid-color: light-dark(var(--np-sepia-85), var(--np-purple-20));
+  --dot-grid-size: 1px;
+  --dot-grid-spacing: 22px;
 }
 
 /* ---------------------------------------------------------------------------
