@@ -7,6 +7,7 @@ import { ButtonGroupPage } from "./pages/ButtonGroupPage";
 import { MenuItemPage } from "./pages/MenuItemPage";
 import { GlassPage } from "./pages/GlassPage";
 import { ColorsPage } from "./pages/ColorsPage";
+import { ScenePage } from "./pages/ScenePage";
 
 type ColorMode = "system" | "light" | "dark";
 
@@ -16,6 +17,7 @@ const pages = {
   iconbutton: { label: "IconButton", section: "Components", component: IconButtonPage },
   buttongroup: { label: "ButtonGroup", section: "Components", component: ButtonGroupPage },
   menuitem: { label: "MenuItem", section: "Components", component: MenuItemPage },
+  scene: { label: "Scene", section: "Components", component: ScenePage },
   glass: { label: "Glass", section: "Components", component: GlassPage },
   colors: { label: "Colors", section: "Tokens", component: ColorsPage },
 } as const;
