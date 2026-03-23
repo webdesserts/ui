@@ -43,6 +43,13 @@ const families: { label: string; note?: string; colors: ColorSwatch[] }[] = [
       { name: "Magenta 55", variable: "--np-magenta-55", lch: "lch(57.12 67.55 6.18)" },
     ],
   },
+  {
+    label: "Status",
+    colors: [
+      { name: "Danger", variable: "--np-danger", lch: "lch(50.04 76.64 31.32)" },
+      { name: "Success", variable: "--np-success", lch: "lch(65 45 155)" },
+    ],
+  },
 ];
 
 function Swatch({ color }: { color: ColorSwatch }) {

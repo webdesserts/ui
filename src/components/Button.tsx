@@ -196,9 +196,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref,
   ) {
-    const { border, rounding } = borderSideClasses[borderSide];
+    const { rounding } = borderSideClasses[borderSide];
     const glassBorder = glassBorderSides[borderSide];
-    const borderStyle = rounded ? "border" : border;
 
     const bg = ghost
       ? "bg-transparent"
@@ -212,8 +211,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
 
     const colorClasses =
       color === "danger"
-        ? `${borderStyle} border-danger ${bg} text-danger`
-        : `${borderStyle} border-rule-default ${bg} text-text-secondary`;
+        ? `${bg} text-danger`
+        : `${bg} text-text-secondary`;
 
     return (
       <button
@@ -226,6 +225,10 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           colorClasses,
           className,
         )}
+        style={color === "danger" ? {
+          "--spread-bg-rest": "var(--danger-muted)",
+          "--spread-bg-hover": "var(--danger)",
+        } as React.CSSProperties : undefined}
         {...props}
       >
         {children}
@@ -270,11 +273,10 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
     },
     ref,
   ) {
-    const { border, rounding } = borderSideClasses[borderSide];
+    const { rounding } = borderSideClasses[borderSide];
     const glassBorder = glassBorderSides[borderSide];
 
-    const pressedClasses =
-      `${border} border-interactive-bg bg-interactive-bg text-interactive-text`;
+    const pressedClasses = "bg-interactive-bg text-interactive-text";
 
     const bg = ghost
       ? "bg-transparent"
@@ -288,8 +290,8 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
 
     const colorClasses =
       color === "danger"
-        ? `${border} border-danger ${bg} text-danger`
-        : `${border} border-rule-default ${bg} text-text-secondary`;
+        ? `${bg} text-danger`
+        : `${bg} text-text-secondary`;
 
     return (
       <button
@@ -302,6 +304,10 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
           pressed ? pressedClasses : colorClasses,
           className,
         )}
+        style={color === "danger" ? {
+          "--spread-bg-rest": "var(--danger-muted)",
+          "--spread-bg-hover": "var(--danger)",
+        } as React.CSSProperties : undefined}
         {...props}
       >
         {children}
@@ -382,8 +388,8 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
           interactiveBase,
           "spread spread-bar-left",
           selected
-            ? "border-l border-interactive-bg bg-interactive-bg text-interactive-text"
-            : `border-l border-rule-default text-text-secondary`,
+            ? "bg-interactive-bg text-interactive-text"
+            : "text-text-secondary",
           className,
         )}
         {...props}

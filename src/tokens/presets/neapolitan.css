@@ -37,6 +37,10 @@
   --np-magenta-50: lch(50 67.55 6.18);
   --np-magenta-55: lch(57.12 67.55 6.18);
 
+  /* Status */
+  --np-danger: lch(50.04 76.64 31.32);
+  --np-success: lch(65 45 155);
+
   /* -----------------------------------------------------------------------
    * Semantic Tokens — light-dark(light, dark)
    * ----------------------------------------------------------------------- */
@@ -64,13 +68,13 @@
   --accent: light-dark(var(--np-magenta-55), var(--np-magenta-50));
 
   /* Status */
-  --danger:       lch(48 75 20);
-  --danger-muted: light-dark(lch(48 75 20 / 0.15), lch(48 75 20 / 0.25));
-  --success:      lch(65 45 155);
+  --danger:       var(--np-danger);
+  --danger-muted: light-dark(lch(50.04 76.64 31.32 / 0.15), lch(50.04 76.64 31.32 / 0.25));
+  --success:      var(--np-success);
 
   /* Glass */
   --glass-bg:        light-dark(lch(96 5 30 / 0.6), lch(15 7 315 / 0.35));
-  --glass-danger-bg: light-dark(lch(48 75 20 / 0.08), lch(48 75 20 / 0.12));
+  --glass-danger-bg: light-dark(lch(50.04 76.64 31.32 / 0.08), lch(50.04 76.64 31.32 / 0.12));
   --glass-blur:      8px;
 }
 

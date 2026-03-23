@@ -22,7 +22,7 @@
     content: "";
     position: absolute;
     z-index: -1;
-    background-color: var(--interactive-border);
+    background-color: var(--spread-bg-rest, var(--interactive-border));
     transition:
       top 350ms ease-in-out,
       left 350ms ease-in-out,
@@ -46,7 +46,7 @@
       width: 100%;
       height: 100%;
       margin: 0;
-      background-color: var(--interactive-bg);
+      background-color: var(--spread-bg-hover, var(--interactive-bg));
       transition:
         top 200ms ease,
         left 200ms ease,
