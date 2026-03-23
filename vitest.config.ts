@@ -14,7 +14,7 @@ export default defineConfig({
   test: {
     browser: {
       enabled: true,
-      provider: playwright(),
+      provider: playwright({ contextOptions: { deviceScaleFactor: 2 } }),
       headless: true,
       screenshotFailures: false,
       instances: [
