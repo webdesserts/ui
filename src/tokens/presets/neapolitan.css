@@ -53,14 +53,16 @@
   --np-danger-80: lch(79 22 28);
   --np-danger-85: lch(84 16 31);
 
-  /* Success (hue 155) — same compositing approach as danger.
+  /* Success (hue 170) — same compositing approach as danger.
    *
-   * --np-success-20: success @ 25% over purple-15  → dark theme surface tone
+   * --np-success-25: success @ 25% over purple-15  → dark theme surface tone
    * --np-success-85: success @ 15% over sepia-90   → light theme surface tone
    */
-  --np-success:    lch(65 45 155);
-  --np-success-20: lch(27 17 190);
-  --np-success-85: lch(86 11 130);
+  --np-success:    lch(60 45 170);
+  --np-success-25: lch(26 17 185);
+  --np-success-30: lch(31 17 185);
+  --np-success-80: lch(81 12 155);
+  --np-success-85: lch(86 12 155);
 
   /* -----------------------------------------------------------------------
    * Semantic Tokens — light-dark(light, dark)
@@ -94,7 +96,8 @@
   --danger-surface: light-dark(var(--np-danger-85), var(--np-danger-20));
   --danger-border:  light-dark(var(--np-danger-80), var(--np-danger-25));
   --success:         var(--np-success);
-  --success-surface: light-dark(var(--np-success-85), var(--np-success-20));
+  --success-surface: light-dark(var(--np-success-85), var(--np-success-25));
+  --success-border:  light-dark(var(--np-success-80), var(--np-success-30));
 
   /* Glass */
   --glass-bg:        light-dark(lch(96 5 30 / 0.6), lch(15 7 315 / 0.35));
@@ -129,5 +132,6 @@
 @property --danger-border  { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --success        { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --success-surface { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --success-border  { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --glass-bg       { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --glass-danger-bg { syntax: "<color>"; inherits: true; initial-value: transparent; }

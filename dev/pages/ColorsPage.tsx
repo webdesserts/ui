@@ -58,9 +58,11 @@ const families: { label: string; note?: string; colors: ColorSwatch[] }[] = [
     label: "Success",
     note: "Hue 155 — surface tones are composited from success over theme surfaces",
     colors: [
-      { name: "Success 20", variable: "--np-success-20", lch: "lch(27 17 190)" },
-      { name: "Success", variable: "--np-success", lch: "lch(65 45 155)" },
-      { name: "Success 85", variable: "--np-success-85", lch: "lch(86 11 130)" },
+      { name: "Success 25", variable: "--np-success-25", lch: "lch(26 17 185)" },
+      { name: "Success 30", variable: "--np-success-30", lch: "lch(31 17 185)" },
+      { name: "Success", variable: "--np-success", lch: "lch(60 45 170)" },
+      { name: "Success 80", variable: "--np-success-80", lch: "lch(81 12 155)" },
+      { name: "Success 85", variable: "--np-success-85", lch: "lch(86 12 155)" },
     ],
   },
 ];

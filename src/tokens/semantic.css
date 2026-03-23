@@ -42,6 +42,7 @@
   --color-danger-border: var(--danger-border);
   --color-success: var(--success);
   --color-success-surface: var(--success-surface);
+  --color-success-border: var(--success-border);
 
   --radius-sm: 2px;
   --radius-md: 4px;
