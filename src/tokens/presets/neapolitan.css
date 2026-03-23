@@ -19,20 +19,19 @@
    * the warm tones for both light and dark modes.
    * ----------------------------------------------------------------------- */
 
-  /* Purple — surfaces (hue ~315) */
-  --np-purple-5: lch(0.63 0.47 323);
-  --np-purple-10: lch(8.95 7.85 314.2);
-  --np-purple-15: lch(14.84 7.47 314);
-  --np-purple-20: lch(25.69 7.89 318);
+  /* Purple — surfaces (hue 315→335, chroma 8→7.2) */
+  --np-purple-5:  lch(5  8.0 315);
+  --np-purple-10: lch(10 7.8 318);
+  --np-purple-15: lch(15 7.6 322);
+  --np-purple-20: lch(20 7.4 328);
+  --np-purple-30: lch(30 7.2 335);
 
-  --np-purple-30: lch(30.11 8.23 315.6);
-
-  /* Sepia — text, borders, light surfaces (hue ~30) */
-  --np-sepia-40: lch(48.32 5.41 32.4);
-  --np-sepia-55: lch(56.98 5.08 26.4);
-  --np-sepia-85: lch(75.66 4.53 33.3);
-  --np-sepia-90: lch(83.79 5.18 31.4);
-  --np-sepia-95: lch(96.14 5.02 31.4);
+  /* Sepia — text, borders, light surfaces (hue 35→31, chroma 6.4→5) */
+  --np-sepia-40: lch(40 6.4 35);
+  --np-sepia-55: lch(55 5.8 32);
+  --np-sepia-85: lch(85 5.2 31);
+  --np-sepia-90: lch(90 5.0 31);
+  --np-sepia-95: lch(95 5.0 31);
 
   /* Magenta — accent (hue 6.18) */
   --np-magenta-50: lch(50 67.55 6.18);
