@@ -7,6 +7,7 @@ import {
   unfreezeAnimations,
   waitForAnimationFrame,
   slowTransitions,
+  whilePressed,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { IconButton } from "@/src";
@@ -493,7 +494,7 @@ describe("IconButton focus states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Active state — dark only (forced via inline style)
+// Active state — dark only
 // ---------------------------------------------------------------------------
 
 describe("IconButton active state", () => {
@@ -506,20 +507,16 @@ describe("IconButton active state", () => {
     );
     const btn = screen.getByRole("button", { name: "Settings" });
     const el = btn.element() as HTMLElement;
-    // Hover first so the spread fills — :active always occurs during :hover
-    // or :focus-visible, never on a resting button.
     const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();
-    // CSS :active can't be triggered in tests — force the accent outline via
-    // inline style on top of the already-filled spread.
-    el.style.outline = "2px solid var(--accent)";
-    el.style.outlineOffset = "-2px";
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
+    await whilePressed(btn, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
     unfreezeAnimations(anims);
   });
 
@@ -537,11 +534,11 @@ describe("IconButton active state", () => {
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();
-    el.style.outline = "2px solid var(--accent)";
-    el.style.outlineOffset = "-2px";
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
+    await whilePressed(btn, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
     unfreezeAnimations(anims);
   });
 });

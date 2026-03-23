@@ -99,6 +99,33 @@ export function unfreezeAnimations(
 }
 
 /**
+ * Wait for a given number of milliseconds.
+ */
+export function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Run a callback while a locator's element is in CSS :active state.
+ *
+ * Uses Playwright's `click({ delay })` to hold mousedown, then runs the
+ * callback during the delay window. This triggers real CSS :active via
+ * trusted browser input events — no CDP or synthetic events needed.
+ */
+export async function whilePressed(
+  locator: { click: (options?: { delay?: number }) => Promise<void> },
+  callback: () => Promise<void>,
+): Promise<void> {
+  await Promise.all([
+    locator.click({ delay: 50 }),
+    (async () => {
+      await wait(25);
+      await callback();
+    })(),
+  ]);
+}
+
+/**
  * Screenshot options that preserve paused animation state.
  * Merge this into your toMatchScreenshot call.
  */

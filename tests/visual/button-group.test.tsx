@@ -7,6 +7,7 @@ import {
   unfreezeAnimations,
   waitForAnimationFrame,
   slowTransitions,
+  whilePressed,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ButtonGroup, IconButton, ChevronButton } from "@/src";
@@ -202,6 +203,56 @@ describe("ButtonGroup spread animation", () => {
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+
+  it("group-active-left-button-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup>
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Settings" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
+    await btn.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await whilePressed(btn, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
+    unfreezeAnimations(anims);
+  });
+
+  it("group-active-right-button-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup>
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Mute" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
+    await btn.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await whilePressed(btn, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
     unfreezeAnimations(anims);
   });
 

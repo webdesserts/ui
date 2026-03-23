@@ -17,7 +17,7 @@ const interactiveBase =
 
 /** Active accent border on press — uses outline so it doesn't conflict with box-shadow composition. */
 const activeBorder =
-  "active:not-disabled:outline-2 active:not-disabled:outline-accent active:not-disabled:-outline-offset-2";
+  "active:not-disabled:outline-solid active:not-disabled:outline-2 active:not-disabled:outline-accent active:not-disabled:z-1";
 
 const glassBlur = "backdrop-blur-[var(--glass-blur)]";
 const glassBg = `bg-glass-bg ${glassBlur}`;

@@ -16,6 +16,7 @@ import {
   unfreezeAnimations,
   waitForAnimationFrame,
   slowTransitions,
+  whilePressed,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { Button } from "@/src";
@@ -360,7 +361,7 @@ describe("Button focus states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Active state — dark only (forced via inline style)
+// Active state — dark only
 // ---------------------------------------------------------------------------
 
 describe("Button active state", () => {
@@ -380,13 +381,11 @@ describe("Button active state", () => {
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();
-    // CSS :active can't be triggered in tests — force the accent outline via
-    // inline style on top of the already-filled spread.
-    el.style.outline = "2px solid var(--accent)";
-    el.style.outlineOffset = "-2px";
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
+    await whilePressed(btn, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
     unfreezeAnimations(anims);
   });
 });
