@@ -1,7 +1,21 @@
 {
-  "extends": "./node_modules/@webdesserts/lib-scripts/lib.tsconfig.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "jsx": "react"
-  }
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["src", "dev", "tests"]
 }

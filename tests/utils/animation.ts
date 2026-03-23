@@ -1,0 +1,71 @@
+/**
+ * Utilities for testing CSS transitions and animations at intermediate keyframes.
+ *
+ * Uses the Web Animations API (document.getAnimations()) to pause CSS transitions
+ * at specific progress points. Since vitest browser mode runs tests directly in the
+ * browser, we have direct DOM access — no page.evaluate() needed.
+ *
+ * IMPORTANT: When screenshotting a frozen animation, pass:
+ *   screenshotOptions: { animations: "allow" }
+ * Otherwise Playwright's default behavior fast-forwards finite animations to
+ * completion, destroying the paused state.
+ */
+
+/**
+ * Wait for CSS transitions to start on an element after a state change.
+ * Transitions don't exist on the element until the next frame.
+ */
+export function waitForAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Pause all animations on an element (and optionally its subtree) at a
+ * specific progress point (0 = start, 1 = end).
+ *
+ * Returns the paused animations so they can be cleaned up with `unfreezeAnimations`.
+ */
+export function freezeAnimationsAt(
+  element: HTMLElement,
+  progress: number,
+  options: { subtree?: boolean } = {},
+): Animation[] {
+  const animations = options.subtree
+    ? element.getAnimations({ subtree: true })
+    : element.getAnimations();
+
+  for (const anim of animations) {
+    anim.pause();
+    const timing = anim.effect?.getComputedTiming();
+    if (!timing) continue;
+    const delay = (timing.delay ?? 0) as number;
+    const duration = (timing.activeDuration ?? 0) as number;
+    anim.currentTime = delay + duration * Math.max(0, Math.min(1, progress));
+  }
+
+  return animations;
+}
+
+/**
+ * Resume or cancel previously frozen animations.
+ */
+export function unfreezeAnimations(
+  animations: Animation[],
+  mode: "resume" | "cancel" = "cancel",
+): void {
+  for (const anim of animations) {
+    if (mode === "resume") {
+      anim.play();
+    } else {
+      anim.cancel();
+    }
+  }
+}
+
+/**
+ * Screenshot options that preserve paused animation state.
+ * Merge this into your toMatchScreenshot call.
+ */
+export const animationScreenshotOptions = {
+  screenshotOptions: { animations: "allow" as const },
+};

@@ -1,0 +1,43 @@
+/* ---------------------------------------------------------------------------
+ * Semantic Token Layer
+ *
+ * Maps unprefixed semantic vars to Tailwind utilities via @theme inline.
+ * Components use Tailwind classes like bg-surface-base, text-primary, etc.
+ *
+ * Consumer setup:
+ *   @import "@webdesserts/ui/tokens";
+ *   @import "@webdesserts/ui/presets/product.css";  (or personal.css)
+ *   @source "../node_modules/@webdesserts/ui/dist";
+ * --------------------------------------------------------------------------- */
+
+@theme inline {
+  --font-sans:
+    "Switzer", "Helvetica Neue", "Arial Nova", "Helvetica", "Arial", sans-serif;
+
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-input: var(--surface-input);
+
+  --color-glass-bg: var(--glass-bg);
+  --color-glass-danger-bg: var(--glass-danger-bg);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-rule-subtle: var(--border-subtle);
+  --color-rule-default: var(--border-default);
+
+  --color-interactive-border: var(--interactive-border);
+  --color-interactive-bg: var(--interactive-bg);
+  --color-interactive-text: var(--interactive-text);
+
+  --color-accent: var(--accent);
+
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-success: var(--success);
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+}

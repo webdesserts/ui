@@ -1,0 +1,134 @@
+/* ---------------------------------------------------------------------------
+ * Spread Animation
+ *
+ * Universal hover/focus affordance. A ::after pseudo-element starts as a
+ * resting bar and expands to fill the entire element on hover/focus.
+ *
+ * Mono-inversion is the destination — the spread is the journey.
+ *
+ * Asymmetric timing: fast enter (200ms), slow exit (350ms).
+ *
+ * Implemented as Tailwind @utility directives so they participate in the
+ * utility layer and compose cleanly with other Tailwind classes.
+ * --------------------------------------------------------------------------- */
+
+@utility spread {
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+  transition: color 200ms ease;
+
+  &::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    background-color: var(--interactive-border);
+    transition:
+      top 350ms ease-in-out,
+      left 350ms ease-in-out,
+      right 350ms ease-in-out,
+      bottom 350ms ease-in-out,
+      width 350ms ease-in-out,
+      height 350ms ease-in-out,
+      margin 350ms ease-in-out,
+      background-color 350ms ease-in-out;
+  }
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    color: var(--interactive-text);
+
+    &::after {
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background-color: var(--interactive-bg);
+      transition:
+        top 200ms ease,
+        left 200ms ease,
+        right 200ms ease,
+        bottom 200ms ease,
+        width 200ms ease,
+        height 200ms ease,
+        margin 200ms ease,
+        background-color 200ms ease;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Bar geometry — resting state appearance
+ * --------------------------------------------------------------------------- */
+
+@utility spread-bar-full {
+  &::after {
+    top: calc(100% - 2px);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 2px;
+  }
+}
+
+@utility spread-bar-top {
+  &::after {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(100% - 2px);
+    width: 100%;
+    height: 2px;
+  }
+}
+
+@utility spread-bar-right {
+  &::after {
+    top: 0;
+    left: calc(100% - 2px);
+    right: 0;
+    bottom: 0;
+    width: 2px;
+    height: 100%;
+  }
+}
+
+@utility spread-bar-left {
+  &::after {
+    top: 0;
+    left: 0;
+    right: calc(100% - 2px);
+    bottom: 0;
+    width: 2px;
+    height: 100%;
+  }
+}
+
+@utility spread-bar-partial {
+  /* Bar sits 2px below the vertically-centered text.
+     All positional properties use explicit calc values (no `auto`)
+     so CSS can interpolate them smoothly during the transition —
+     the bar expands outward from its resting position in all directions. */
+  &::after {
+    top: calc(50% + 0.625rem + 2px);
+    bottom: calc(50% - 0.625rem - 4px);
+    left: 0;
+    right: calc(100% - 24px);
+    width: 24px;
+    height: 2px;
+    margin: 0;
+  }
+}
+
+/* Accent border on press — uses outline (not box-shadow) so it doesn't
+   conflict with Tailwind's composed --tw-shadow system. */
+@utility active-border {
+  &:active:not(:disabled) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+}
