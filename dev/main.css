@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "../src/tokens/semantic.css";
 @import "../src/tokens/presets/neapolitan.css";
-@import "../src/components/spread.css";
 
 @source "../src";
 @source "../dev";

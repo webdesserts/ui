@@ -11,13 +11,11 @@
       "types": "./dist/index.d.ts"
     },
     "./tokens": "./src/tokens/semantic.css",
-    "./presets/*": "./src/tokens/presets/*",
-    "./spread": "./src/components/spread.css"
+    "./presets/*": "./src/tokens/presets/*"
   },
   "files": [
     "dist",
-    "src/tokens",
-    "src/components/spread.css"
+    "src/tokens"
   ],
   "scripts": {
     "dev": "vite",

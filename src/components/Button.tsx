@@ -9,11 +9,15 @@ import { cn } from "../utils/cn";
  * Base interactive styles shared by all button types.
  *
  * Hover bg/text is handled by the spread animation (::after fill + color
- * transition in spread.css). Only border-color hover is set here since
+ * transition via spreadBase). Only border-color hover is set here since
  * spread doesn't affect borders.
  */
 const interactiveBase =
-  "cursor-pointer transition-[color,background-color,opacity] duration-200 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active-border disabled:cursor-not-allowed disabled:opacity-40";
+  "cursor-pointer transition-[color,opacity] duration-200 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40";
+
+/** Active accent border on press — uses outline so it doesn't conflict with box-shadow composition. */
+const activeBorder =
+  "active:not-disabled:outline-2 active:not-disabled:outline-accent active:not-disabled:-outline-offset-2";
 
 const glassBlur = "backdrop-blur-[var(--glass-blur)]";
 const glassBg = `bg-glass-bg ${glassBlur}`;
@@ -43,12 +47,74 @@ const glassBorderSides = {
     "shadow-[inset_-1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
 } as const;
 
-/** Spread class for a given border side */
+// ---------------------------------------------------------------------------
+// Spread animation — pure Tailwind class strings
+//
+// Universal hover/focus affordance: a ::after pseudo-element starts as a
+// resting bar and expands to fill the entire element on hover/focus.
+// Asymmetric timing: fast enter (200ms ease-out), slow exit (350ms ease-in-out).
+// ---------------------------------------------------------------------------
+
+/** Base classes shared by all bar spread variants. */
+const spreadBase = [
+  "relative z-0 overflow-hidden",
+  // ::after setup
+  "after:absolute after:-z-1",
+  "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
+  "after:transition-[top,left,right,bottom,width,height,margin,background-color]",
+  "after:duration-[350ms] after:ease-in-out",
+  // Hover — fill + text inversion
+  "not-disabled:hover:text-interactive-text",
+  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:hover:after:duration-200 not-disabled:hover:after:ease-out",
+  // Focus-visible — same as hover
+  "not-disabled:focus-visible:text-interactive-text",
+  "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
+  "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:focus-visible:after:duration-200 not-disabled:focus-visible:after:ease-out",
+].join(" ");
+
+/** Bar geometry per border side (resting state position). */
+const spreadBarClasses = {
+  bottom: "after:top-[calc(100%-2px)] after:left-0 after:right-0 after:bottom-0 after:w-full after:h-0.5",
+  top: "after:top-0 after:left-0 after:right-0 after:bottom-[calc(100%-2px)] after:w-full after:h-0.5",
+  right: "after:top-0 after:left-[calc(100%-2px)] after:right-0 after:bottom-0 after:w-0.5 after:h-full",
+  left: "after:top-0 after:left-0 after:right-[calc(100%-2px)] after:bottom-0 after:w-0.5 after:h-full",
+} as const;
+
+/**
+ * Partial bar resting state for ButtonLink — sits 2px below center.
+ * All positional properties use explicit calc values (no `auto`) so CSS
+ * can interpolate them smoothly during the transition.
+ */
+const spreadBarPartial = [
+  "after:top-[calc(50%+0.625rem+2px)]",
+  "after:bottom-[calc(50%-0.625rem-4px)]",
+  "after:left-0",
+  "after:right-[calc(100%-24px)]",
+  "after:w-[24px] after:h-0.5 after:m-0",
+].join(" ");
+
+/**
+ * Ring spread for rounded buttons — uses box-shadow instead of ::after.
+ * Rounded buttons never appear inside ButtonGroups, so no shadow-none conflict.
+ */
+const spreadRing = [
+  "relative z-0 overflow-hidden",
+  "shadow-[inset_0_0_0_2px_var(--spread-bg-rest,var(--interactive-border))]",
+  "transition-[box-shadow,color] duration-[350ms] ease-in-out",
+  "not-disabled:hover:text-interactive-text",
+  "not-disabled:hover:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:hover:duration-200 not-disabled:hover:ease-out",
+  "not-disabled:focus-visible:text-interactive-text",
+  "not-disabled:focus-visible:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:focus-visible:duration-200 not-disabled:focus-visible:ease-out",
+].join(" ");
+
+/** Returns spread bar classes for a given border side. */
 function spreadBarClass(side: BorderSide): string {
-  if (side === "top") return "spread spread-bar-top";
-  if (side === "right") return "spread spread-bar-right";
-  if (side === "left") return "spread spread-bar-left";
-  return "spread spread-bar-full";
+  return `${spreadBase} ${spreadBarClasses[side]}`;
 }
 
 /** Constrain inline SVG icons inside text buttons.
@@ -101,6 +167,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           "inline-flex items-center justify-center gap-2 whitespace-nowrap",
           buttonIconSize,
           interactiveBase,
+          activeBorder,
           spreadBarClass(borderSide),
           rounding,
           "text-text-primary",
@@ -146,7 +213,9 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
           "inline-flex items-center justify-center gap-2 whitespace-nowrap",
           buttonIconSize,
           interactiveBase,
-          "spread spread-bar-partial",
+          activeBorder,
+          spreadBase,
+          spreadBarPartial,
           "bg-transparent text-text-primary no-underline",
           "px-0 hover:px-3 focus-visible:px-3 transition-[padding,color] duration-200",
           buttonLinkSizes[size],
@@ -220,7 +289,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         className={cn(
           rounded ? "rounded-full" : rounding,
           interactiveBase,
-          spreadBarClass(borderSide),
+          activeBorder,
+          rounded ? spreadRing : spreadBarClass(borderSide),
           iconButtonSizes[size],
           colorClasses,
           className,
@@ -299,6 +369,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
         className={cn(
           rounding,
           interactiveBase,
+          activeBorder,
           pressed ? "" : spreadBarClass(borderSide),
           chevronButtonSizes[size],
           pressed ? pressedClasses : colorClasses,
@@ -386,7 +457,9 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
         className={cn(
           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
           interactiveBase,
-          "spread spread-bar-left",
+          activeBorder,
+          spreadBase,
+          spreadBarClasses.left,
           selected
             ? "bg-interactive-bg text-interactive-text"
             : "text-text-secondary",
