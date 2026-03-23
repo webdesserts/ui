@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { createContext, forwardRef, useContext } from "react";
 import { cn } from "../utils/cn";
 
 // ---------------------------------------------------------------------------
@@ -107,10 +107,10 @@ const spreadRing = [
   "shadow-[inset_0_0_0_2px_var(--spread-bg-rest,var(--interactive-border))]",
   "[transition:box-shadow_400ms_ease-in-out,color_200ms,opacity_200ms]",
   "not-disabled:hover:text-interactive-text",
-  "not-disabled:hover:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:hover:shadow-[inset_0_0_0_24px_var(--spread-bg-hover,var(--interactive-bg))]",
   "not-disabled:hover:[transition:box-shadow_250ms,color_200ms,opacity_200ms]",
   "not-disabled:focus-visible:text-interactive-text",
-  "not-disabled:focus-visible:shadow-[inset_0_0_0_20px_var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:focus-visible:shadow-[inset_0_0_0_24px_var(--spread-bg-hover,var(--interactive-bg))]",
   "not-disabled:focus-visible:[transition:box-shadow_250ms,color_200ms,opacity_200ms]",
 ].join(" ");
 
@@ -124,16 +124,35 @@ function spreadBarClass(side: BorderSide): string {
 const buttonIconSize = "[&>svg]:!size-4 [&>svg]:shrink-0";
 
 // ---------------------------------------------------------------------------
+// Shared size type
+// ---------------------------------------------------------------------------
+
+/** Size tier shared across all button types — ensures consistent heights in toolbars and groups. */
+export type ButtonSize = "sm" | "md" | "lg";
+
+// ---------------------------------------------------------------------------
+// ButtonGroupContext — passes size and glass defaults down to child buttons
+// ---------------------------------------------------------------------------
+
+const ButtonGroupContext = createContext<{ size?: ButtonSize; glass?: boolean }>({});
+
+/** Read shared defaults provided by a parent ButtonGroup. */
+export function useButtonGroup() {
+  return useContext(ButtonGroupContext);
+}
+
+// ---------------------------------------------------------------------------
 // Button — standalone actions, full-width spread bar
 // ---------------------------------------------------------------------------
 
-const buttonSizes = {
+const buttonSizes: Record<ButtonSize, string> = {
   sm: "h-8 px-3 text-sm",
   md: "h-10 px-4 text-sm font-medium",
-} as const;
+  lg: "h-12 px-5 text-base font-medium",
+};
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  size?: keyof typeof buttonSizes;
+  size?: ButtonSize;
   ghost?: boolean;
   glass?: boolean;
   borderSide?: BorderSide;
@@ -143,9 +162,9 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   function Button(
     {
-      size = "md",
+      size,
       ghost = false,
-      glass = false,
+      glass,
       borderSide = "bottom",
       className,
       children,
@@ -153,12 +172,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref,
   ) {
+    const group = useContext(ButtonGroupContext);
+    const resolvedSize = size ?? group.size ?? "md";
+    const resolvedGlass = glass ?? group.glass ?? false;
+
     const { border, rounding } = borderSideClasses[borderSide];
     const glassBorder = glassBorderSides[borderSide];
 
     const bg = ghost
       ? "bg-transparent"
-      : glass
+      : resolvedGlass
         ? `${glassBg} ${glassBorder}`
         : "bg-surface-raised";
 
@@ -166,7 +189,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center gap-2 whitespace-nowrap",
+          "inline-flex items-center justify-center gap-2 truncate",
           buttonIconSize,
           interactiveBase,
 
@@ -174,7 +197,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           rounding,
           "text-text-primary",
           bg,
-          buttonSizes[size],
+          buttonSizes[resolvedSize],
           className,
         )}
         {...props}
@@ -192,13 +215,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 // the spread fill, causing adjacent links to "nudge" apart.
 // ---------------------------------------------------------------------------
 
-const buttonLinkSizes = {
+const buttonLinkSizes: Record<ButtonSize, string> = {
   sm: "h-8 text-sm",
   md: "h-10 text-sm font-medium",
-} as const;
+  lg: "h-12 text-base font-medium",
+};
 
 interface ButtonLinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
-  size?: keyof typeof buttonLinkSizes;
+  size?: ButtonSize;
   as?: "a" | "button";
   children: React.ReactNode;
 }
@@ -212,7 +236,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
       <Tag
         ref={ref as any}
         className={cn(
-          "inline-flex items-center justify-center gap-2 whitespace-nowrap",
+          "inline-flex items-center justify-center gap-2 truncate",
           buttonIconSize,
           interactiveBase,
 
@@ -236,15 +260,15 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
 // IconButton — icon-only, full-width spread bar
 // ---------------------------------------------------------------------------
 
-const iconButtonSizes = {
-  sm: "p-1 [&>svg]:!size-4",
-  md: "p-1.5 [&>svg]:!size-4",
-  lg: "p-2.5 [&>svg]:!size-5",
-} as const;
+const iconButtonSizes: Record<ButtonSize, string> = {
+  sm: "h-8 w-8 [&>svg]:!size-4",
+  md: "h-10 w-10 [&>svg]:!size-4",
+  lg: "h-12 w-12 [&>svg]:!size-5",
+};
 
 interface IconButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  size?: keyof typeof iconButtonSizes;
+  size?: ButtonSize;
   color?: "default" | "danger";
   ghost?: boolean;
   glass?: boolean;
@@ -256,10 +280,10 @@ interface IconButtonProps
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
   function IconButton(
     {
-      size = "md",
+      size,
       color = "default",
       ghost = false,
-      glass = false,
+      glass,
       rounded = false,
       borderSide = "bottom",
       className,
@@ -268,14 +292,18 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     },
     ref,
   ) {
+    const group = useContext(ButtonGroupContext);
+    const resolvedSize = size ?? group.size ?? "md";
+    const resolvedGlass = glass ?? group.glass ?? false;
+
     const { rounding } = borderSideClasses[borderSide];
     const glassBorder = glassBorderSides[borderSide];
 
     const bg = ghost
       ? "bg-transparent"
-      : glass && color === "danger"
+      : resolvedGlass && color === "danger"
         ? `${glassDangerBg} ${glassBorder}`
-        : glass
+        : resolvedGlass
           ? `${glassBg} ${glassBorder}`
           : color === "danger"
             ? "bg-danger-muted"
@@ -290,11 +318,12 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       <button
         ref={ref}
         className={cn(
+          "inline-flex items-center justify-center",
           rounded ? "rounded-full" : rounding,
           interactiveBase,
 
           rounded ? spreadRing : spreadBarClass(borderSide),
-          iconButtonSizes[size],
+          iconButtonSizes[resolvedSize],
           colorClasses,
           className,
         )}
@@ -314,15 +343,15 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
 // ChevronButton — narrow dropdown trigger
 // ---------------------------------------------------------------------------
 
-const chevronButtonSizes = {
-  sm: "px-0.5 py-1 [&>svg]:!size-3",
-  md: "px-0.5 py-2 [&>svg]:!size-3",
-  lg: "px-1 py-[13px] [&>svg]:!size-3.5",
-} as const;
+const chevronButtonSizes: Record<ButtonSize, string> = {
+  sm: "h-8 px-1 [&>svg]:!size-3",
+  md: "h-10 px-1.5 [&>svg]:!size-3",
+  lg: "h-12 px-2 [&>svg]:!size-3.5",
+};
 
 interface ChevronButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  size?: keyof typeof chevronButtonSizes;
+  size?: ButtonSize;
   color?: "default" | "danger";
   ghost?: boolean;
   glass?: boolean;
@@ -334,10 +363,10 @@ interface ChevronButtonProps
 export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
   function ChevronButton(
     {
-      size = "md",
+      size,
       color = "default",
       ghost = false,
-      glass = false,
+      glass,
       borderSide = "bottom",
       pressed = false,
       className,
@@ -346,6 +375,10 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
     },
     ref,
   ) {
+    const group = useContext(ButtonGroupContext);
+    const resolvedSize = size ?? group.size ?? "md";
+    const resolvedGlass = glass ?? group.glass ?? false;
+
     const { rounding } = borderSideClasses[borderSide];
     const glassBorder = glassBorderSides[borderSide];
 
@@ -353,9 +386,9 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
 
     const bg = ghost
       ? "bg-transparent"
-      : glass && color === "danger"
+      : resolvedGlass && color === "danger"
         ? `${glassDangerBg} ${glassBorder}`
-        : glass
+        : resolvedGlass
           ? `${glassBg} ${glassBorder}`
           : color === "danger"
             ? "bg-danger-muted"
@@ -370,11 +403,12 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
       <button
         ref={ref}
         className={cn(
+          "inline-flex items-center justify-center",
           rounding,
           interactiveBase,
 
           pressed ? "" : spreadBarClass(borderSide),
-          chevronButtonSizes[size],
+          chevronButtonSizes[resolvedSize],
           pressed ? pressedClasses : colorClasses,
           className,
         )}
@@ -414,6 +448,7 @@ const groupGlassBorderSides = {
 
 interface ButtonGroupProps {
   children: React.ReactNode;
+  size?: ButtonSize;
   ghost?: boolean;
   glass?: boolean;
   borderSide?: BorderSide;
@@ -433,6 +468,7 @@ const groupChildRounding = {
 
 export function ButtonGroup({
   children,
+  size,
   ghost = false,
   glass = false,
   borderSide = "bottom",
@@ -441,19 +477,21 @@ export function ButtonGroup({
   const bg = ghost || glass ? "bg-transparent" : "bg-[var(--interactive-border)]";
 
   return (
-    <div
-      className={cn(
-        `relative inline-flex items-center gap-px ${bg}`,
-        !ghost && groupShadowSides[borderSide],
-        "[&_button]:rounded-none",
-        groupChildRounding[borderSide],
-        glass &&
-          `after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] ${groupGlassBorderSides[borderSide]} [&_button]:shadow-none`,
-        className,
-      )}
-    >
-      {children}
-    </div>
+    <ButtonGroupContext.Provider value={{ size, glass: glass || undefined }}>
+      <div
+        className={cn(
+          `relative inline-flex items-center gap-px ${bg}`,
+          !ghost && groupShadowSides[borderSide],
+          "[&_button]:rounded-none",
+          groupChildRounding[borderSide],
+          glass &&
+            `after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] ${groupGlassBorderSides[borderSide]} [&_button]:shadow-none`,
+          className,
+        )}
+      >
+        {children}
+      </div>
+    </ButtonGroupContext.Provider>
   );
 }
 

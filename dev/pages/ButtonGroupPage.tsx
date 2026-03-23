@@ -30,9 +30,9 @@ export function ButtonGroupPage() {
       <section className="space-y-3">
         <SectionLabel>Icon buttons</SectionLabel>
         <div className="flex items-center gap-3">
-          <ButtonGroup>
-            <IconButton size="lg"><Screencast /></IconButton>
-            <IconButton size="lg"><Gear /></IconButton>
+          <ButtonGroup size="lg">
+            <IconButton><Screencast /></IconButton>
+            <IconButton><Gear /></IconButton>
           </ButtonGroup>
         </div>
       </section>
@@ -40,13 +40,13 @@ export function ButtonGroupPage() {
       <section className="space-y-3">
         <SectionLabel>With chevron</SectionLabel>
         <div className="flex items-center gap-3">
-          <ButtonGroup>
-            <IconButton size="lg"><Microphone /></IconButton>
-            <ChevronButton size="lg"><CaretDown /></ChevronButton>
+          <ButtonGroup size="lg">
+            <IconButton><Microphone /></IconButton>
+            <ChevronButton><CaretDown /></ChevronButton>
           </ButtonGroup>
 
-          <ButtonGroup>
-            <IconButton size="lg" color="danger"><MicrophoneSlash /></IconButton>
+          <ButtonGroup size="lg">
+            <IconButton color="danger"><MicrophoneSlash /></IconButton>
             <ChevronButton color="danger"><CaretDown /></ChevronButton>
           </ButtonGroup>
         </div>
@@ -55,8 +55,8 @@ export function ButtonGroupPage() {
       <section className="space-y-3">
         <SectionLabel>Danger</SectionLabel>
         <div className="flex items-center gap-3">
-          <ButtonGroup>
-            <IconButton size="lg" color="danger"><Phone /></IconButton>
+          <ButtonGroup size="lg">
+            <IconButton color="danger"><Phone /></IconButton>
             <ChevronButton color="danger"><CaretDown /></ChevronButton>
           </ButtonGroup>
         </div>
@@ -65,14 +65,14 @@ export function ButtonGroupPage() {
       <section className="space-y-3">
         <SectionLabel>Ghost</SectionLabel>
         <div className="flex items-center gap-3">
-          <ButtonGroup ghost>
-            <IconButton size="lg" ghost><Microphone /></IconButton>
-            <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
+          <ButtonGroup size="lg" ghost>
+            <IconButton ghost><Microphone /></IconButton>
+            <ChevronButton ghost><CaretDown /></ChevronButton>
           </ButtonGroup>
 
-          <ButtonGroup ghost>
-            <IconButton size="lg" ghost color="danger"><MicrophoneSlash /></IconButton>
-            <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
+          <ButtonGroup size="lg" ghost>
+            <IconButton ghost color="danger"><MicrophoneSlash /></IconButton>
+            <ChevronButton ghost><CaretDown /></ChevronButton>
           </ButtonGroup>
         </div>
       </section>
@@ -80,17 +80,17 @@ export function ButtonGroupPage() {
       <section className="space-y-3">
         <SectionLabel>Toolbar example</SectionLabel>
         <div className="flex items-center gap-3">
-          <ButtonGroup>
-            <IconButton size="lg"><Microphone /></IconButton>
-            <ChevronButton size="lg"><CaretDown /></ChevronButton>
+          <ButtonGroup size="lg">
+            <IconButton><Microphone /></IconButton>
+            <ChevronButton><CaretDown /></ChevronButton>
           </ButtonGroup>
-          <ButtonGroup>
-            <IconButton size="lg"><VideoCamera /></IconButton>
-            <ChevronButton size="lg"><CaretDown /></ChevronButton>
+          <ButtonGroup size="lg">
+            <IconButton><VideoCamera /></IconButton>
+            <ChevronButton><CaretDown /></ChevronButton>
           </ButtonGroup>
-          <ButtonGroup>
-            <IconButton size="lg"><Screencast /></IconButton>
-            <IconButton size="lg"><Gear /></IconButton>
+          <ButtonGroup size="lg">
+            <IconButton><Screencast /></IconButton>
+            <IconButton><Gear /></IconButton>
           </ButtonGroup>
         </div>
       </section>
