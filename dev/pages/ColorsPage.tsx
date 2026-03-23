@@ -64,7 +64,7 @@ function Swatch({ color }: { color: ColorSwatch }) {
       />
       <div className="min-w-0">
         <p className="text-sm text-text-primary">{color.name}</p>
-        <p className="font-mono text-xs text-text-muted">{color.variable}</p>
+        <p className="font-mono text-xs text-text-secondary">{color.variable}</p>
       </div>
     </div>
   );
@@ -72,7 +72,7 @@ function Swatch({ color }: { color: ColorSwatch }) {
 
 function SwatchColumn({ colors }: { colors: ColorSwatch[] }) {
   return (
-    <div className="rounded-sm border border-rule-subtle overflow-hidden">
+    <div className="rounded-sm border border-rule-subtle overflow-hidden bg-glass-bg backdrop-blur-[var(--glass-blur)]">
       {colors.map((color) => (
         <Swatch key={color.variable} color={color} />
       ))}
@@ -110,7 +110,7 @@ export function ColorsPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
         <div className="space-y-3">
           <GroupHeader label="Base" note="Purple → Sepia" />
           <SwatchColumn colors={baseColors} />

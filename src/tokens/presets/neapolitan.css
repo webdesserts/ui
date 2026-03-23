@@ -21,10 +21,10 @@
 
   /* Purple (hue 315→338, chroma 8→6.6) */
   --np-purple-10: lch(10 8.0 315);
-  --np-purple-15: lch(15 7.8 318);
-  --np-purple-20: lch(20 7.6 322);
-  --np-purple-30: lch(30 7.4 328);
-  --np-purple-45: lch(45 7.2 338);
+  --np-purple-15: lch(14 8.0 317);
+  --np-purple-20: lch(19 7.8 322);
+  --np-purple-30: lch(29 7.6 328);
+  --np-purple-45: lch(45 7.2 334);
 
   /* Sepia (hue 34→31, chroma 5.8→5) */
   --np-sepia-60: lch(60 7.2 33);
@@ -71,12 +71,12 @@
   /* Surfaces */
   --surface-base:   light-dark(var(--np-sepia-95), var(--np-purple-10));
   --surface-raised: light-dark(var(--np-sepia-90), var(--np-purple-15));
-  --surface-input:  light-dark(white, var(--np-purple-10));
+  --surface-input:  light-dark(var(--np-sepia-95), var(--np-purple-10));
 
   /* Text */
-  --text-primary:   light-dark(var(--np-purple-20), var(--np-sepia-95));
+  --text-primary:   light-dark(var(--np-purple-20), var(--np-sepia-90));
   --text-secondary: light-dark(var(--np-purple-45), var(--np-sepia-60));
-  --text-muted:     light-dark(var(--np-purple-45), var(--np-purple-45));
+  --text-muted:     light-dark(var(--np-purple-60), var(--np-purple-45));
 
   /* Borders */
   --border-subtle:  light-dark(lch(42 4 30 / 0.15), lch(42 4 30 / 0.15));
@@ -84,7 +84,7 @@
 
   /* Interactive */
   --interactive-border: light-dark(var(--np-sepia-85), var(--np-purple-20));
-  --interactive-bg:     light-dark(var(--np-purple-30), var(--np-sepia-60));
+  --interactive-bg:     light-dark(var(--np-purple-30), var(--np-sepia-75));
   --interactive-text:   light-dark(var(--np-sepia-90), var(--np-purple-10));
 
   /* Accent */

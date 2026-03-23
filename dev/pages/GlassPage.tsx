@@ -25,9 +25,7 @@ export function GlassPage() {
         </p>
       </header>
 
-      <div
-        className="p-6 rounded-lg space-y-8 bg-[radial-gradient(circle,var(--dot-grid-color)_var(--dot-grid-size),transparent_var(--dot-grid-size))] bg-[length:var(--dot-grid-spacing)_var(--dot-grid-spacing)]"
-      >
+      <div className="p-6 rounded-lg space-y-8">
         <section className="space-y-3">
           <SectionLabel>Button</SectionLabel>
           <div className="flex gap-3">
