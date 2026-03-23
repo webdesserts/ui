@@ -395,10 +395,10 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
 // ---------------------------------------------------------------------------
 
 const groupShadowSides = {
-  bottom: "shadow-[inset_0_-1px_0_var(--border-default)]",
-  top: "shadow-[inset_0_1px_0_var(--border-default)]",
-  right: "shadow-[inset_-1px_0_0_var(--border-default)]",
-  left: "shadow-[inset_1px_0_0_var(--border-default)]",
+  bottom: "shadow-[inset_0_-1px_0_var(--interactive-border)]",
+  top: "shadow-[inset_0_1px_0_var(--interactive-border)]",
+  right: "shadow-[inset_-1px_0_0_var(--interactive-border)]",
+  left: "shadow-[inset_1px_0_0_var(--interactive-border)]",
 } as const;
 
 const groupGlassBorderSides = {
@@ -414,27 +414,41 @@ const groupGlassBorderSides = {
 
 interface ButtonGroupProps {
   children: React.ReactNode;
+  ghost?: boolean;
   glass?: boolean;
   borderSide?: BorderSide;
   className?: string;
 }
 
+/**
+ * Per-border-side rounding for first/last children in a group.
+ * Replaces overflow-hidden so highlight outlines aren't clipped.
+ */
+const groupChildRounding = {
+  bottom: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-tr-sm",
+  top: "[&>:first-child]:rounded-bl-sm [&>:last-child]:rounded-br-sm",
+  right: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-bl-sm",
+  left: "[&>:first-child]:rounded-tr-sm [&>:last-child]:rounded-br-sm",
+} as const;
+
 export function ButtonGroup({
   children,
+  ghost = false,
   glass = false,
   borderSide = "bottom",
   className,
 }: ButtonGroupProps) {
-  const bg = glass ? glassBg : "bg-surface-raised";
-  const { rounding } = borderSideClasses[borderSide];
+  const bg = ghost || glass ? "bg-transparent" : "bg-[var(--interactive-border)]";
 
   return (
     <div
       className={cn(
-        `relative inline-flex items-center gap-px ${rounding} ${bg} overflow-hidden ${groupShadowSides[borderSide]}`,
+        `relative inline-flex items-center gap-px ${bg}`,
+        !ghost && groupShadowSides[borderSide],
+        "[&_button]:rounded-none",
+        groupChildRounding[borderSide],
         glass &&
           `after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] ${groupGlassBorderSides[borderSide]} [&_button]:shadow-none`,
-        "[&_button]:rounded-none [&_button]:border-none",
         className,
       )}
     >

@@ -5,6 +5,7 @@ import {
   VideoCamera,
   Screencast,
   CaretDown,
+  Phone,
 } from "@phosphor-icons/react";
 import { IconButton, ChevronButton, ButtonGroup } from "../../src";
 
@@ -30,8 +31,8 @@ export function ButtonGroupPage() {
         <SectionLabel>Icon buttons</SectionLabel>
         <div className="flex items-center gap-3">
           <ButtonGroup>
-            <IconButton size="lg" ghost><Screencast /></IconButton>
-            <IconButton size="lg" ghost><Gear /></IconButton>
+            <IconButton size="lg"><Screencast /></IconButton>
+            <IconButton size="lg"><Gear /></IconButton>
           </ButtonGroup>
         </div>
       </section>
@@ -40,11 +41,36 @@ export function ButtonGroupPage() {
         <SectionLabel>With chevron</SectionLabel>
         <div className="flex items-center gap-3">
           <ButtonGroup>
+            <IconButton size="lg"><Microphone /></IconButton>
+            <ChevronButton size="lg"><CaretDown /></ChevronButton>
+          </ButtonGroup>
+
+          <ButtonGroup>
+            <IconButton size="lg" color="danger"><MicrophoneSlash /></IconButton>
+            <ChevronButton color="danger"><CaretDown /></ChevronButton>
+          </ButtonGroup>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Danger</SectionLabel>
+        <div className="flex items-center gap-3">
+          <ButtonGroup>
+            <IconButton size="lg" color="danger"><Phone /></IconButton>
+            <ChevronButton color="danger"><CaretDown /></ChevronButton>
+          </ButtonGroup>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Ghost</SectionLabel>
+        <div className="flex items-center gap-3">
+          <ButtonGroup ghost>
             <IconButton size="lg" ghost><Microphone /></IconButton>
             <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
           </ButtonGroup>
 
-          <ButtonGroup>
+          <ButtonGroup ghost>
             <IconButton size="lg" ghost color="danger"><MicrophoneSlash /></IconButton>
             <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
           </ButtonGroup>
@@ -55,16 +81,16 @@ export function ButtonGroupPage() {
         <SectionLabel>Toolbar example</SectionLabel>
         <div className="flex items-center gap-3">
           <ButtonGroup>
-            <IconButton size="lg" ghost><Microphone /></IconButton>
-            <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
+            <IconButton size="lg"><Microphone /></IconButton>
+            <ChevronButton size="lg"><CaretDown /></ChevronButton>
           </ButtonGroup>
           <ButtonGroup>
-            <IconButton size="lg" ghost><VideoCamera /></IconButton>
-            <ChevronButton size="lg" ghost><CaretDown /></ChevronButton>
+            <IconButton size="lg"><VideoCamera /></IconButton>
+            <ChevronButton size="lg"><CaretDown /></ChevronButton>
           </ButtonGroup>
           <ButtonGroup>
-            <IconButton size="lg" ghost><Screencast /></IconButton>
-            <IconButton size="lg" ghost><Gear /></IconButton>
+            <IconButton size="lg"><Screencast /></IconButton>
+            <IconButton size="lg"><Gear /></IconButton>
           </ButtonGroup>
         </div>
       </section>

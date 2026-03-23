@@ -11,6 +11,7 @@ import {
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ButtonGroup, IconButton, ChevronButton } from "@/src";
+import { userEvent } from "vitest/browser";
 
 // Inline SVG icons — avoids React context issues in vitest browser mode
 function GearIcon() {
@@ -33,6 +34,14 @@ function CaretDownIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12" aria-hidden="true">
       <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16" aria-hidden="true">
+      <path d="M222.37,158.46l-47.11-21.11-.13-.06a16,16,0,0,0-15.17,1.4,8.12,8.12,0,0,0-.75.56L134.87,160c-15.42-7.49-31.34-23.29-38.83-38.51l20.78-25.27c.15-.19.29-.39.43-.59a16,16,0,0,0,1.32-15.06l0-.12L97.54,33.64a16,16,0,0,0-16.62-9.52A56.26,56.26,0,0,0,32,80c0,79.4,64.6,144,144,144a56.26,56.26,0,0,0,55.88-48.92A16,16,0,0,0,222.37,158.46Z" />
     </svg>
   );
 }
@@ -98,6 +107,71 @@ describe("ButtonGroup resting states", () => {
         <ButtonGroup>
           <IconButton aria-label="Settings"><GearIcon /></IconButton>
           <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-danger-chevron-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup>
+          <IconButton color="danger" aria-label="End Call"><PhoneIcon /></IconButton>
+          <ChevronButton color="danger" aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-danger-chevron-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup>
+          <IconButton color="danger" aria-label="End Call"><PhoneIcon /></IconButton>
+          <ChevronButton color="danger" aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-ghost-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup ghost>
+          <IconButton ghost aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton ghost aria-label="Mute"><MicOffIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-ghost-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup ghost>
+          <IconButton ghost aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton ghost aria-label="Mute"><MicOffIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-ghost-danger-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup ghost>
+          <IconButton ghost color="danger" aria-label="End Call"><PhoneIcon /></IconButton>
+          <ChevronButton ghost color="danger" aria-label="Open menu"><CaretDownIcon /></ChevronButton>
         </ButtonGroup>
       </TestWrapper>,
     );
@@ -253,6 +327,28 @@ describe("ButtonGroup spread animation", () => {
         .element(page.elementLocator(screen.container))
         .toMatchScreenshot(animationScreenshotOptions),
     );
+    unfreezeAnimations(anims);
+  });
+
+  it("group-focus-left-button-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup>
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    const el = screen.getByRole("button", { name: "Settings" }).element() as HTMLElement;
+    const restore = slowTransitions();
+    await userEvent.tab();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
     unfreezeAnimations(anims);
   });
 
