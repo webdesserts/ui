@@ -23,14 +23,14 @@
   --np-purple-10: lch(10 8.0 315);
   --np-purple-15: lch(15 7.8 318);
   --np-purple-20: lch(20 7.6 322);
-  --np-purple-30: lch(30 7.2 328);
-  --np-purple-45: lch(45 6.6 338);
+  --np-purple-30: lch(30 7.4 328);
+  --np-purple-45: lch(45 7.2 338);
 
   /* Sepia (hue 34→31, chroma 5.8→5) */
-  --np-sepia-60: lch(60 5.8 34);
-  --np-sepia-75: lch(75 5.4 32);
-  --np-sepia-85: lch(85 5.2 31);
-  --np-sepia-90: lch(90 5.0 31);
+  --np-sepia-60: lch(60 7.2 33);
+  --np-sepia-75: lch(75 6.8 32);
+  --np-sepia-85: lch(85 6.2 31);
+  --np-sepia-90: lch(90 5.6 31);
   --np-sepia-95: lch(95 5.0 31);
 
   /* Magenta — accent (hue 6.18) */
