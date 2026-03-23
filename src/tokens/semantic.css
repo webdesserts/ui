@@ -10,6 +10,8 @@
  *   @source "../node_modules/@webdesserts/ui/dist";
  * --------------------------------------------------------------------------- */
 
+@custom-variant highlight (&:focus-visible, &:active:not(:disabled));
+
 @theme inline {
   --font-sans:
     "Switzer", "Helvetica Neue", "Arial Nova", "Helvetica", "Arial", sans-serif;

@@ -14,14 +14,12 @@ import { cn } from "../utils/cn";
  */
 /**
  * Accent outline ring — identical for focus-visible and active states.
- * Uses outline so it doesn't conflict with box-shadow composition.
- * z-1 ensures the outline isn't clipped by adjacent buttons in groups.
+ * The `highlight:` custom variant matches both `:focus-visible` and
+ * `:active:not(:disabled)`. Uses outline so it doesn't conflict with
+ * box-shadow composition. z-1 prevents clipping by adjacent buttons.
  */
 const interactiveBase =
-  "cursor-pointer outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:z-1 disabled:cursor-not-allowed disabled:opacity-50";
-
-const activeBorder =
-  "active:not-disabled:outline-solid active:not-disabled:outline-2 active:not-disabled:outline-accent active:not-disabled:z-1";
+  "cursor-pointer outline-none highlight:outline-solid highlight:outline-2 highlight:outline-accent highlight:z-1 disabled:cursor-not-allowed disabled:opacity-50";
 
 const glassBlur = "backdrop-blur-[var(--glass-blur)]";
 const glassBg = `bg-glass-bg ${glassBlur}`;
@@ -171,7 +169,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           "inline-flex items-center justify-center gap-2 whitespace-nowrap",
           buttonIconSize,
           interactiveBase,
-          activeBorder,
+
           spreadBarClass(borderSide),
           rounding,
           "text-text-primary",
@@ -217,7 +215,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
           "inline-flex items-center justify-center gap-2 whitespace-nowrap",
           buttonIconSize,
           interactiveBase,
-          activeBorder,
+
           spreadBase,
           spreadBarPartial,
           "bg-transparent text-text-primary no-underline",
@@ -294,7 +292,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         className={cn(
           rounded ? "rounded-full" : rounding,
           interactiveBase,
-          activeBorder,
+
           rounded ? spreadRing : spreadBarClass(borderSide),
           iconButtonSizes[size],
           colorClasses,
@@ -374,7 +372,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
         className={cn(
           rounding,
           interactiveBase,
-          activeBorder,
+
           pressed ? "" : spreadBarClass(borderSide),
           chevronButtonSizes[size],
           pressed ? pressedClasses : colorClasses,
@@ -462,7 +460,7 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
         className={cn(
           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
           interactiveBase,
-          activeBorder,
+
           spreadBase,
           spreadBarClasses.left,
           selected
