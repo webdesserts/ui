@@ -200,6 +200,18 @@ describe("IconButton resting states", () => {
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
+  it("iconbutton-md-glass-gradient-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ background: "linear-gradient(135deg, var(--np-purple-30), var(--np-magenta-50))", padding: "1rem" }}>
+          <IconButton glass aria-label="Settings"><GearIcon /></IconButton>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
   it("iconbutton-sm-rounded-rest-dark", async () => {
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(

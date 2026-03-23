@@ -34,20 +34,9 @@ const borderSideClasses = {
   left: { border: "border-l", rounding: "rounded-r-sm" },
 } as const;
 
-/**
- * 1px inset box-shadow border on the 3 edges opposite the border side.
- * Uses box-shadow so it doesn't affect element sizing.
- */
-const glassBorderSides = {
-  bottom:
-    "shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_-1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle)]",
-  top:
-    "shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_-1px_0_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-  right:
-    "shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-  left:
-    "shadow-[inset_-1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-} as const;
+/** Full-perimeter 1px inset box-shadow border for glass buttons.
+ * Uses box-shadow so it doesn't affect element sizing. */
+const glassBorder = "shadow-[inset_0_0_0_1px_var(--color-rule-subtle)]";
 
 // ---------------------------------------------------------------------------
 // Spread animation — pure Tailwind class strings
@@ -177,7 +166,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const resolvedGlass = glass ?? group.glass ?? false;
 
     const { border, rounding } = borderSideClasses[borderSide];
-    const glassBorder = glassBorderSides[borderSide];
 
     const bg = ghost
       ? "bg-transparent"
@@ -297,7 +285,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     const resolvedGlass = glass ?? group.glass ?? false;
 
     const { rounding } = borderSideClasses[borderSide];
-    const glassBorder = glassBorderSides[borderSide];
 
     const bg = ghost
       ? "bg-transparent"
@@ -380,7 +367,6 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
     const resolvedGlass = glass ?? group.glass ?? false;
 
     const { rounding } = borderSideClasses[borderSide];
-    const glassBorder = glassBorderSides[borderSide];
 
     const pressedClasses = "bg-interactive-bg text-interactive-text";
 
@@ -435,16 +421,9 @@ const groupShadowSides = {
   left: "shadow-[inset_1px_0_0_var(--interactive-border)]",
 } as const;
 
-const groupGlassBorderSides = {
-  bottom:
-    "after:shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_-1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle)]",
-  top:
-    "after:shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_-1px_0_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-  right:
-    "after:shadow-[inset_1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-  left:
-    "after:shadow-[inset_-1px_0_0_var(--color-rule-subtle),inset_0_1px_0_var(--color-rule-subtle),inset_0_-1px_0_var(--color-rule-subtle)]",
-} as const;
+/** Full-perimeter glass border for the group container via ::after pseudo-element. */
+const groupGlassBorder =
+  "after:shadow-[inset_0_0_0_1px_var(--color-rule-subtle)]";
 
 interface ButtonGroupProps {
   children: React.ReactNode;
@@ -484,8 +463,11 @@ export function ButtonGroup({
           !ghost && groupShadowSides[borderSide],
           "[&_button]:rounded-none",
           groupChildRounding[borderSide],
+          // Glass: full-perimeter border on ::after, suppress individual button shadows.
+          // Note: [&_button]:shadow-none also suppresses spreadRing — rounded buttons
+          // should not appear inside ButtonGroups.
           glass &&
-            `after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] ${groupGlassBorderSides[borderSide]} [&_button]:shadow-none`,
+            `after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] ${groupGlassBorder} [&_button]:shadow-none`,
           className,
         )}
       >

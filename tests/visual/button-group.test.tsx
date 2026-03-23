@@ -207,6 +207,20 @@ describe("ButtonGroup resting states", () => {
     );
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
+  it("group-glass-gradient-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ background: "linear-gradient(135deg, var(--np-purple-30), var(--np-magenta-50))", padding: "1rem" }}>
+          <ButtonGroup glass>
+            <IconButton glass aria-label="Settings"><GearIcon /></IconButton>
+            <IconButton glass aria-label="Mute"><MicOffIcon /></IconButton>
+          </ButtonGroup>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
 });
 
 // ---------------------------------------------------------------------------
