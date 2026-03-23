@@ -210,6 +210,68 @@ describe("ButtonGroup resting states", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Context defaults — size and glass propagate to children
+// ---------------------------------------------------------------------------
+
+describe("ButtonGroup context defaults", () => {
+  it("group-size-lg-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup size="lg">
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-size-sm-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup size="sm">
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-glass-context-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={dotBg}>
+          <ButtonGroup glass>
+            <IconButton aria-label="Settings"><GearIcon /></IconButton>
+            <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+          </ButtonGroup>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-glass-size-lg-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={dotBg}>
+          <ButtonGroup glass size="lg">
+            <IconButton aria-label="Settings"><GearIcon /></IconButton>
+            <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+          </ButtonGroup>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Border sides — dark only
 // ---------------------------------------------------------------------------
 
