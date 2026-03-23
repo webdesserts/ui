@@ -8,8 +8,9 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { motion } from "motion/react";
+import { motion, useMotionValue, useTransform } from "motion/react";
 import { cn } from "../utils/cn";
+import { SceneScrollContext } from "./SceneScrollView";
 import {
   boundsToRect,
   getOffsetBounds,
@@ -85,6 +86,9 @@ function Camera({
   const [transitioning, setTransitioning] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
 
+  // null when Camera is not wrapped in a SceneScrollView.
+  const scrollCtx = useContext(SceneScrollContext);
+
   // Detect prefers-reduced-motion and update reactively.
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -116,9 +120,43 @@ function Camera({
 
   const rect: Rect = boundsToRect(paddedBounds);
 
+  // When inside a SceneScrollView, cap the viewport to the available height so
+  // the viewport never grows taller than the scroll container.
+  const viewportHeight = scrollCtx
+    ? Math.min(rect.height, scrollCtx.availableHeight)
+    : rect.height;
+
   const transition = reducedMotion
     ? { duration: 0 }
     : { type: "spring" as const, stiffness, damping };
+
+  // Report the full (unclamped) content height to SceneScrollView so it can
+  // size the spacer div that drives the browser's scroll range.
+  useEffect(() => {
+    if (scrollCtx) {
+      scrollCtx.setContentHeight(rect.height);
+    }
+  }, [rect.height, scrollCtx]);
+
+  // When the focused target's position changes, scroll back to the top so the
+  // new content isn't obscured by a stale scroll offset.
+  const prevRectRef = useRef({ x: rect.x, y: rect.y });
+  useEffect(() => {
+    if (
+      scrollCtx &&
+      (prevRectRef.current.x !== rect.x || prevRectRef.current.y !== rect.y)
+    ) {
+      scrollCtx.resetScroll();
+    }
+    prevRectRef.current = { x: rect.x, y: rect.y };
+  }, [rect.x, rect.y, scrollCtx]);
+
+  // Build a negated scroll offset for the scroll-offset div. useTransform must
+  // be called unconditionally (React hooks rules), so we always create a
+  // fallback MotionValue and use whichever is active.
+  const fallbackScrollTop = useMotionValue(0);
+  const activeScrollTop = scrollCtx?.scrollTop ?? fallbackScrollTop;
+  const negatedScrollY = useTransform(activeScrollTop, (v) => -v);
 
   const cameraState: CameraState = {
     bounds: {
@@ -135,7 +173,7 @@ function Camera({
       {/* Viewport — animates width/height to frame focused objects */}
       <motion.div
         data-testid="camera-viewport"
-        animate={{ width: rect.width, height: rect.height }}
+        animate={{ width: rect.width, height: viewportHeight }}
         transition={transition}
         onAnimationStart={() => setTransitioning(true)}
         onAnimationComplete={() => setTransitioning(false)}
@@ -148,7 +186,18 @@ function Camera({
           transition={transition}
           className="relative transition-none w-fit h-max"
         >
-          {children}
+          {/* When inside a SceneScrollView, offset children by the scroll
+              position so the visible slice of content tracks the scrollbar. */}
+          {scrollCtx ? (
+            <motion.div
+              data-testid="camera-scroll-offset"
+              style={{ y: negatedScrollY }}
+            >
+              {children}
+            </motion.div>
+          ) : (
+            children
+          )}
         </motion.div>
       </motion.div>
     </CameraContext.Provider>
