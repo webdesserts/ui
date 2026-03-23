@@ -12,10 +12,14 @@ import { cn } from "../utils/cn";
  * transition via spreadBase). Only border-color hover is set here since
  * spread doesn't affect borders.
  */
+/**
+ * Accent outline ring — identical for focus-visible and active states.
+ * Uses outline so it doesn't conflict with box-shadow composition.
+ * z-1 ensures the outline isn't clipped by adjacent buttons in groups.
+ */
 const interactiveBase =
-  "cursor-pointer outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50";
+  "cursor-pointer outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:z-1 disabled:cursor-not-allowed disabled:opacity-50";
 
-/** Active accent border on press — uses outline so it doesn't conflict with box-shadow composition. */
 const activeBorder =
   "active:not-disabled:outline-solid active:not-disabled:outline-2 active:not-disabled:outline-accent active:not-disabled:z-1";
 
