@@ -15,6 +15,7 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   waitForAnimationFrame,
+  slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { Button } from "@/src";
@@ -247,10 +248,12 @@ describe("Button hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Default" });
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
     const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -265,10 +268,12 @@ describe("Button hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Ghost" });
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
     const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -292,10 +297,12 @@ describe("Button hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Glass" });
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
     const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -313,10 +320,12 @@ describe("Button hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Settings" });
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
     const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -338,9 +347,11 @@ describe("Button focus states", () => {
     );
     const btn = screen.getByRole("button", { name: "Default" });
     const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     el.focus();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -362,10 +373,21 @@ describe("Button active state", () => {
     );
     const btn = screen.getByRole("button", { name: "Default" });
     const el = btn.element() as HTMLElement;
-    // CSS :active can't be triggered in tests — force the visual via inline style
+    // Hover first so the spread fills and text inverts — :active always occurs
+    // during :hover or :focus-visible, never on a resting button.
+    const restore = slowTransitions();
+    await btn.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    // CSS :active can't be triggered in tests — force the accent outline via
+    // inline style on top of the already-filled spread.
     el.style.outline = "2px solid var(--accent)";
     el.style.outlineOffset = "-2px";
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
   });
 });
 
@@ -384,10 +406,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -402,10 +426,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -420,16 +446,20 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
-    // Hover and freeze at 100% to complete fill
+    const el = btn.element() as HTMLElement;
+    // Hover and freeze at 100% to complete fill, then release to natural speed
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
-    // Move away to trigger exit transition
+    // Move away to trigger exit transition, slow it down to capture mid-exit
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -445,10 +475,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -463,10 +495,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -481,14 +515,18 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -504,10 +542,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -522,10 +562,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -540,14 +582,18 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -563,10 +609,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -581,10 +629,12 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -599,14 +649,18 @@ describe("Button spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Hover Me" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);

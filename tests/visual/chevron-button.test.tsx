@@ -6,6 +6,7 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   waitForAnimationFrame,
+  slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ChevronButton } from "@/src";
@@ -252,10 +253,12 @@ describe("ChevronButton hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -270,10 +273,12 @@ describe("ChevronButton hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -295,9 +300,43 @@ describe("ChevronButton focus states", () => {
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
     const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     el.focus();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Active state — dark only (forced via inline style)
+// ---------------------------------------------------------------------------
+
+describe("ChevronButton active state", () => {
+  it("chevron-md-default-active-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    // Hover first so the spread fills — :active always occurs during :hover
+    // or :focus-visible, never on a resting button.
+    const restore = slowTransitions();
+    await btn.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    // CSS :active can't be triggered in tests — force the accent outline via
+    // inline style on top of the already-filled spread.
+    el.style.outline = "2px solid var(--accent)";
+    el.style.outlineOffset = "-2px";
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -319,10 +358,12 @@ describe("ChevronButton spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -337,10 +378,12 @@ describe("ChevronButton spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -355,14 +398,18 @@ describe("ChevronButton spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Open menu" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);

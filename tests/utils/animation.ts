@@ -9,6 +9,17 @@
  *   screenshotOptions: { animations: "allow" }
  * Otherwise Playwright's default behavior fast-forwards finite animations to
  * completion, destroying the paused state.
+ *
+ * ## Capturing mid-transition frames
+ *
+ * CSS transitions only appear in `getAnimations()` while they are actively
+ * running. A 200ms transition completes before JS gets another turn, so by the
+ * time `freezeAnimationsAt` runs there is nothing to freeze.
+ *
+ * `withSlowTransitions` solves this by injecting a `<style>` tag that overrides
+ * every transition-duration to 10 seconds. Trigger hover inside the callback,
+ * then freeze — the transition is still running and `getAnimations()` returns it.
+ * Call the returned `restore()` function after freezing to remove the override.
  */
 
 /**
@@ -17,6 +28,31 @@
  */
 export function waitForAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Inject a global style override that stretches all CSS transition durations
+ * to 10 seconds, giving `freezeAnimationsAt` time to capture them mid-flight.
+ *
+ * @returns A `restore()` function that removes the override.
+ *
+ * @example
+ * const restore = slowTransitions();
+ * await btn.hover();
+ * await waitForAnimationFrame();
+ * const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+ * restore();
+ * // screenshot ...
+ * unfreezeAnimations(anims);
+ */
+export function slowTransitions(): () => void {
+  const style = document.createElement("style");
+  // Override both transition-duration and animation-duration so that any CSS
+  // transition (including those on ::after pseudo-elements) is slowed down
+  // enough for getAnimations() to observe it as in-progress.
+  style.textContent = `*, *::before, *::after { transition-duration: 10000ms !important; animation-duration: 10000ms !important; }`;
+  document.head.appendChild(style);
+  return () => style.remove();
 }
 
 /**

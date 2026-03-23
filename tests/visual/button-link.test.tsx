@@ -6,6 +6,7 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   waitForAnimationFrame,
+  slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ButtonLink } from "@/src";
@@ -112,10 +113,12 @@ describe("ButtonLink hover states", () => {
       </TestWrapper>,
     );
     const link = screen.getByRole("link", { name: "About" });
+    const el = link.element() as HTMLElement;
+    const restore = slowTransitions();
     await link.hover();
     await waitForAnimationFrame();
-    const el = link.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -137,9 +140,11 @@ describe("ButtonLink focus states", () => {
     );
     const link = screen.getByRole("link", { name: "About" });
     const el = link.element() as HTMLElement;
+    const restore = slowTransitions();
     el.focus();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -164,10 +169,12 @@ describe("ButtonLink spread animation", () => {
       </TestWrapper>,
     );
     const link = screen.getByRole("link", { name: "About" });
+    const el = link.element() as HTMLElement;
+    const restore = slowTransitions();
     await link.hover();
     await waitForAnimationFrame();
-    const el = link.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -185,10 +192,12 @@ describe("ButtonLink spread animation", () => {
       </TestWrapper>,
     );
     const link = screen.getByRole("link", { name: "About" });
+    const el = link.element() as HTMLElement;
+    const restore = slowTransitions();
     await link.hover();
     await waitForAnimationFrame();
-    const el = link.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -206,14 +215,18 @@ describe("ButtonLink spread animation", () => {
       </TestWrapper>,
     );
     const link = screen.getByRole("link", { name: "About" });
+    const el = link.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await link.hover();
     await waitForAnimationFrame();
-    const el = link.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);

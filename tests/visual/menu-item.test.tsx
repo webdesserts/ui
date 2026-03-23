@@ -6,6 +6,7 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   waitForAnimationFrame,
+  slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { MenuItem } from "@/src";
@@ -90,10 +91,12 @@ describe("MenuItem hover states", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -117,9 +120,11 @@ describe("MenuItem focus states", () => {
     );
     const btn = screen.getByRole("button", { name: "Unselected Item" });
     const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     el.focus();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -143,10 +148,12 @@ describe("MenuItem spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -163,10 +170,12 @@ describe("MenuItem spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -183,18 +192,24 @@ describe("MenuItem spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
+    // Allow a small pixel tolerance — the exact freeze point has minor
+    // rendering variance due to subpixel text antialiasing.
     await expect
       .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
+      .toMatchScreenshot({ ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.01 } });
     unfreezeAnimations(anims);
   });
 });

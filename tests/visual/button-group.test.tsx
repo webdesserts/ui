@@ -6,6 +6,7 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   waitForAnimationFrame,
+  slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ButtonGroup, IconButton, ChevronButton } from "@/src";
@@ -169,10 +170,12 @@ describe("ButtonGroup spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Settings" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -190,10 +193,12 @@ describe("ButtonGroup spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Settings" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
@@ -211,14 +216,18 @@ describe("ButtonGroup spread animation", () => {
       </TestWrapper>,
     );
     const btn = screen.getByRole("button", { name: "Settings" });
+    const el = btn.element() as HTMLElement;
+    const restoreEnter = slowTransitions();
     await btn.hover();
     await waitForAnimationFrame();
-    const el = btn.element() as HTMLElement;
     let anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restoreEnter();
     unfreezeAnimations(anims, "resume");
+    const restoreExit = slowTransitions();
     await page.elementLocator(screen.container).hover({ position: { x: 0, y: 0 } });
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
+    restoreExit();
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
