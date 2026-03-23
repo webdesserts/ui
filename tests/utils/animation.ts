@@ -117,9 +117,9 @@ export async function whilePressed(
   callback: () => Promise<void>,
 ): Promise<void> {
   await Promise.all([
-    locator.click({ delay: 50 }),
+    locator.click({ delay: 200 }),
     (async () => {
-      await wait(25);
+      await wait(100);
       await callback();
     })(),
   ]);
