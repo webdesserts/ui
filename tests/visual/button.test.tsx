@@ -213,6 +213,48 @@ describe("Button resting states", () => {
     );
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
+
+  it("button-lg-default-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Button size="lg">Default</Button>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("button-lg-default-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <Button size="lg">Default</Button>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("button-lg-ghost-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Button size="lg" ghost>Ghost</Button>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("button-md-glass-gradient-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ background: "linear-gradient(135deg, var(--np-purple-30), var(--np-magenta-50))", padding: "1rem" }}>
+          <Button glass>Glass</Button>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
 });
 
 // ---------------------------------------------------------------------------

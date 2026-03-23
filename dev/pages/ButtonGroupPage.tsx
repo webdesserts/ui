@@ -94,6 +94,17 @@ export function ButtonGroupPage() {
           </ButtonGroup>
         </div>
       </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Vertical toolbar</SectionLabel>
+        <div className="flex items-start gap-3">
+          <ButtonGroup flow="column" size="lg">
+            <IconButton><Microphone /></IconButton>
+            <IconButton><VideoCamera /></IconButton>
+            <IconButton><Screencast /></IconButton>
+          </ButtonGroup>
+        </div>
+      </section>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   unfreezeAnimations,
   waitForAnimationFrame,
   slowTransitions,
+  whilePressed,
   animationScreenshotOptions,
 } from "../utils/animation";
 import { ButtonLink } from "@/src";
@@ -95,6 +96,34 @@ describe("ButtonLink resting states", () => {
     );
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
+
+  it("buttonlink-lg-default-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div className="flex gap-6">
+          <ButtonLink size="lg" href="#">About</ButtonLink>
+          <ButtonLink size="lg" href="#">Projects</ButtonLink>
+          <ButtonLink size="lg" href="#">Contact</ButtonLink>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("buttonlink-lg-default-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <div className="flex gap-6">
+          <ButtonLink size="lg" href="#">About</ButtonLink>
+          <ButtonLink size="lg" href="#">Projects</ButtonLink>
+          <ButtonLink size="lg" href="#">Contact</ButtonLink>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -122,6 +151,37 @@ describe("ButtonLink hover states", () => {
     await expect
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Active state — dark only
+// ---------------------------------------------------------------------------
+
+describe("ButtonLink active state", () => {
+  it("buttonlink-md-default-active-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div className="flex gap-6">
+          <ButtonLink href="#">About</ButtonLink>
+          <ButtonLink href="#">Projects</ButtonLink>
+        </div>
+      </TestWrapper>,
+    );
+    const link = screen.getByRole("link", { name: "About" });
+    const el = link.element() as HTMLElement;
+    const restore = slowTransitions();
+    await link.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await whilePressed(link, () =>
+      expect
+        .element(page.elementLocator(screen.container))
+        .toMatchScreenshot(animationScreenshotOptions),
+    );
     unfreezeAnimations(anims);
   });
 });

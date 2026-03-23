@@ -28,10 +28,10 @@ const glassDangerBg = `bg-glass-danger-bg ${glassBlur}`;
 export type BorderSide = "bottom" | "top" | "right" | "left";
 
 const borderSideClasses = {
-  bottom: { border: "border-b", rounding: "rounded-t-sm" },
-  top: { border: "border-t", rounding: "rounded-b-sm" },
-  right: { border: "border-r", rounding: "rounded-l-sm" },
-  left: { border: "border-l", rounding: "rounded-r-sm" },
+  bottom: { rounding: "rounded-t-sm" },
+  top: { rounding: "rounded-b-sm" },
+  right: { rounding: "rounded-l-sm" },
+  left: { rounding: "rounded-r-sm" },
 } as const;
 
 /** Full-perimeter 1px inset box-shadow border for glass buttons.
@@ -123,7 +123,7 @@ export type ButtonSize = "sm" | "md" | "lg";
 // ButtonGroupContext — passes size and glass defaults down to child buttons
 // ---------------------------------------------------------------------------
 
-const ButtonGroupContext = createContext<{ size?: ButtonSize; glass?: boolean }>({});
+const ButtonGroupContext = createContext<{ size?: ButtonSize; glass?: boolean; borderSide?: BorderSide }>({});
 
 /** Read shared defaults provided by a parent ButtonGroup. */
 export function useButtonGroup() {
@@ -154,7 +154,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       size,
       ghost = false,
       glass,
-      borderSide = "bottom",
+      borderSide,
       className,
       children,
       ...props
@@ -164,8 +164,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const group = useContext(ButtonGroupContext);
     const resolvedSize = size ?? group.size ?? "md";
     const resolvedGlass = glass ?? group.glass ?? false;
+    const resolvedBorderSide = borderSide ?? group.borderSide ?? "bottom";
 
-    const { border, rounding } = borderSideClasses[borderSide];
+    const { rounding } = borderSideClasses[resolvedBorderSide];
 
     const bg = ghost
       ? "bg-transparent"
@@ -181,7 +182,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           buttonIconSize,
           interactiveBase,
 
-          spreadBarClass(borderSide),
+          spreadBarClass(resolvedBorderSide),
           rounding,
           "text-text-primary",
           bg,
@@ -273,7 +274,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       ghost = false,
       glass,
       rounded = false,
-      borderSide = "bottom",
+      borderSide,
       className,
       children,
       ...props
@@ -283,8 +284,9 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
     const group = useContext(ButtonGroupContext);
     const resolvedSize = size ?? group.size ?? "md";
     const resolvedGlass = glass ?? group.glass ?? false;
+    const resolvedBorderSide = borderSide ?? group.borderSide ?? "bottom";
 
-    const { rounding } = borderSideClasses[borderSide];
+    const { rounding } = borderSideClasses[resolvedBorderSide];
 
     const bg = ghost
       ? "bg-transparent"
@@ -309,7 +311,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
           rounded ? "rounded-full" : rounding,
           interactiveBase,
 
-          rounded ? spreadRing : spreadBarClass(borderSide),
+          rounded ? spreadRing : spreadBarClass(resolvedBorderSide),
           iconButtonSizes[resolvedSize],
           colorClasses,
           className,
@@ -354,7 +356,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
       color = "default",
       ghost = false,
       glass,
-      borderSide = "bottom",
+      borderSide,
       pressed = false,
       className,
       children,
@@ -365,8 +367,9 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
     const group = useContext(ButtonGroupContext);
     const resolvedSize = size ?? group.size ?? "md";
     const resolvedGlass = glass ?? group.glass ?? false;
+    const resolvedBorderSide = borderSide ?? group.borderSide ?? "bottom";
 
-    const { rounding } = borderSideClasses[borderSide];
+    const { rounding } = borderSideClasses[resolvedBorderSide];
 
     const pressedClasses = "bg-interactive-bg text-interactive-text";
 
@@ -393,7 +396,7 @@ export const ChevronButton = forwardRef<HTMLButtonElement, ChevronButtonProps>(
           rounding,
           interactiveBase,
 
-          pressed ? "" : spreadBarClass(borderSide),
+          pressed ? "" : spreadBarClass(resolvedBorderSide),
           chevronButtonSizes[resolvedSize],
           pressed ? pressedClasses : colorClasses,
           className,
@@ -422,6 +425,7 @@ const groupGlassBorder =
 interface ButtonGroupProps {
   children: React.ReactNode;
   size?: ButtonSize;
+  flow?: "row" | "column";
   ghost?: boolean;
   glass?: boolean;
   borderSide?: BorderSide;
@@ -429,34 +433,47 @@ interface ButtonGroupProps {
 }
 
 /**
- * Per-border-side rounding for first/last children in a group.
+ * Per-flow/border-side rounding for first/last children in a group.
  * Replaces overflow-hidden so highlight outlines aren't clipped.
  */
 const groupChildRounding = {
-  bottom: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-tr-sm",
-  top: "[&>:first-child]:rounded-bl-sm [&>:last-child]:rounded-br-sm",
-  right: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-bl-sm",
-  left: "[&>:first-child]:rounded-tr-sm [&>:last-child]:rounded-br-sm",
+  row: {
+    bottom: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-tr-sm",
+    top: "[&>:first-child]:rounded-bl-sm [&>:last-child]:rounded-br-sm",
+  },
+  column: {
+    left: "[&>:first-child]:rounded-tr-sm [&>:last-child]:rounded-br-sm",
+    right: "[&>:first-child]:rounded-tl-sm [&>:last-child]:rounded-bl-sm",
+  },
 } as const;
 
 export function ButtonGroup({
   children,
   size,
+  flow = "row",
   ghost = false,
   glass = false,
-  borderSide = "bottom",
+  borderSide,
   className,
 }: ButtonGroupProps) {
+  const resolvedBorderSide = borderSide ?? (flow === "column" ? "left" : "bottom");
+
   const dividerBg = ghost
     ? "bg-transparent"
     : glass
       ? `bg-glass-bg ${glassBlur}`
       : "bg-interactive-border";
 
+  const dividerSize = flow === "row" ? "w-px self-stretch" : "h-px self-stretch";
+
   const dividerSpread = {
     bottom: "shadow-[inset_0_-2px_0_var(--interactive-border)]",
     top: "shadow-[inset_0_2px_0_var(--interactive-border)]",
-  }[borderSide] ?? "";
+    left: "shadow-[inset_2px_0_0_var(--interactive-border)]",
+    right: "shadow-[inset_-2px_0_0_var(--interactive-border)]",
+  }[resolvedBorderSide];
+
+  const childRounding = (groupChildRounding[flow] as Record<string, string>)[resolvedBorderSide];
 
   // Interleave 1px dividers between children
   const items = React.Children.toArray(children);
@@ -464,19 +481,21 @@ export function ButtonGroup({
   items.forEach((child, i) => {
     if (i > 0) {
       withDividers.push(
-        <div key={`divider-${i}`} className={`w-px self-stretch ${dividerBg} ${dividerSpread}`} />,
+        <div key={`divider-${i}`} className={`${dividerSize} ${dividerBg} ${dividerSpread}`} />,
       );
     }
     withDividers.push(child);
   });
 
   return (
-    <ButtonGroupContext.Provider value={{ size, glass: glass || undefined }}>
+    // undefined (not false) so child buttons can still override glass independently
+    <ButtonGroupContext.Provider value={{ size, glass: glass || undefined, borderSide: resolvedBorderSide }}>
       <div
         className={cn(
-          "relative inline-flex items-center bg-transparent",
+          "relative bg-transparent",
+          flow === "row" ? "inline-flex items-center" : "inline-flex flex-col items-stretch",
           "[&_button]:rounded-none",
-          groupChildRounding[borderSide],
+          childRounding,
           // Glass: full-perimeter border on ::after, suppress individual button shadows.
           // Note: [&_button]:shadow-none also suppresses spreadRing — rounded buttons
           // should not appear inside ButtonGroups.

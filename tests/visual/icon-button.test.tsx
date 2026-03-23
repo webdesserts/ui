@@ -56,7 +56,7 @@ describe("IconButton resting states", () => {
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(
       <TestWrapper>
-        <IconButton aria-label="Settings"><GearIcon /></IconButton>
+        <IconButton size="sm" aria-label="Settings"><GearIcon /></IconButton>
       </TestWrapper>,
     );
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();

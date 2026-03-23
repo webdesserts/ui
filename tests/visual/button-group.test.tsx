@@ -178,6 +178,63 @@ describe("ButtonGroup resting states", () => {
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
+  it("group-ghost-danger-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup ghost>
+          <IconButton ghost color="danger" aria-label="End Call"><PhoneIcon /></IconButton>
+          <ChevronButton ghost color="danger" aria-label="Open menu"><CaretDownIcon /></ChevronButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-column-rest-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup flow="column">
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+          <IconButton aria-label="End Call"><PhoneIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-column-rest-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <ButtonGroup flow="column">
+          <IconButton aria-label="Settings"><GearIcon /></IconButton>
+          <IconButton aria-label="Mute"><MicOffIcon /></IconButton>
+          <IconButton aria-label="End Call"><PhoneIcon /></IconButton>
+        </ButtonGroup>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("group-column-glass-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={dotBg}>
+          <ButtonGroup flow="column" glass>
+            <IconButton glass aria-label="Settings"><GearIcon /></IconButton>
+            <IconButton glass aria-label="Mute"><MicOffIcon /></IconButton>
+            <IconButton glass aria-label="End Call"><PhoneIcon /></IconButton>
+          </ButtonGroup>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
   it("group-glass-rest-dark", async () => {
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(
