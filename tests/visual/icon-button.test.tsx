@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import {
   freezeAnimationsAt,
@@ -459,10 +459,9 @@ describe("IconButton focus states", () => {
         <IconButton aria-label="Settings"><GearIcon /></IconButton>
       </TestWrapper>,
     );
-    const btn = screen.getByRole("button", { name: "Settings" });
-    const el = btn.element() as HTMLElement;
+    const el = screen.getByRole("button", { name: "Settings" }).element() as HTMLElement;
     const restore = slowTransitions();
-    el.focus();
+    await userEvent.tab();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();
@@ -479,10 +478,9 @@ describe("IconButton focus states", () => {
         <IconButton rounded aria-label="Mute"><MicOffIcon /></IconButton>
       </TestWrapper>,
     );
-    const btn = screen.getByRole("button", { name: "Mute" });
-    const el = btn.element() as HTMLElement;
+    const el = screen.getByRole("button", { name: "Mute" }).element() as HTMLElement;
     const restore = slowTransitions();
-    el.focus();
+    await userEvent.tab();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import {
   freezeAnimationsAt,
@@ -138,10 +138,9 @@ describe("ButtonLink focus states", () => {
         <ButtonLink href="#">About</ButtonLink>
       </TestWrapper>,
     );
-    const link = screen.getByRole("link", { name: "About" });
-    const el = link.element() as HTMLElement;
+    const el = screen.getByRole("link", { name: "About" }).element() as HTMLElement;
     const restore = slowTransitions();
-    el.focus();
+    await userEvent.tab();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();

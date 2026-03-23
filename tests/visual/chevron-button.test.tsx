@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import {
   freezeAnimationsAt,
@@ -299,10 +299,9 @@ describe("ChevronButton focus states", () => {
         <ChevronButton aria-label="Open menu"><CaretDownIcon /></ChevronButton>
       </TestWrapper>,
     );
-    const btn = screen.getByRole("button", { name: "Open menu" });
-    const el = btn.element() as HTMLElement;
+    const el = screen.getByRole("button", { name: "Open menu" }).element() as HTMLElement;
     const restore = slowTransitions();
-    el.focus();
+    await userEvent.tab();
     await waitForAnimationFrame();
     const anims = freezeAnimationsAt(el, 1, { subtree: true });
     restore();
