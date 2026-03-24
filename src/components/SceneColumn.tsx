@@ -251,3 +251,7 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
     );
   },
 );
+
+// Explicit displayName so Scene can detect SceneColumn children via
+// child.type?.displayName without importing SceneColumn (avoiding circular imports).
+SceneColumn.displayName = "SceneColumn";

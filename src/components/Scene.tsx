@@ -1,6 +1,7 @@
 import React, {
   createContext,
   forwardRef,
+  isValidElement,
   useContext,
   useId,
   useLayoutEffect,
@@ -9,6 +10,11 @@ import React, {
 } from "react";
 import { cn } from "../utils/cn";
 import { SceneScrollContext } from "./SceneScrollView";
+// SceneColumn is imported here for auto-wrapping bare children. SceneColumn
+// also imports from this file (ColumnContext, useSceneContext), creating a
+// cycle — but this is safe in bundlers like Vite because by the time Scene
+// renders, both modules are fully evaluated.
+import { SceneColumn } from "./SceneColumn";
 import {
   boundsToRect,
   getOffsetBounds,
@@ -179,6 +185,47 @@ export interface SceneProps {
   duration?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Auto-wrapping — bare SceneObjects get implicit single-item SceneColumns
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks if a React element is already a SceneColumn by looking at its
+ * displayName. Using displayName avoids importing SceneColumn here, which
+ * would create a circular dependency (SceneColumn already imports from Scene).
+ */
+function isSceneColumn(child: React.ReactElement): boolean {
+  const type = child.type as { displayName?: string };
+  return type?.displayName === "SceneColumn";
+}
+
+/**
+ * Wraps any direct child that is NOT already a SceneColumn in an implicit
+ * single-item SceneColumn. This ensures all SceneObjects participate in the
+ * column-based layout regardless of whether the consumer uses SceneColumn
+ * explicitly or places SceneObjects directly inside Scene.
+ *
+ * The implicit column takes its name from the child's `key` or `name` prop
+ * to maintain stable React identity across re-renders.
+ */
+function wrapBareChildren(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child) => {
+    if (!isValidElement(child)) return child;
+    if (isSceneColumn(child)) return child;
+
+    // Use the child's key or name prop for the column's name so React can
+    // maintain stable identity across re-renders without remounting.
+    const childProps = child.props as { name?: string };
+    const columnName = child.key ?? childProps?.name;
+
+    return (
+      <SceneColumn name={columnName ?? undefined}>
+        {child}
+      </SceneColumn>
+    );
+  });
+}
+
 /**
  * A spatial navigation container that frames focused objects in a flex row.
  *
@@ -223,6 +270,8 @@ export function Scene({
     });
   };
 
+  const wrappedChildren = wrapBareChildren(children);
+
   return (
     <SceneContext.Provider
       value={{ register, unregister, entries, stiffness, damping, padding, duration }}
@@ -235,7 +284,7 @@ export function Scene({
         duration={duration}
         entries={entries}
       >
-        {children}
+        {wrappedChildren}
       </Camera>
     </SceneContext.Provider>
   );

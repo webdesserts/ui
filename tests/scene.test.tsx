@@ -98,7 +98,10 @@ describe("Scene behavior", () => {
   // ---------------------------------------------------------------------------
 
   describe("Focus behavior", () => {
-    test("focused objects are flex items — position: relative and flex: 0 1 auto", async () => {
+    test("focused objects are flex items — position: relative, flex row via implicit column", async () => {
+      // Bare SceneObjects are auto-wrapped in an implicit SceneColumn. The column
+      // is the flex item (flex: 0 1 auto) and the SceneObject inside uses
+      // position: relative without its own flex shorthand.
       await render(
         <TestWrapper fullPage>
           <Scene duration={0}>
@@ -114,7 +117,10 @@ describe("Scene behavior", () => {
       const obj = document.querySelector<HTMLElement>('[data-focused="true"]');
       expect(obj).not.toBeNull();
       expect(obj!.style.position).toBe("relative");
-      expect(obj!.style.flex).toBe("0 1 auto");
+      // The implicit column wrapper owns the flex shorthand, not the SceneObject.
+      const col = document.querySelector<HTMLElement>("[data-column]");
+      expect(col).not.toBeNull();
+      expect(col!.style.flex).toBe("0 1 auto");
     });
 
     test("unfocused objects are absolutely positioned", async () => {
@@ -1034,6 +1040,104 @@ describe("Scene behavior", () => {
 
       const updatedWidth = Number(display!.textContent);
       expect(updatedWidth).toBeGreaterThan(initialWidth);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auto-wrapping bare SceneObjects
+  // ---------------------------------------------------------------------------
+
+  describe("Auto-wrapping bare SceneObjects", () => {
+    test("bare SceneObjects get implicit columns", async () => {
+      // SceneObjects placed directly in Scene (without an explicit SceneColumn)
+      // should each be wrapped in an implicit column automatically.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="obj-a" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      // Both objects should have a [data-column] ancestor — the implicit column.
+      const objA = document.querySelector('[data-scene-id="obj-a"]');
+      const objB = document.querySelector('[data-scene-id="obj-b"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+      expect(objA!.closest("[data-column]")).not.toBeNull();
+      expect(objB!.closest("[data-column]")).not.toBeNull();
+    });
+
+    test("mixed bare and explicit columns work together", async () => {
+      // A Scene with one explicit SceneColumn and one bare SceneObject should
+      // render both as column-backed flex items side by side.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="explicit-col">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 150, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneObject name="obj-b" focused>
+              <div style={{ width: 150, height: 100 }} />
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      // Both objects should have a [data-column] ancestor.
+      const objA = document.querySelector('[data-scene-id="obj-a"]');
+      const objB = document.querySelector('[data-scene-id="obj-b"]');
+      expect(objA!.closest("[data-column]")).not.toBeNull();
+      expect(objB!.closest("[data-column]")).not.toBeNull();
+
+      // Both columns should be in the focused flex layout (position: relative).
+      const cols = document.querySelectorAll<HTMLElement>("[data-column-focused='true']");
+      expect(cols).toHaveLength(2);
+      for (const col of Array.from(cols)) {
+        expect(col.style.position).toBe("relative");
+      }
+    });
+
+    test("implicit columns have stable identity across rerenders", async () => {
+      // The implicit column wrapping a bare SceneObject should not be recreated
+      // on re-render — the same DOM node should be reused.
+      function StableScene({ label }: { label: string }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneObject key="obj-a" name="obj-a" focused>
+                <div>{label}</div>
+              </SceneObject>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<StableScene label="first" />);
+      await waitForLayout();
+
+      const colBefore = document.querySelector("[data-column]");
+      expect(colBefore).not.toBeNull();
+
+      await act(async () => {
+        await rerender(<StableScene label="second" />);
+      });
+      await waitForLayout();
+
+      // The column element should be the same DOM node (not remounted).
+      const colAfter = document.querySelector("[data-column]");
+      expect(colAfter).toBe(colBefore);
     });
   });
 });
