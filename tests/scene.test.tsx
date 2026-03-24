@@ -831,6 +831,171 @@ describe("Scene behavior", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Multi-focus vertical stacking
+  // ---------------------------------------------------------------------------
+
+  describe("Multi-focus vertical stacking", () => {
+    test("two focused objects in a column are both visible and stacked", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 200, height: 100 }} />
+              </SceneObject>
+              <SceneObject name="obj-b" focused>
+                <div style={{ width: 200, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+
+      // Both are focused and in flow.
+      expect(objA!.dataset.focused).toBe("true");
+      expect(objB!.dataset.focused).toBe("true");
+      expect(objA!.style.position).toBe("relative");
+      expect(objB!.style.position).toBe("relative");
+
+      // Column is a flex-column container, so objects stack vertically.
+      // obj-b's top edge should be at or below obj-a's bottom edge.
+      const rectA = objA!.getBoundingClientRect();
+      const rectB = objB!.getBoundingClientRect();
+      expect(rectB.top).toBeGreaterThanOrEqual(rectA.bottom - 1);
+    });
+
+    test("unfocusing one of two focused objects leaves the other visible", async () => {
+      function FocusSwitcher({ bothFocused }: { bothFocused: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused>
+                  <div style={{ width: 200, height: 100 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={bothFocused}>
+                  <div style={{ width: 200, height: 100 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher bothFocused />);
+      await waitForLayout();
+
+      // Unfocus obj-b, leaving obj-a still focused.
+      await act(async () => {
+        await rerender(<FocusSwitcher bothFocused={false} />);
+      });
+      await waitForLayout();
+
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+
+      // obj-a remains focused and in flow.
+      expect(objA!.dataset.focused).toBe("true");
+      expect(objA!.style.position).toBe("relative");
+
+      // obj-b is unfocused and exits flow (frozen at absolute position).
+      expect(objB!.dataset.focused).toBe("false");
+      expect(objB!.style.position).toBe("absolute");
+    });
+
+    test("column adjusts height when focused child count changes", async () => {
+      function FocusSwitcher({ bothFocused }: { bothFocused: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused>
+                  <div style={{ width: 200, height: 100 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={bothFocused}>
+                  <div style={{ width: 200, height: 100 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher bothFocused />);
+      await waitForLayout();
+
+      // Count in-flow (position: relative) children — both focused objects should be in flow.
+      const countInFlow = () => {
+        const children = document.querySelectorAll<HTMLElement>('[data-column="col"] > [data-focused]');
+        return Array.from(children).filter((el) => el.style.position === "relative").length;
+      };
+
+      expect(countInFlow()).toBe(2);
+
+      await act(async () => {
+        await rerender(<FocusSwitcher bothFocused={false} />);
+      });
+      await waitForLayout();
+
+      // After unfocusing obj-b, only obj-a should remain in flow.
+      expect(countInFlow()).toBe(1);
+    });
+
+    test("three focused objects all stack in order", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 200, height: 80 }} />
+              </SceneObject>
+              <SceneObject name="obj-b" focused>
+                <div style={{ width: 200, height: 80 }} />
+              </SceneObject>
+              <SceneObject name="obj-c" focused>
+                <div style={{ width: 200, height: 80 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      const objC = document.querySelector<HTMLElement>('[data-scene-id="obj-c"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+      expect(objC).not.toBeNull();
+
+      // All three are focused and in flow.
+      expect(objA!.dataset.focused).toBe("true");
+      expect(objB!.dataset.focused).toBe("true");
+      expect(objC!.dataset.focused).toBe("true");
+      expect(objA!.style.position).toBe("relative");
+      expect(objB!.style.position).toBe("relative");
+      expect(objC!.style.position).toBe("relative");
+
+      // Objects should stack top-to-bottom in DOM order.
+      const rectA = objA!.getBoundingClientRect();
+      const rectB = objB!.getBoundingClientRect();
+      const rectC = objC!.getBoundingClientRect();
+      expect(rectB.top).toBeGreaterThanOrEqual(rectA.bottom - 1);
+      expect(rectC.top).toBeGreaterThanOrEqual(rectB.bottom - 1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Phase 0: ResizeObserver reframe
   // ---------------------------------------------------------------------------
 

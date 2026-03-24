@@ -60,17 +60,22 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
       });
     }, []);
 
-    // Derive the focused child ID from the registry.
-    const focusedChildId = Array.from(childIds).find((childId) => {
+    // Derive the set of all currently focused child IDs from the registry.
+    const focusedChildIds = Array.from(childIds).filter((childId) => {
       return entries.get(childId)?.focused === true;
-    }) ?? null;
+    });
 
     // Determine if any child object is currently focused.
-    const hasAnyFocusedChild = focusedChildId !== null;
+    const hasAnyFocusedChild = focusedChildIds.length > 0;
+
+    // The single focused child ID — only meaningful when exactly one child is focused.
+    // Used by swap detection to identify clean 1→1 focus transitions.
+    const focusedChildId = focusedChildIds.length === 1 ? focusedChildIds[0] : null;
 
     const prevFocusedRef = useRef(hasAnyFocusedChild);
 
     // Track which child was focused in the previous render for swap detection.
+    // Only meaningful when there was exactly one focused child.
     const prevFocusedChildRef = useRef<string | null>(focusedChildId);
 
     // Track the last dimensions while focused so we can freeze accurately.
