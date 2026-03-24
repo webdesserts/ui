@@ -264,9 +264,9 @@ export interface SceneProps {
 // ---------------------------------------------------------------------------
 
 /**
- * Checks if a React element is already a SceneColumn by looking at its
- * displayName. Using displayName avoids importing SceneColumn here, which
- * would create a circular dependency (SceneColumn already imports from Scene).
+ * Checks if a React element is a SceneColumn by looking at its displayName.
+ * Using displayName avoids importing SceneColumn here, which would create a
+ * circular dependency (SceneColumn already imports from Scene).
  */
 function isSceneColumn(child: React.ReactElement): boolean {
   const type = child.type as { displayName?: string };
@@ -274,26 +274,38 @@ function isSceneColumn(child: React.ReactElement): boolean {
 }
 
 /**
- * Wraps any direct child that is NOT already a SceneColumn in an implicit
- * single-item SceneColumn. This ensures all SceneObjects participate in the
- * column-based layout regardless of whether the consumer uses SceneColumn
- * explicitly or places SceneObjects directly inside Scene.
+ * Checks if a React element is a SceneObject by looking at its displayName.
+ * Only SceneObjects are auto-wrapped in implicit columns — utility components
+ * like CameraDebug are passed through unchanged.
+ */
+function isSceneObject(child: React.ReactElement): boolean {
+  const type = child.type as { displayName?: string };
+  return type?.displayName === "SceneObject";
+}
+
+/**
+ * Wraps bare SceneObject children in implicit single-item SceneColumns so
+ * they participate in the column-based layout. Non-SceneObject children (e.g.
+ * utility components) are passed through unchanged. Children that are already
+ * SceneColumns are also passed through unchanged.
  *
- * The implicit column takes its name from the child's `key` or `name` prop
- * to maintain stable React identity across re-renders.
+ * The implicit column inherits the SceneObject's `name` prop when present, so
+ * React can maintain stable identity across re-renders without remounting.
  */
 function wrapBareChildren(children: React.ReactNode): React.ReactNode {
   return React.Children.map(children, (child) => {
     if (!isValidElement(child)) return child;
     if (isSceneColumn(child)) return child;
+    // Only SceneObjects get auto-wrapped; other elements pass through as-is.
+    if (!isSceneObject(child)) return child;
 
-    // Use the child's key or name prop for the column's name so React can
-    // maintain stable identity across re-renders without remounting.
+    // Use the child's name prop for the column's name when available.
+    // Do NOT use child.key — React adds an internal ".$" prefix to all keys.
     const childProps = child.props as { name?: string };
-    const columnName = child.key ?? childProps?.name;
+    const columnName = childProps.name;
 
     return (
-      <SceneColumn name={columnName ?? undefined}>
+      <SceneColumn name={columnName}>
         {child}
       </SceneColumn>
     );
@@ -492,9 +504,14 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
       // Keep in flow during the swap so transform animation is visible.
       ? { position: "relative" as const }
       : frozenStyle
-        // Previously focused: pin at exact frozen dimensions so the element
-        // appears to stay in place visually as it exits the flex layout.
-        ? { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height }
+        // Previously focused: pin at last known dimensions. When inside a
+        // column, the object was swapped out and sits at (0,0) in the column —
+        // the same position as the newly focused object — so we hide it to
+        // prevent overlap. Outside a column, the frozen position is meaningful
+        // (it's the viewport-relative position where the object last appeared).
+        ? columnCtx
+          ? { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height, opacity: 0 }
+          : { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height }
         // Never been focused: hide until first focus.
         : { position: "absolute", opacity: 0 };
 
@@ -534,3 +551,7 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     );
   },
 );
+
+// Explicit displayName so Scene's wrapBareChildren can detect SceneObject
+// children via child.type?.displayName without forwardRef setting it automatically.
+SceneObject.displayName = "SceneObject";

@@ -188,8 +188,11 @@ describe("Scene behavior", () => {
       // Width and height should be explicitly set (frozen, not zero or missing).
       expect(parseFloat(obj!.style.width)).toBeGreaterThan(0);
       expect(parseFloat(obj!.style.height)).toBeGreaterThan(0);
-      // Opacity should not be 0 — a previously-focused object stays visible.
-      expect(obj!.style.opacity).not.toBe("0");
+      // Objects inside a column (including auto-wrapped bare SceneObjects) are
+      // hidden after losing focus. The column itself is the positioned unit that
+      // moves off-screen; the object's opacity:0 prevents overlap with the next
+      // focused object, which occupies the same (0,0) position within the column.
+      expect(obj!.style.opacity).toBe("0");
     });
 
     test("camera frames focused object — focused object is position: relative", async () => {
@@ -1138,6 +1141,37 @@ describe("Scene behavior", () => {
       // The column element should be the same DOM node (not remounted).
       const colAfter = document.querySelector("[data-column]");
       expect(colAfter).toBe(colBefore);
+    });
+
+    test("non-SceneObject children are not wrapped in columns", async () => {
+      // Utility components placed directly inside Scene (e.g. a debug overlay)
+      // should NOT be wrapped in implicit SceneColumns. Only SceneObjects get
+      // auto-wrapped. Non-SceneObject elements are passed through unchanged.
+      function UtilityComponent() {
+        return <div data-testid="utility">debug</div>;
+      }
+
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="obj-a" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            <UtilityComponent />
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      // The SceneObject should be wrapped in an implicit column.
+      const obj = document.querySelector('[data-scene-id="obj-a"]');
+      expect(obj!.closest("[data-column]")).not.toBeNull();
+
+      // The utility component should NOT be wrapped — it has no [data-column] ancestor.
+      const utility = document.querySelector('[data-testid="utility"]');
+      expect(utility).not.toBeNull();
+      expect(utility!.closest("[data-column]")).toBeNull();
     });
   });
 
