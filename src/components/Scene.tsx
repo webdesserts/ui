@@ -2,7 +2,6 @@ import React, {
   createContext,
   forwardRef,
   useContext,
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -228,10 +227,17 @@ export interface SceneObjectProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
 }
 
+/** Dimensions and column-relative position captured when an object leaves focus. */
+type FrozenStyle = { left: number; top: number; width: number; height: number };
+
 /**
  * A focusable object within a Scene. Set `focused` to true to include this
- * object in the visible flex row. Unfocused objects are removed from flow
- * and hidden until freeze/unfreeze is added in a later phase.
+ * object in the visible flex row.
+ *
+ * When an object transitions from focused to unfocused, it freezes at its last
+ * rendered dimensions and position (absolutely placed within the Scene's flex
+ * container). When it has never been focused, it's hidden with `opacity: 0`
+ * until it receives focus for the first time.
  */
 export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
   function SceneObject({ name, focused, children, ...htmlProps }, forwardedRef) {
@@ -239,6 +245,32 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     const id = name ?? generatedId;
     const internalRef = useRef<HTMLDivElement>(null);
     const { register, unregister } = useSceneContext();
+
+    // Dimensions and position captured at the moment this object lost focus.
+    // null means the object has never been focused (hidden on first render).
+    const [frozenStyle, setFrozenStyle] = useState<FrozenStyle | null>(null);
+
+    // Track previous focused state to detect focus transitions.
+    const prevFocusedRef = useRef(focused);
+
+    useLayoutEffect(() => {
+      const wasFocused = prevFocusedRef.current;
+      prevFocusedRef.current = focused;
+
+      // Focused → unfocused: capture the current position and size so the
+      // element can be placed absolutely at exactly where it was in the flex
+      // layout. offsetLeft/offsetTop are relative to the offsetParent (the
+      // Camera's viewport div, which has position:relative).
+      if (wasFocused && !focused && internalRef.current) {
+        const el = internalRef.current;
+        setFrozenStyle({
+          left: el.offsetLeft,
+          top: el.offsetTop,
+          width: el.offsetWidth,
+          height: el.offsetHeight,
+        });
+      }
+    }, [focused]);
 
     useLayoutEffect(() => {
       if (!internalRef.current) return;
@@ -261,6 +293,14 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     // close over stable setEntries; including them causes infinite re-renders.
   }, [id, focused]);
 
+    const focusedStyle = { flex: "0 1 auto" as const, minWidth: 0, position: "relative" as const };
+    const unfocusedStyle: React.CSSProperties = frozenStyle
+      // Previously focused: pin at exact frozen dimensions so the element
+      // appears to stay in place visually as it exits the flex layout.
+      ? { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height }
+      // Never been focused: hide until first focus.
+      : { position: "absolute", opacity: 0 };
+
     return (
       <div
         ref={(node) => {
@@ -272,12 +312,7 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
         {...htmlProps}
         style={{
           ...htmlProps.style,
-          // Focused: content-sized flex item in the Camera's flex row.
-          // Unfocused: removed from flow, hidden. Freeze with proper dimensions
-          // comes in Commit 1b.
-          ...(focused
-            ? { flex: "0 1 auto", minWidth: 0, position: "relative" as const }
-            : { position: "absolute" as const, opacity: 0 }),
+          ...(focused ? focusedStyle : unfocusedStyle),
         }}
       >
         <div inert={!focused || undefined}>
