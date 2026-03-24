@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -12,6 +12,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: [...configDefaults.exclude, ".claude/worktrees/**"],
     browser: {
       enabled: true,
       provider: playwright({ contextOptions: { deviceScaleFactor: 2 } }),
