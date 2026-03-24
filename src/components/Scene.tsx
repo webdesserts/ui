@@ -3,6 +3,7 @@ import React, {
   forwardRef,
   isValidElement,
   useContext,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -93,6 +94,27 @@ export function useCamera(): CameraState {
 }
 
 // ---------------------------------------------------------------------------
+// CenteringContext — provides per-axis centering offsets to SceneColumn
+// ---------------------------------------------------------------------------
+
+/** Translation offsets to center focused content within the viewport. */
+export interface CenteringOffset {
+  x: number;
+  y: number;
+}
+
+const CenteringContext = createContext<CenteringOffset>({ x: 0, y: 0 });
+
+/**
+ * Returns the current centering offset that focused SceneColumns should apply
+ * as a transform. The offset is positive when focused content is smaller than
+ * the viewport (content gets centered), and zero when content overflows.
+ */
+export function useCenteringOffset(): CenteringOffset {
+  return useContext(CenteringContext);
+}
+
+// ---------------------------------------------------------------------------
 // Camera (internal) — reads entries, computes bounds, renders flex container
 // ---------------------------------------------------------------------------
 
@@ -110,10 +132,30 @@ function Camera({
   children,
   className,
   padding,
+  duration,
   entries,
 }: CameraProps) {
   // null when Camera is not wrapped in a SceneScrollView.
   const scrollCtx = useContext(SceneScrollContext);
+
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+
+  // Track viewport dimensions via ResizeObserver so centering stays accurate
+  // when the container resizes (e.g. window resize, panel expand).
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((observerEntries) => {
+      const entry = observerEntries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setViewportSize({ width, height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const allEntries = Array.from(entries.values());
   const focusedEntries = allEntries.filter((e) => e.focused);
@@ -153,17 +195,49 @@ function Camera({
     transitioning: false,
   };
 
+  // Compute centering offsets: center focused content when it fits within the
+  // viewport, align to top-left (offset = 0) when it overflows.
+  //
+  // For the Y axis, we measure content height from focused SceneObject elements
+  // (data-focused="true") rather than column offsetHeight, because columns use
+  // items-stretch and match the full viewport height, not the content height.
+  let focusedContentWidth = 0;
+  let focusedContentHeight = 0;
+
+  if (viewportRef.current) {
+    const focusedColumns = viewportRef.current.querySelectorAll<HTMLElement>('[data-column-focused="true"]');
+    focusedColumns.forEach((col) => {
+      focusedContentWidth += col.offsetWidth;
+      // Measure content height from focused objects inside the column, not the
+      // column itself (which stretches to viewport height via items-stretch).
+      const focusedObjects = col.querySelectorAll<HTMLElement>('[data-focused="true"]');
+      focusedObjects.forEach((obj) => {
+        focusedContentHeight = Math.max(focusedContentHeight, obj.scrollHeight);
+      });
+    });
+  }
+
+  const centeringOffset: CenteringOffset = {
+    x: Math.max(0, (viewportSize.width - focusedContentWidth) / 2),
+    y: Math.max(0, (viewportSize.height - focusedContentHeight) / 2),
+  };
+
+  void duration;
+
   return (
     <CameraContext.Provider value={cameraState}>
-      {/* Viewport — a flex row that always fills its container. Focused
-          SceneObjects participate in the flex layout; unfocused ones are
-          positioned absolute and hidden until freeze/unfreeze is added. */}
-      <div
-        data-testid="camera-viewport"
-        className={cn("w-full h-full flex flex-row items-stretch overflow-visible relative transition-none", className)}
-      >
-        {children}
-      </div>
+      <CenteringContext.Provider value={centeringOffset}>
+        {/* Viewport — a flex row that always fills its container. Focused
+            SceneObjects participate in the flex layout; unfocused ones are
+            positioned absolute and hidden until freeze/unfreeze is added. */}
+        <div
+          ref={viewportRef}
+          data-testid="camera-viewport"
+          className={cn("w-full h-full flex flex-row items-stretch overflow-visible relative transition-none", className)}
+        >
+          {children}
+        </div>
+      </CenteringContext.Provider>
     </CameraContext.Provider>
   );
 }

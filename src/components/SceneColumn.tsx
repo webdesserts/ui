@@ -1,6 +1,6 @@
 import React, { forwardRef, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../utils/cn";
-import { ColumnContext, useSceneContext, type SwapState } from "./Scene";
+import { ColumnContext, useSceneContext, useCenteringOffset, type SwapState } from "./Scene";
 
 type FrozenStyle = { left: number; top: number; width: number; height: number };
 
@@ -32,6 +32,7 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
     const id = name ?? generatedId;
     const internalRef = useRef<HTMLDivElement>(null);
     const { entries, duration } = useSceneContext();
+    const centeringOffset = useCenteringOffset();
 
     // Track which SceneObject IDs belong to this column.
     const [childIds, setChildIds] = useState<Set<string>>(new Set());
@@ -205,12 +206,20 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
     }, []);
 
     // Focused columns are flex items that grow/shrink in the horizontal layout.
+    // The centering transform shifts the column into viewport center when focused
+    // content is smaller than the viewport, independently per axis.
+    const centeringTransition = duration === 0
+      ? "transform 0ms ease-out"
+      : `transform ${duration ?? 300}ms ease-out`;
+
     const focusedStyle: React.CSSProperties = {
       flex: "0 1 auto",
       minWidth: 0,
       position: "relative",
       display: "flex",
       flexDirection: "column",
+      transform: `translate(${centeringOffset.x}px, ${centeringOffset.y}px)`,
+      transition: centeringTransition,
     };
 
     // Unfocused columns exit the flex layout. If previously focused, pin at

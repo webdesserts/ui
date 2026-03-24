@@ -154,6 +154,30 @@ describe("SceneColumn — two columns side by side", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Centering — small content centered in viewport
+// ---------------------------------------------------------------------------
+
+describe("Scene centering", () => {
+  it("scene-centered-small-content-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 150, background: "#334", display: "flex", alignItems: "center", justifyContent: "center", color: "#aac" }}>
+                Centered
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+});
+
 describe("SceneColumn — vertical swap result", () => {
   it("scene-column-swap-result-dark", async () => {
     document.documentElement.style.colorScheme = "dark";

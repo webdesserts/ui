@@ -1140,4 +1140,156 @@ describe("Scene behavior", () => {
       expect(colAfter).toBe(colBefore);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Alignment and centering
+  // ---------------------------------------------------------------------------
+
+  describe("Alignment and centering", () => {
+    /** Parse translate(Xpx, Ypx) from a CSS transform string. */
+    function parseTranslate(transform: string): { x: number; y: number } | null {
+      const match = transform.match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+      if (!match) return null;
+      return { x: parseFloat(match[1]), y: parseFloat(match[2]) };
+    }
+
+    test("content smaller than viewport is centered on both axes", async () => {
+      // 200x150 content in a 1280x800 viewport — both axes have room to center.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="true"]');
+      expect(col).not.toBeNull();
+      const offset = parseTranslate(col!.style.transform);
+      expect(offset).not.toBeNull();
+      // Viewport is 1280x800, content is 200x150 — both offsets should be positive.
+      expect(offset!.x).toBeGreaterThan(0);
+      expect(offset!.y).toBeGreaterThan(0);
+    });
+
+    test("content taller than viewport is centered horizontally and top-aligned", async () => {
+      // 200x900 content — fits horizontally, overflows vertically.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div style={{ width: 200, height: 900 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="true"]');
+      expect(col).not.toBeNull();
+      const offset = parseTranslate(col!.style.transform);
+      expect(offset).not.toBeNull();
+      // Content is narrower than 1280px viewport — X should be positive (centered).
+      expect(offset!.x).toBeGreaterThan(0);
+      // Content height 900 > viewport height 800 — Y should be 0 (top-aligned).
+      expect(offset!.y).toBe(0);
+    });
+
+    test("content wider than viewport is left-aligned and centered vertically", async () => {
+      // 1400x150 content — overflows horizontally, fits vertically.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div style={{ width: 1400, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="true"]');
+      expect(col).not.toBeNull();
+      const offset = parseTranslate(col!.style.transform);
+      expect(offset).not.toBeNull();
+      // Content width 1400 > viewport width 1280 — X should be 0 (left-aligned).
+      expect(offset!.x).toBe(0);
+      // Content height 150 < viewport height 800 — Y should be positive (centered).
+      expect(offset!.y).toBeGreaterThan(0);
+    });
+
+    test("content overflowing both axes has no centering offset", async () => {
+      // 1400x900 content — overflows both axes.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div style={{ width: 1400, height: 900 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="true"]');
+      expect(col).not.toBeNull();
+      const offset = parseTranslate(col!.style.transform);
+      // Both axes overflow — offset should be (0, 0) or no meaningful transform.
+      if (offset) {
+        expect(offset.x).toBe(0);
+        expect(offset.y).toBe(0);
+      }
+    });
+
+    test("unfocused columns do not receive centering transform", async () => {
+      // Two columns: one focused, one unfocused. Only the focused one should be centered.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="focused-col">
+              <SceneObject name="obj-focused" focused>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="unfocused-col">
+              <SceneObject name="obj-unfocused" focused={false}>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const unfocusedCol = document.querySelector<HTMLElement>('[data-column="unfocused-col"]');
+      expect(unfocusedCol).not.toBeNull();
+      // Unfocused columns should not have a centering transform.
+      // Their transform should be empty or not include a meaningful translate.
+      const transform = unfocusedCol!.style.transform;
+      if (transform) {
+        const offset = parseTranslate(transform);
+        if (offset) {
+          // If a translate is present, both values should be 0 (no centering applied).
+          expect(offset.x).toBe(0);
+          expect(offset.y).toBe(0);
+        }
+      }
+    });
+  });
 });
