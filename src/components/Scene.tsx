@@ -8,7 +8,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { motion, useMotionValue, useTransform } from "motion/react";
 import { cn } from "../utils/cn";
 import { SceneScrollContext } from "./SceneScrollView";
 import {
@@ -16,7 +15,6 @@ import {
   getOffsetBounds,
   getTotalBounds,
   type Bounds,
-  type Rect,
 } from "../utils/bounds";
 
 // ---------------------------------------------------------------------------
@@ -64,7 +62,7 @@ export function useCamera(): CameraState {
 }
 
 // ---------------------------------------------------------------------------
-// Camera (internal) — reads entries, computes bounds, animates
+// Camera (internal) — reads entries, computes bounds, renders flex container
 // ---------------------------------------------------------------------------
 
 interface CameraProps {
@@ -80,26 +78,11 @@ interface CameraProps {
 function Camera({
   children,
   className,
-  stiffness,
-  damping,
   padding,
-  duration,
   entries,
 }: CameraProps) {
-  const [transitioning, setTransitioning] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
-
   // null when Camera is not wrapped in a SceneScrollView.
   const scrollCtx = useContext(SceneScrollContext);
-
-  // Detect prefers-reduced-motion and update reactively.
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducedMotion(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
 
   const allEntries = Array.from(entries.values());
   const focusedEntries = allEntries.filter((e) => e.focused);
@@ -121,49 +104,14 @@ function Camera({
     right: targetBounds.right + padding,
   };
 
-  const rect: Rect = boundsToRect(paddedBounds);
+  const rect = boundsToRect(paddedBounds);
 
-  // When inside a SceneScrollView, cap the viewport to the available height so
-  // the viewport never grows taller than the scroll container.
-  const viewportHeight = scrollCtx
-    ? Math.min(rect.height, scrollCtx.availableHeight)
-    : rect.height;
+  // Keep scrollCtx reference alive to avoid breaking SceneScrollView consumers,
+  // even though scroll-driven layout is not wired in this phase.
+  void scrollCtx;
 
-  const transition =
-    duration !== undefined
-      ? { duration: duration / 1000 }
-      : reducedMotion
-        ? { duration: 0 }
-        : { type: "spring" as const, stiffness, damping };
-
-  // Report the full (unclamped) content height to SceneScrollView so it can
-  // size the spacer div that drives the browser's scroll range.
-  useEffect(() => {
-    if (scrollCtx) {
-      scrollCtx.setContentHeight(rect.height);
-    }
-  }, [rect.height, scrollCtx]);
-
-  // When the focused target's position changes, scroll back to the top so the
-  // new content isn't obscured by a stale scroll offset.
-  const prevRectRef = useRef({ x: rect.x, y: rect.y });
-  useEffect(() => {
-    if (
-      scrollCtx &&
-      (prevRectRef.current.x !== rect.x || prevRectRef.current.y !== rect.y)
-    ) {
-      scrollCtx.resetScroll();
-    }
-    prevRectRef.current = { x: rect.x, y: rect.y };
-  }, [rect.x, rect.y, scrollCtx]);
-
-  // Build a negated scroll offset for the scroll-offset div. useTransform must
-  // be called unconditionally (React hooks rules), so we always create a
-  // fallback MotionValue and use whichever is active.
-  const fallbackScrollTop = useMotionValue(0);
-  const activeScrollTop = scrollCtx?.scrollTop ?? fallbackScrollTop;
-  const negatedScrollY = useTransform(activeScrollTop, (v) => -v);
-
+  // Bounds are informational — no longer driving animation in this phase.
+  // transitioning is false until layout animations are added in Commit 1b.
   const cameraState: CameraState = {
     bounds: {
       top: paddedBounds.top,
@@ -171,41 +119,20 @@ function Camera({
       width: rect.width,
       height: rect.height,
     },
-    transitioning,
+    transitioning: false,
   };
 
   return (
     <CameraContext.Provider value={cameraState}>
-      {/* Viewport — animates width/height to frame focused objects */}
-      <motion.div
+      {/* Viewport — a flex row that always fills its container. Focused
+          SceneObjects participate in the flex layout; unfocused ones are
+          positioned absolute and hidden until freeze/unfreeze is added. */}
+      <div
         data-testid="camera-viewport"
-        animate={{ width: rect.width, height: viewportHeight }}
-        transition={transition}
-        onAnimationStart={() => setTransitioning(true)}
-        onAnimationComplete={() => setTransitioning(false)}
-        className={cn("transition-none overflow-visible", className)}
+        className={cn("w-full h-full flex flex-row items-stretch overflow-visible relative transition-none", className)}
       >
-        {/* Stage — animates x/y to pan to the focused area */}
-        <motion.div
-          data-testid="camera-stage"
-          animate={{ x: -rect.x, y: -rect.y }}
-          transition={transition}
-          className="relative transition-none w-fit h-max"
-        >
-          {/* When inside a SceneScrollView, offset children by the scroll
-              position so the visible slice of content tracks the scrollbar. */}
-          {scrollCtx ? (
-            <motion.div
-              data-testid="camera-scroll-offset"
-              style={{ y: negatedScrollY }}
-            >
-              {children}
-            </motion.div>
-          ) : (
-            children
-          )}
-        </motion.div>
-      </motion.div>
+        {children}
+      </div>
     </CameraContext.Provider>
   );
 }
@@ -228,10 +155,11 @@ export interface SceneProps {
 }
 
 /**
- * A 2D scene that frames its focused objects with animated camera movement.
+ * A spatial navigation container that frames focused objects in a flex row.
  *
- * Wrap layout regions in `SceneObject` with `focused` to control what the
- * camera frames. When nothing is focused, the camera shows all objects.
+ * Wrap layout regions in `SceneObject` with `focused` to control which objects
+ * participate in the visible flex layout. Unfocused objects are removed from
+ * flow and hidden until freeze/unfreeze animations are added.
  *
  * @example
  * <Scene stiffness={120} damping={30}>
@@ -295,14 +223,15 @@ export function Scene({
 export interface SceneObjectProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Optional name for debugging. Auto-generated via useId() if omitted. */
   name?: string;
-  /** Whether the Camera should frame this object. */
+  /** Whether this object participates in the visible flex layout. */
   focused: boolean;
   children: React.ReactNode;
 }
 
 /**
- * A positioned object within a Scene. Set `focused` to true to tell the
- * camera to frame this object.
+ * A focusable object within a Scene. Set `focused` to true to include this
+ * object in the visible flex row. Unfocused objects are removed from flow
+ * and hidden until freeze/unfreeze is added in a later phase.
  */
 export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
   function SceneObject({ name, focused, children, ...htmlProps }, forwardedRef) {
@@ -341,6 +270,15 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
         }}
         data-focused={focused}
         {...htmlProps}
+        style={{
+          ...htmlProps.style,
+          // Focused: content-sized flex item in the Camera's flex row.
+          // Unfocused: removed from flow, hidden. Freeze with proper dimensions
+          // comes in Commit 1b.
+          ...(focused
+            ? { flex: "0 1 auto", minWidth: 0, position: "relative" as const }
+            : { position: "absolute" as const, opacity: 0 }),
+        }}
       >
         <div inert={!focused || undefined}>
           {children}

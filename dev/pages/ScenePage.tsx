@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Scene, SceneObject, useCamera } from "../../src";
 import { Button } from "../../src";
 
-type FocusTarget = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "all";
+type FocusTarget = "panel-1" | "panel-2" | "panel-3" | "all";
 
 function CameraDebug() {
   const camera = useCamera();
@@ -16,14 +16,13 @@ function CameraDebug() {
 }
 
 const panelColors = {
-  "top-left": "bg-[lch(30_10_280)]",
-  "top-right": "bg-[lch(30_10_340)]",
-  "bottom-left": "bg-[lch(30_10_200)]",
-  "bottom-right": "bg-[lch(30_10_100)]",
+  "panel-1": "bg-[lch(30_10_280)]",
+  "panel-2": "bg-[lch(30_10_340)]",
+  "panel-3": "bg-[lch(30_10_200)]",
 } as const;
 
 export function ScenePage() {
-  const [focus, setFocus] = useState<FocusTarget>("top-left");
+  const [focus, setFocus] = useState<FocusTarget>("panel-1");
   const [padding, setPadding] = useState(16);
 
   const isFocused = (panel: Exclude<FocusTarget, "all">) =>
@@ -34,25 +33,23 @@ export function ScenePage() {
       <header className="shrink-0">
         <h1 className="text-3xl font-light">Scene</h1>
         <p className="text-text-secondary mt-2 text-sm">
-          Animated camera that frames focused objects with spring physics.
+          Spatial navigation container. Focused objects form a flex row; unfocused objects are hidden.
         </p>
       </header>
 
       {/* Navigation controls */}
       <section className="shrink-0 space-y-3">
         <div className="flex gap-2 flex-wrap">
-          {(["top-left", "top-right", "bottom-left", "bottom-right", "all"] as const).map(
-            (target) => (
-              <Button
-                key={target}
-                size="sm"
-                ghost={focus !== target}
-                onClick={() => setFocus(target)}
-              >
-                {target}
-              </Button>
-            ),
-          )}
+          {(["panel-1", "panel-2", "panel-3", "all"] as const).map((target) => (
+            <Button
+              key={target}
+              size="sm"
+              ghost={focus !== target}
+              onClick={() => setFocus(target)}
+            >
+              {target}
+            </Button>
+          ))}
         </div>
 
         <div className="flex items-center gap-3">
@@ -68,57 +65,68 @@ export function ScenePage() {
         </div>
       </section>
 
-      {/* The Scene — fills remaining space, scrolls when content overflows */}
-      <section className="flex-1 min-h-0 border border-rule-subtle rounded-sm overflow-y-auto flex items-center justify-center">
-        <Scene padding={padding}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "320px 480px",
-              gridTemplateRows: "240px auto",
-              gap: "32px",
-            }}
-          >
-            {(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(
-              (panel) => {
-                const focused = isFocused(panel);
-                const isTall = panel === "bottom-right";
-                return (
-                  <SceneObject key={panel} name={panel} focused={focused}>
-                    <div
-                      className={`${panelColors[panel]} rounded-sm p-6 h-full flex flex-col transition-[filter,opacity,transform] duration-300`}
-                      style={{
-                        transform: focused ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
-                        opacity: focused ? 1 : 0.4,
-                        filter: focused ? "none" : "grayscale(1)",
-                        cursor: focused ? "default" : "pointer",
-                      }}
-                      onClick={() => !focused && setFocus(panel)}
-                    >
-                      <h2 className="text-lg font-light text-white/90">{panel}</h2>
-                      {isTall && (
-                        <div className="space-y-4 my-4 flex-1">
-                          {Array.from({ length: 12 }, (_, i) => (
-                            <div key={i} className="bg-white/5 rounded-sm p-3">
-                              <p className="text-sm text-white/60">Item {i + 1}</p>
-                              <p className="text-xs text-white/30 mt-1">
-                                This panel is tall enough to need scrolling when focused.
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-sm text-white/50 mt-auto">
-                        {isTall ? "480 x 900+ — scrollable" : `${panel.startsWith("top") ? "240" : "360"}px tall`}
-                        {" · "}
-                        {focused ? "focused" : "click to focus"}
-                      </p>
-                    </div>
-                  </SceneObject>
-                );
-              },
-            )}
-          </div>
+      {/* The Scene — fills remaining space */}
+      <section className="flex-1 min-h-0 border border-rule-subtle rounded-sm overflow-hidden">
+        <Scene padding={padding} duration={0}>
+          <SceneObject name="panel-1" focused={isFocused("panel-1")}>
+            <div
+              style={{
+                width: 300,
+                height: 200,
+                transform: isFocused("panel-1") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
+                opacity: isFocused("panel-1") ? 1 : 0.4,
+                filter: isFocused("panel-1") ? "none" : "grayscale(1)",
+                cursor: isFocused("panel-1") ? "default" : "pointer",
+              }}
+              className={`${panelColors["panel-1"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
+              onClick={() => !isFocused("panel-1") && setFocus("panel-1")}
+            >
+              <h2 className="text-lg font-light text-white/90">Panel 1</h2>
+              <p className="text-sm text-white/50 mt-auto">
+                300 × 200 · {isFocused("panel-1") ? "focused" : "click to focus"}
+              </p>
+            </div>
+          </SceneObject>
+
+          <SceneObject name="panel-2" focused={isFocused("panel-2")}>
+            <div
+              style={{
+                width: 400,
+                height: 300,
+                transform: isFocused("panel-2") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
+                opacity: isFocused("panel-2") ? 1 : 0.4,
+                filter: isFocused("panel-2") ? "none" : "grayscale(1)",
+                cursor: isFocused("panel-2") ? "default" : "pointer",
+              }}
+              className={`${panelColors["panel-2"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
+              onClick={() => !isFocused("panel-2") && setFocus("panel-2")}
+            >
+              <h2 className="text-lg font-light text-white/90">Panel 2</h2>
+              <p className="text-sm text-white/50 mt-auto">
+                400 × 300 · {isFocused("panel-2") ? "focused" : "click to focus"}
+              </p>
+            </div>
+          </SceneObject>
+
+          <SceneObject name="panel-3" focused={isFocused("panel-3")}>
+            <div
+              style={{
+                width: 250,
+                height: 250,
+                transform: isFocused("panel-3") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
+                opacity: isFocused("panel-3") ? 1 : 0.4,
+                filter: isFocused("panel-3") ? "none" : "grayscale(1)",
+                cursor: isFocused("panel-3") ? "default" : "pointer",
+              }}
+              className={`${panelColors["panel-3"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
+              onClick={() => !isFocused("panel-3") && setFocus("panel-3")}
+            >
+              <h2 className="text-lg font-light text-white/90">Panel 3</h2>
+              <p className="text-sm text-white/50 mt-auto">
+                250 × 250 · {isFocused("panel-3") ? "focused" : "click to focus"}
+              </p>
+            </div>
+          </SceneObject>
 
           <CameraDebug />
         </Scene>
