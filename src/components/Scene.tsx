@@ -32,6 +32,7 @@ interface SceneContextValue {
   stiffness: number;
   damping: number;
   padding: number;
+  duration: number | undefined;
 }
 
 const SceneContext = createContext<SceneContextValue | null>(null);
@@ -72,6 +73,7 @@ interface CameraProps {
   stiffness: number;
   damping: number;
   padding: number;
+  duration: number | undefined;
   entries: Map<string, SceneEntry>;
 }
 
@@ -81,6 +83,7 @@ function Camera({
   stiffness,
   damping,
   padding,
+  duration,
   entries,
 }: CameraProps) {
   const [transitioning, setTransitioning] = useState(false);
@@ -126,9 +129,12 @@ function Camera({
     ? Math.min(rect.height, scrollCtx.availableHeight)
     : rect.height;
 
-  const transition = reducedMotion
-    ? { duration: 0 }
-    : { type: "spring" as const, stiffness, damping };
+  const transition =
+    duration !== undefined
+      ? { duration: duration / 1000 }
+      : reducedMotion
+        ? { duration: 0 }
+        : { type: "spring" as const, stiffness, damping };
 
   // Report the full (unclamped) content height to SceneScrollView so it can
   // size the spacer div that drives the browser's scroll range.
@@ -217,6 +223,8 @@ export interface SceneProps {
   damping?: number;
   /** Padding around focused bounds in px (uniform). Default: 0 */
   padding?: number;
+  /** Override spring physics with a fixed duration in ms. Useful for tests. When set to 0, animations are instant. */
+  duration?: number;
 }
 
 /**
@@ -237,6 +245,7 @@ export function Scene({
   stiffness = 120,
   damping = 30,
   padding = 0,
+  duration,
 }: SceneProps) {
   const [entries, setEntries] = useState<Map<string, SceneEntry>>(new Map());
 
@@ -258,13 +267,14 @@ export function Scene({
 
   return (
     <SceneContext.Provider
-      value={{ register, unregister, entries, stiffness, damping, padding }}
+      value={{ register, unregister, entries, stiffness, damping, padding, duration }}
     >
       <Camera
         className={className}
         stiffness={stiffness}
         damping={damping}
         padding={padding}
+        duration={duration}
         entries={entries}
       >
         {children}
@@ -314,9 +324,12 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
           if (typeof forwardedRef === "function") forwardedRef(node);
           else if (forwardedRef) forwardedRef.current = node;
         }}
+        data-focused={focused}
         {...htmlProps}
       >
-        {children}
+        <div inert={!focused || undefined}>
+          {children}
+        </div>
       </div>
     );
   },
