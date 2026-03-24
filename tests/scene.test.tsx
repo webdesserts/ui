@@ -1,7 +1,7 @@
 import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
 import { act } from "react";
-import { Scene, SceneObject, useCamera } from "../src";
+import { Scene, SceneObject, SceneColumn, useCamera } from "../src";
 import { TestWrapper } from "./test-wrapper";
 
 // ---------------------------------------------------------------------------
@@ -432,6 +432,164 @@ describe("Scene behavior", () => {
       const inertAncestor = button!.closest("[inert]");
       expect(inertAncestor).toBeNull();
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // SceneColumn behavior
+  // ---------------------------------------------------------------------------
+
+  describe("SceneColumn behavior", () => {
+    test("column with focused child participates in flex layout — position: relative", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col-a">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="true"]');
+      expect(col).not.toBeNull();
+      expect(col!.style.position).toBe("relative");
+    });
+
+    test("column with no focused children is absolutely positioned", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col-a">
+              <SceneObject name="obj-a" focused={false}>
+                <div style={{ width: 100, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="false"]');
+      expect(col).not.toBeNull();
+      expect(col!.style.position).toBe("absolute");
+    });
+
+    test("column freezes at last dimensions when all children lose focus", async () => {
+      function FocusSwitcher({ focused }: { focused: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col-a">
+                <SceneObject name="obj-a" focused={focused}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focused />);
+      await waitForLayout();
+
+      // Unfocus the child — column should freeze at last known dimensions.
+      await act(async () => {
+        await rerender(<FocusSwitcher focused={false} />);
+      });
+      await waitForLayout();
+
+      const col = document.querySelector<HTMLElement>('[data-column-focused="false"]');
+      expect(col).not.toBeNull();
+      expect(col!.style.position).toBe("absolute");
+      // Frozen columns have explicit dimensions, not just opacity:0.
+      expect(parseFloat(col!.style.width)).toBeGreaterThan(0);
+      expect(parseFloat(col!.style.height)).toBeGreaterThan(0);
+    });
+
+    test("focused SceneObject inside column does not have flex shorthand", async () => {
+      // The column is the flex item in the horizontal layout, not the object.
+      // Objects inside a column should use position:relative but not flex:0 1 auto.
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col-a">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const obj = document.querySelector<HTMLElement>('[data-focused="true"]');
+      expect(obj).not.toBeNull();
+      expect(obj!.style.position).toBe("relative");
+      // Column owns the flex shorthand; object should NOT have it.
+      expect(obj!.style.flex).not.toBe("0 1 auto");
+    });
+
+    test("two focused columns share viewport — both are position: relative", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col-a">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 150, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-b">
+              <SceneObject name="obj-b" focused>
+                <div style={{ width: 150, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const cols = document.querySelectorAll<HTMLElement>("[data-column-focused]");
+      expect(cols).toHaveLength(2);
+      for (const col of Array.from(cols)) {
+        expect(col.style.position).toBe("relative");
+      }
+    });
+
+    test("mixed focused/unfocused columns — focused is relative, unfocused is absolute", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col-focused">
+              <SceneObject name="obj-a" focused>
+                <div style={{ width: 150, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-unfocused">
+              <SceneObject name="obj-b" focused={false}>
+                <div style={{ width: 150, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const focusedCol = document.querySelector<HTMLElement>('[data-column="col-focused"]');
+      const unfocusedCol = document.querySelector<HTMLElement>('[data-column="col-unfocused"]');
+      expect(focusedCol).not.toBeNull();
+      expect(unfocusedCol).not.toBeNull();
+      expect(focusedCol!.style.position).toBe("relative");
+      expect(unfocusedCol!.style.position).toBe("absolute");
+    });
+
   });
 
   // ---------------------------------------------------------------------------

@@ -34,11 +34,25 @@ interface SceneContextValue {
 
 const SceneContext = createContext<SceneContextValue | null>(null);
 
-function useSceneContext(): SceneContextValue {
+export function useSceneContext(): SceneContextValue {
   const ctx = useContext(SceneContext);
   if (!ctx) throw new Error("SceneObject must be used inside a Scene");
   return ctx;
 }
+
+// ---------------------------------------------------------------------------
+// ColumnContext — communicates column membership from SceneColumn to SceneObject
+// ---------------------------------------------------------------------------
+
+export interface ColumnContextValue {
+  columnId: string;
+  /** Called by SceneObject children to register their ID with the column. */
+  registerChild(childId: string): void;
+  /** Called by SceneObject children to unregister their ID from the column. */
+  unregisterChild(childId: string): void;
+}
+
+export const ColumnContext = createContext<ColumnContextValue | null>(null);
 
 // ---------------------------------------------------------------------------
 // CameraContext — exposes camera state to consumers via useCamera()
@@ -245,6 +259,7 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     const id = name ?? generatedId;
     const internalRef = useRef<HTMLDivElement>(null);
     const { register, unregister } = useSceneContext();
+    const columnCtx = useContext(ColumnContext);
 
     // Dimensions and position captured at the moment this object lost focus.
     // null means the object has never been focused (hidden on first render).
@@ -277,6 +292,12 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
       const element = internalRef.current;
       register(id, element, focused);
 
+      // When inside a SceneColumn, register this object as a column child so
+      // the column can derive its own focus state from its children.
+      if (columnCtx) {
+        columnCtx.registerChild(id);
+      }
+
       const observer = new ResizeObserver((entries) => {
         const entry = entries[0];
         if (!entry) return;
@@ -288,12 +309,22 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
       return () => {
         observer.disconnect();
         unregister(id);
+        if (columnCtx) {
+          columnCtx.unregisterChild(id);
+        }
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps -- register/unregister
-    // close over stable setEntries; including them causes infinite re-renders.
+    // close over stable setEntries; columnCtx is stable for the SceneObject's
+    // mount lifetime (objects don't move between columns).
   }, [id, focused]);
 
-    const focusedStyle = { flex: "0 1 auto" as const, minWidth: 0, position: "relative" as const };
+    // When inside a SceneColumn, the column is the flex item — the object itself
+    // uses position:relative for focused and the same freeze pattern for unfocused,
+    // but does NOT set flex shorthand (that would conflict with the column's flex role).
+    const focusedStyle: React.CSSProperties = columnCtx
+      ? { position: "relative" as const }
+      : { flex: "0 1 auto" as const, minWidth: 0, position: "relative" as const };
+
     const unfocusedStyle: React.CSSProperties = frozenStyle
       // Previously focused: pin at exact frozen dimensions so the element
       // appears to stay in place visually as it exits the flex layout.
