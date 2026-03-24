@@ -1326,4 +1326,194 @@ describe("Scene behavior", () => {
       }
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Scroll behavior
+  // ---------------------------------------------------------------------------
+
+  describe("Scroll behavior", () => {
+    /** Get the camera viewport element from the current document. */
+    function getViewport(): HTMLElement {
+      const el = document.querySelector<HTMLElement>('[data-testid="camera-viewport"]');
+      expect(el).not.toBeNull();
+      return el!;
+    }
+
+    test("no scrollbar when content fits both axes", async () => {
+      // 200x150 content in a 400x300 container — fits both axes, no scrollbar.
+      await render(
+        <TestWrapper fullPage>
+          <div style={{ width: 400, height: 300 }}>
+            <Scene duration={0}>
+              <SceneObject name="a" focused>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </Scene>
+          </div>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const viewport = getViewport();
+      const style = window.getComputedStyle(viewport);
+      // Content fits — overflow should be hidden on both axes (no scrollbar).
+      expect(style.overflowX).toBe("hidden");
+      expect(style.overflowY).toBe("hidden");
+    });
+
+    test("overflow-y: auto when content overflows height", async () => {
+      // 200x500 content in a 400x300 container — overflows vertically.
+      await render(
+        <TestWrapper fullPage>
+          <div style={{ width: 400, height: 300 }}>
+            <Scene duration={0}>
+              <SceneObject name="a" focused>
+                <div style={{ width: 200, height: 500 }} />
+              </SceneObject>
+            </Scene>
+          </div>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const viewport = getViewport();
+      const style = window.getComputedStyle(viewport);
+      // Content taller than container — vertical overflow should be auto.
+      expect(style.overflowY).toBe("auto");
+      // Content fits horizontally — horizontal overflow should be hidden.
+      expect(style.overflowX).toBe("hidden");
+    });
+
+    test("overflow-x: auto when content overflows width", async () => {
+      // 600x150 content in a 400x300 container — overflows horizontally.
+      await render(
+        <TestWrapper fullPage>
+          <div style={{ width: 400, height: 300 }}>
+            <Scene duration={0}>
+              <SceneObject name="a" focused>
+                <div style={{ width: 600, height: 150 }} />
+              </SceneObject>
+            </Scene>
+          </div>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const viewport = getViewport();
+      const style = window.getComputedStyle(viewport);
+      // Content wider than container — horizontal overflow should be auto.
+      expect(style.overflowX).toBe("auto");
+      // Content fits vertically — vertical overflow should be hidden.
+      expect(style.overflowY).toBe("hidden");
+    });
+
+    test("both axes auto when content overflows both dimensions", async () => {
+      // 600x500 content in a 400x300 container — overflows both axes.
+      await render(
+        <TestWrapper fullPage>
+          <div style={{ width: 400, height: 300 }}>
+            <Scene duration={0}>
+              <SceneObject name="a" focused>
+                <div style={{ width: 600, height: 500 }} />
+              </SceneObject>
+            </Scene>
+          </div>
+        </TestWrapper>,
+      );
+
+      await waitForLayout();
+
+      const viewport = getViewport();
+      const style = window.getComputedStyle(viewport);
+      expect(style.overflowX).toBe("auto");
+      expect(style.overflowY).toBe("auto");
+    });
+
+    test("focus change resets scroll position to (0, 0)", async () => {
+      // Set up a scene with oversized content, scroll it, then change focus and
+      // verify the scroll has been reset.
+      function ScrollableScene({ focusA }: { focusA: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <div style={{ width: 400, height: 300 }}>
+              <Scene duration={0}>
+                <SceneObject name="a" focused={focusA}>
+                  <div style={{ width: 600, height: 500 }} />
+                </SceneObject>
+                <SceneObject name="b" focused={!focusA}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </Scene>
+            </div>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<ScrollableScene focusA />);
+      await waitForLayout();
+
+      // Scroll the viewport to a non-zero position.
+      const viewport = getViewport();
+      viewport.scrollTop = 50;
+      viewport.scrollLeft = 80;
+
+      // Change focus — scroll should reset.
+      await act(async () => {
+        await rerender(<ScrollableScene focusA={false} />);
+      });
+      await waitForLayout();
+
+      expect(viewport.scrollTop).toBe(0);
+      expect(viewport.scrollLeft).toBe(0);
+    });
+
+    test("unfocused columns are not affected by scroll", async () => {
+      // Scroll the viewport — the unfocused column's absolute position should
+      // stay the same (it's positioned relative to the viewport, not its scroll).
+      function SceneWithBoth() {
+        return (
+          <TestWrapper fullPage>
+            <div style={{ width: 400, height: 300 }}>
+              <Scene duration={0}>
+                <SceneColumn name="focused-col">
+                  <SceneObject name="obj-focused" focused>
+                    {/* Oversized to trigger scrollbars. */}
+                    <div style={{ width: 600, height: 500 }} />
+                  </SceneObject>
+                </SceneColumn>
+                <SceneColumn name="unfocused-col">
+                  <SceneObject name="obj-unfocused" focused={false}>
+                    <div style={{ width: 100, height: 100 }} />
+                  </SceneObject>
+                </SceneColumn>
+              </Scene>
+            </div>
+          </TestWrapper>
+        );
+      }
+
+      await render(<SceneWithBoth />);
+      await waitForLayout();
+
+      // Freeze unfocused column at last position — it was never focused, so it
+      // starts at opacity: 0 and absolute. Capture its position before scrolling.
+      const unfocusedCol = document.querySelector<HTMLElement>('[data-column="unfocused-col"]');
+      expect(unfocusedCol).not.toBeNull();
+      const positionBefore = { left: unfocusedCol!.style.left, top: unfocusedCol!.style.top };
+
+      // Scroll the viewport.
+      const viewport = getViewport();
+      viewport.scrollTop = 100;
+      viewport.scrollLeft = 100;
+      await waitForLayout();
+
+      // The unfocused column's CSS position should be unchanged (absolute positioning
+      // is relative to the viewport element, not its scroll offset).
+      expect(unfocusedCol!.style.left).toBe(positionBefore.left);
+      expect(unfocusedCol!.style.top).toBe(positionBefore.top);
+    });
+  });
 });

@@ -6,6 +6,7 @@ import React, {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -198,29 +199,49 @@ function Camera({
   // Compute centering offsets: center focused content when it fits within the
   // viewport, align to top-left (offset = 0) when it overflows.
   //
-  // For the Y axis, we measure content height from focused SceneObject elements
-  // (data-focused="true") rather than column offsetHeight, because columns use
-  // items-stretch and match the full viewport height, not the content height.
+  // We use scrollWidth/scrollHeight (not offsetWidth/offsetHeight) for overflow
+  // detection because focused columns use flex with minWidth:0, which causes
+  // offsetWidth to shrink to fit the viewport even when content is wider.
+  // scrollWidth always reports the natural content width regardless of flex
+  // layout constraints.
   let focusedContentWidth = 0;
   let focusedContentHeight = 0;
 
   if (viewportRef.current) {
     const focusedColumns = viewportRef.current.querySelectorAll<HTMLElement>('[data-column-focused="true"]');
     focusedColumns.forEach((col) => {
-      focusedContentWidth += col.offsetWidth;
-      // Measure content height from focused objects inside the column, not the
-      // column itself (which stretches to viewport height via items-stretch).
-      const focusedObjects = col.querySelectorAll<HTMLElement>('[data-focused="true"]');
-      focusedObjects.forEach((obj) => {
-        focusedContentHeight = Math.max(focusedContentHeight, obj.scrollHeight);
-      });
+      focusedContentWidth += col.scrollWidth;
+      focusedContentHeight = Math.max(focusedContentHeight, col.scrollHeight);
     });
   }
 
+  // Default to overflow-auto before the first ResizeObserver measurement so
+  // content isn't clipped during the initial render cycle.
+  const overflowsX = viewportSize.width === 0 || focusedContentWidth > viewportSize.width;
+  const overflowsY = viewportSize.height === 0 || focusedContentHeight > viewportSize.height;
+
   const centeringOffset: CenteringOffset = {
-    x: Math.max(0, (viewportSize.width - focusedContentWidth) / 2),
-    y: Math.max(0, (viewportSize.height - focusedContentHeight) / 2),
+    x: overflowsX ? 0 : Math.max(0, (viewportSize.width - focusedContentWidth) / 2),
+    y: overflowsY ? 0 : Math.max(0, (viewportSize.height - focusedContentHeight) / 2),
   };
+
+  // When focus changes, reset scroll to (0,0) so the new content starts at top-left.
+  const focusedIds = useMemo(
+    () =>
+      Array.from(entries.entries())
+        .filter(([, e]) => e.focused)
+        .map(([id]) => id)
+        .sort()
+        .join(","),
+    [entries],
+  );
+
+  useEffect(() => {
+    viewportRef.current?.scrollTo({ top: 0, left: 0 });
+  // focusedIds is a stable string key derived on each render. The effect fires
+  // exactly when the focused set changes, resetting the viewport scroll.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedIds]);
 
   void duration;
 
@@ -229,11 +250,19 @@ function Camera({
       <CenteringContext.Provider value={centeringOffset}>
         {/* Viewport — a flex row that always fills its container. Focused
             SceneObjects participate in the flex layout; unfocused ones are
-            positioned absolute and hidden until freeze/unfreeze is added. */}
+            positioned absolute and hidden until freeze/unfreeze is added.
+            Overflow is conditional per axis: auto when content overflows
+            (shows scrollbar), hidden when it fits. We can't use overflow-visible
+            on one axis while auto on the other — browsers promote visible to auto. */}
         <div
           ref={viewportRef}
           data-testid="camera-viewport"
-          className={cn("w-full h-full flex flex-row items-stretch overflow-visible relative transition-none", className)}
+          className={cn(
+            "w-full h-full flex flex-row items-start relative transition-none",
+            overflowsX ? "overflow-x-auto" : "overflow-x-hidden",
+            overflowsY ? "overflow-y-auto" : "overflow-y-hidden",
+            className,
+          )}
         >
           {children}
         </div>

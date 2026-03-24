@@ -4,6 +4,11 @@ import { page } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import { Scene, SceneObject, SceneColumn } from "@/src";
 
+/** Wait for a ResizeObserver cycle to complete before taking screenshots. */
+function waitForLayout(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 100));
+}
+
 afterEach(() => {
   document.documentElement.style.colorScheme = "";
 });
@@ -174,6 +179,53 @@ describe("Scene centering", () => {
         </Scene>
       </TestWrapper>,
     );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scroll — overflow and centering
+// ---------------------------------------------------------------------------
+
+describe("Scene scroll", () => {
+  it("scene-scroll-overflow-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    // 700x500 content in a 400x300 container — overflows both axes, showing scrollbars.
+    const screen = await render(
+      <TestWrapper fullPage>
+        <div style={{ width: 400, height: 300 }}>
+          <Scene duration={0}>
+            <SceneObject name="panel" focused>
+              <div style={{ width: 700, height: 500, background: "#234", display: "flex", alignItems: "flex-start", justifyContent: "flex-start", color: "#9cf", padding: "12px" }}>
+                Overflowing content (700×500)
+              </div>
+            </SceneObject>
+          </Scene>
+        </div>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+
+  it("scene-scroll-centered-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    // 200x150 content in a 400x300 container — fits both axes, content is centered.
+    const screen = await render(
+      <TestWrapper fullPage>
+        <div style={{ width: 400, height: 300 }}>
+          <Scene duration={0}>
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 150, background: "#334", display: "flex", alignItems: "center", justifyContent: "center", color: "#aac" }}>
+                Centered (200×150)
+              </div>
+            </SceneObject>
+          </Scene>
+        </div>
+      </TestWrapper>,
+    );
+    // Wait for ResizeObserver to fire so centering offset is computed before
+    // the screenshot is taken (viewportSize starts at {0,0} until first measurement).
+    await waitForLayout();
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 });
