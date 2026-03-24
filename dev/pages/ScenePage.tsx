@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Scene, SceneObject, useCamera } from "../../src";
+import React, { useState } from "react";
+import { Scene, SceneColumn, SceneObject, useCamera } from "../../src";
 import { Button } from "../../src";
 
-type FocusTarget = "panel-1" | "panel-2" | "panel-3" | "all";
+type ArticleTarget = "article-1" | "article-2";
 
 function CameraDebug() {
   const camera = useCamera();
@@ -15,41 +15,79 @@ function CameraDebug() {
   );
 }
 
-const panelColors = {
-  "panel-1": "bg-[lch(30_10_280)]",
-  "panel-2": "bg-[lch(30_10_340)]",
-  "panel-3": "bg-[lch(30_10_200)]",
-} as const;
+/** Renders a panel card with a title, subtitle, and consistent chrome. */
+function Panel({
+  title,
+  subtitle,
+  color,
+  focused,
+  onClick,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  color: string;
+  focused: boolean;
+  onClick?: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        transform: focused ? "perspective(30in)" : "perspective(30in) translateZ(-60px)",
+        opacity: focused ? 1 : 0.4,
+        filter: focused ? "none" : "grayscale(1)",
+        cursor: focused ? "default" : "pointer",
+        width: "100%",
+        height: "100%",
+      }}
+      className={`${color} rounded-sm p-6 flex flex-col gap-2 transition-[filter,opacity,transform] duration-300`}
+      onClick={onClick}
+    >
+      <h2 className="text-lg font-light text-white/90">{title}</h2>
+      <p className="text-xs text-white/50">{subtitle}</p>
+      {children && <div className="mt-auto">{children}</div>}
+    </div>
+  );
+}
 
 export function ScenePage() {
-  const [focus, setFocus] = useState<FocusTarget>("panel-1");
+  const [activeArticle, setActiveArticle] = useState<ArticleTarget>("article-1");
+  const [sidebarFocused, setSidebarFocused] = useState(true);
   const [padding, setPadding] = useState(16);
-
-  const isFocused = (panel: Exclude<FocusTarget, "all">) =>
-    focus === "all" || focus === panel;
 
   return (
     <div className="h-screen flex flex-col p-8 gap-6">
       <header className="shrink-0">
-        <h1 className="text-3xl font-light">Scene</h1>
+        <h1 className="text-3xl font-light">Scene — Columns</h1>
         <p className="text-text-secondary mt-2 text-sm">
-          Spatial navigation container. Focused objects form a flex row; unfocused objects are hidden.
+          Explicit SceneColumns with vertical swap. Focused columns share horizontal space; articles swap within the content column.
         </p>
       </header>
 
       {/* Navigation controls */}
       <section className="shrink-0 space-y-3">
-        <div className="flex gap-2 flex-wrap">
-          {(["panel-1", "panel-2", "panel-3", "all"] as const).map((target) => (
+        <div className="flex gap-2 flex-wrap items-center">
+          <span className="text-xs text-text-muted">Article:</span>
+          {(["article-1", "article-2"] as const).map((target) => (
             <Button
               key={target}
               size="sm"
-              ghost={focus !== target}
-              onClick={() => setFocus(target)}
+              ghost={activeArticle !== target}
+              onClick={() => setActiveArticle(target)}
             >
               {target}
             </Button>
           ))}
+
+          <span className="text-xs text-text-muted ml-4">Sidebar:</span>
+          <Button
+            size="sm"
+            ghost={!sidebarFocused}
+            onClick={() => setSidebarFocused((v) => !v)}
+          >
+            {sidebarFocused ? "visible" : "hidden"}
+          </Button>
         </div>
 
         <div className="flex items-center gap-3">
@@ -67,66 +105,74 @@ export function ScenePage() {
 
       {/* The Scene — fills remaining space */}
       <section className="flex-1 min-h-0 border border-rule-subtle rounded-sm overflow-hidden">
-        <Scene padding={padding} duration={0}>
-          <SceneObject name="panel-1" focused={isFocused("panel-1")}>
-            <div
-              style={{
-                width: 300,
-                height: 200,
-                transform: isFocused("panel-1") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
-                opacity: isFocused("panel-1") ? 1 : 0.4,
-                filter: isFocused("panel-1") ? "none" : "grayscale(1)",
-                cursor: isFocused("panel-1") ? "default" : "pointer",
-              }}
-              className={`${panelColors["panel-1"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
-              onClick={() => !isFocused("panel-1") && setFocus("panel-1")}
-            >
-              <h2 className="text-lg font-light text-white/90">Panel 1</h2>
-              <p className="text-sm text-white/50 mt-auto">
-                300 × 200 · {isFocused("panel-1") ? "focused" : "click to focus"}
-              </p>
-            </div>
-          </SceneObject>
+        <Scene padding={padding} duration={300}>
 
-          <SceneObject name="panel-2" focused={isFocused("panel-2")}>
-            <div
-              style={{
-                width: 400,
-                height: 300,
-                transform: isFocused("panel-2") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
-                opacity: isFocused("panel-2") ? 1 : 0.4,
-                filter: isFocused("panel-2") ? "none" : "grayscale(1)",
-                cursor: isFocused("panel-2") ? "default" : "pointer",
-              }}
-              className={`${panelColors["panel-2"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
-              onClick={() => !isFocused("panel-2") && setFocus("panel-2")}
-            >
-              <h2 className="text-lg font-light text-white/90">Panel 2</h2>
-              <p className="text-sm text-white/50 mt-auto">
-                400 × 300 · {isFocused("panel-2") ? "focused" : "click to focus"}
-              </p>
-            </div>
-          </SceneObject>
+          {/* Column 1: fixed navigation panel — always focused */}
+          <SceneColumn name="nav">
+            <SceneObject name="nav-panel" focused style={{ width: 200, height: "100%" }}>
+              <Panel
+                title="Nav"
+                subtitle="200px · always focused"
+                color="bg-[lch(30_10_280)]"
+                focused
+              />
+            </SceneObject>
+          </SceneColumn>
 
-          <SceneObject name="panel-3" focused={isFocused("panel-3")}>
-            <div
-              style={{
-                width: 250,
-                height: 250,
-                transform: isFocused("panel-3") ? "perspective(30in)" : "perspective(30in) translateZ(-80px)",
-                opacity: isFocused("panel-3") ? 1 : 0.4,
-                filter: isFocused("panel-3") ? "none" : "grayscale(1)",
-                cursor: isFocused("panel-3") ? "default" : "pointer",
-              }}
-              className={`${panelColors["panel-3"]} rounded-sm p-6 flex flex-col transition-[filter,opacity,transform] duration-300`}
-              onClick={() => !isFocused("panel-3") && setFocus("panel-3")}
+          {/* Column 2: two articles that swap vertically */}
+          <SceneColumn name="content">
+            <SceneObject
+              name="article-1"
+              focused={activeArticle === "article-1"}
+              style={{ width: 480 }}
             >
-              <h2 className="text-lg font-light text-white/90">Panel 3</h2>
-              <p className="text-sm text-white/50 mt-auto">
-                250 × 250 · {isFocused("panel-3") ? "focused" : "click to focus"}
-              </p>
-            </div>
-          </SceneObject>
+              <Panel
+                title="Article 1"
+                subtitle="480px wide"
+                color="bg-[lch(30_10_340)]"
+                focused={activeArticle === "article-1"}
+                onClick={
+                  activeArticle !== "article-1"
+                    ? () => setActiveArticle("article-1")
+                    : undefined
+                }
+              />
+            </SceneObject>
+            <SceneObject
+              name="article-2"
+              focused={activeArticle === "article-2"}
+              style={{ width: 480 }}
+            >
+              <Panel
+                title="Article 2"
+                subtitle="480px wide"
+                color="bg-[lch(30_15_10)]"
+                focused={activeArticle === "article-2"}
+                onClick={
+                  activeArticle !== "article-2"
+                    ? () => setActiveArticle("article-2")
+                    : undefined
+                }
+              />
+            </SceneObject>
+          </SceneColumn>
+
+          {/* Column 3: sidebar — can be toggled */}
+          <SceneColumn name="sidebar">
+            <SceneObject
+              name="sidebar-panel"
+              focused={sidebarFocused}
+              style={{ width: 200, height: "100%" }}
+            >
+              <Panel
+                title="Sidebar"
+                subtitle="200px · togglable"
+                color="bg-[lch(30_10_200)]"
+                focused={sidebarFocused}
+                onClick={!sidebarFocused ? () => setSidebarFocused(true) : undefined}
+              />
+            </SceneObject>
+          </SceneColumn>
 
           <CameraDebug />
         </Scene>
