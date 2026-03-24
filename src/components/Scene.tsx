@@ -23,10 +23,10 @@ import {
 // SceneContext — shared registry between Scene and SceneObject
 // ---------------------------------------------------------------------------
 
-type SceneEntry = { element: HTMLElement; focused: boolean };
+type SceneEntry = { element: HTMLElement; focused: boolean; size: { width: number; height: number } };
 
 interface SceneContextValue {
-  register(id: string, element: HTMLElement, focused: boolean): void;
+  register(id: string, element: HTMLElement, focused: boolean, size?: { width: number; height: number }): void;
   unregister(id: string): void;
   entries: Map<string, SceneEntry>;
   stiffness: number;
@@ -249,10 +249,15 @@ export function Scene({
 }: SceneProps) {
   const [entries, setEntries] = useState<Map<string, SceneEntry>>(new Map());
 
-  const register = (id: string, element: HTMLElement, focused: boolean) => {
+  const register = (
+    id: string,
+    element: HTMLElement,
+    focused: boolean,
+    size: { width: number; height: number } = { width: 0, height: 0 },
+  ) => {
     setEntries((prev) => {
       const next = new Map(prev);
-      next.set(id, { element, focused });
+      next.set(id, { element, focused, size });
       return next;
     });
   };
@@ -307,10 +312,20 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     const { register, unregister } = useSceneContext();
 
     useLayoutEffect(() => {
-      if (internalRef.current) {
-        register(id, internalRef.current, focused);
-      }
+      if (!internalRef.current) return;
+      const element = internalRef.current;
+      register(id, element, focused);
+
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        const { width, height } = entry.contentRect;
+        register(id, element, focused, { width, height });
+      });
+      observer.observe(element);
+
       return () => {
+        observer.disconnect();
         unregister(id);
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps -- register/unregister

@@ -263,4 +263,126 @@ describe("Scene behavior", () => {
       expectPx(viewport!.style.height, 164);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 0: data-focused attribute
+  // ---------------------------------------------------------------------------
+
+  describe("data-focused attribute", () => {
+    test("focused objects have data-focused=true", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="focused-obj" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            <SceneObject name="unfocused-obj" focused={false}>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const focused = document.querySelector('[data-focused="true"]');
+      expect(focused).not.toBeNull();
+    });
+
+    test("unfocused objects have data-focused=false", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="focused-obj" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            <SceneObject name="unfocused-obj" focused={false}>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const unfocused = document.querySelector('[data-focused="false"]');
+      expect(unfocused).not.toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 0: inert inner wrapper
+  // ---------------------------------------------------------------------------
+
+  describe("inert inner wrapper", () => {
+    test("unfocused object internals are inert", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="unfocused-obj" focused={false}>
+              <button>Click me</button>
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const button = document.querySelector("button");
+      expect(button).not.toBeNull();
+      // The inner wrapper has inert, not the root SceneObject div.
+      const inertAncestor = button!.closest("[inert]");
+      expect(inertAncestor).not.toBeNull();
+      // The root SceneObject div (data-focused=false) should not itself be inert.
+      const rootDiv = document.querySelector('[data-focused="false"]');
+      expect(rootDiv?.hasAttribute("inert")).toBe(false);
+    });
+
+    test("focused object internals are not inert", async () => {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneObject name="focused-obj" focused>
+              <button>Click me</button>
+            </SceneObject>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const button = document.querySelector("button");
+      expect(button).not.toBeNull();
+      const inertAncestor = button!.closest("[inert]");
+      expect(inertAncestor).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 0: ResizeObserver reframe
+  // ---------------------------------------------------------------------------
+
+  describe("ResizeObserver reframe", () => {
+    test("camera reframes when focused object resizes", async () => {
+      function ResizableScene({ wide }: { wide: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneObject name="resizable" focused>
+                <div style={{ width: wide ? 400 : 200, height: 100 }} />
+              </SceneObject>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<ResizableScene wide={false} />);
+      // Wait for ResizeObserver to fire after initial render.
+      await new Promise((r) => setTimeout(r, 100));
+
+      const viewport = document.querySelector<HTMLElement>(
+        '[data-testid="camera-viewport"]',
+      );
+      const initialWidth = parsePx(viewport!.style.width);
+
+      await rerender(<ResizableScene wide />);
+      // Wait for ResizeObserver to fire after resize.
+      await new Promise((r) => setTimeout(r, 100));
+
+      const updatedWidth = parsePx(viewport!.style.width);
+      expect(updatedWidth).toBeGreaterThan(initialWidth);
+    });
+  });
 });
