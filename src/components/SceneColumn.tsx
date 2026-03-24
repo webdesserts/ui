@@ -1,6 +1,6 @@
-import React, { forwardRef, useCallback, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../utils/cn";
-import { ColumnContext, useSceneContext } from "./Scene";
+import { ColumnContext, useSceneContext, type SwapState } from "./Scene";
 
 type FrozenStyle = { left: number; top: number; width: number; height: number };
 
@@ -31,12 +31,15 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
     const generatedId = useId();
     const id = name ?? generatedId;
     const internalRef = useRef<HTMLDivElement>(null);
-    const { entries } = useSceneContext();
+    const { entries, duration } = useSceneContext();
 
     // Track which SceneObject IDs belong to this column.
     const [childIds, setChildIds] = useState<Set<string>>(new Set());
 
     const [frozenStyle, setFrozenStyle] = useState<FrozenStyle | null>(null);
+
+    // Active vertical swap animation state. null when no swap is running.
+    const [swapState, setSwapState] = useState<SwapState | null>(null);
 
     // Stable callbacks passed to SceneObject children via ColumnContext.
     const registerChild = useCallback((childId: string) => {
@@ -57,19 +60,28 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
       });
     }, []);
 
+    // Derive the focused child ID from the registry.
+    const focusedChildId = Array.from(childIds).find((childId) => {
+      return entries.get(childId)?.focused === true;
+    }) ?? null;
+
     // Determine if any child object is currently focused.
-    const hasAnyFocusedChild = Array.from(childIds).some((childId) => {
-      const entry = entries.get(childId);
-      return entry?.focused === true;
-    });
+    const hasAnyFocusedChild = focusedChildId !== null;
 
     const prevFocusedRef = useRef(hasAnyFocusedChild);
+
+    // Track which child was focused in the previous render for swap detection.
+    const prevFocusedChildRef = useRef<string | null>(focusedChildId);
 
     // Track the last dimensions while focused so we can freeze accurately.
     // We can't read offsetWidth/offsetHeight after going unfocused because the
     // column's children exit flow (position:absolute) simultaneously, making
     // the column shrink to zero before our effect can read it.
     const lastFocusedDimensionsRef = useRef<FrozenStyle | null>(null);
+
+    // Track in-flight RAF and timer IDs so we can cancel them on rapid focus changes.
+    const rafIdRef = useRef<number | null>(null);
+    const timerIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Snapshot dimensions whenever the column is focused. We guard on offsetWidth
     // being positive because during a focused→unfocused transition, layout effects
@@ -102,6 +114,91 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
       }
     }, [hasAnyFocusedChild]);
 
+    // Detect focus swaps within the column and start the animation.
+    useLayoutEffect(() => {
+      const prevId = prevFocusedChildRef.current;
+      prevFocusedChildRef.current = focusedChildId;
+
+      // A swap occurs when both the previous and current focused child are known
+      // and they are different objects within this column.
+      if (
+        prevId !== null &&
+        focusedChildId !== null &&
+        prevId !== focusedChildId &&
+        childIds.has(prevId) &&
+        childIds.has(focusedChildId)
+      ) {
+        // Cancel any in-flight swap to avoid state accumulation.
+        if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+        if (timerIdRef.current !== null) clearTimeout(timerIdRef.current);
+
+        // Query the column DOM to determine the visual order of these two objects.
+        const columnEl = internalRef.current;
+        const columnHeight = lastFocusedDimensionsRef.current?.height ?? 300;
+
+        let incomingIndex = 0;
+        let outgoingIndex = 0;
+        if (columnEl) {
+          const elements = Array.from(
+            columnEl.querySelectorAll<HTMLElement>("[data-scene-id]"),
+          );
+          incomingIndex = elements.findIndex(
+            (el) => el.dataset.sceneId === focusedChildId,
+          );
+          outgoingIndex = elements.findIndex(
+            (el) => el.dataset.sceneId === prevId,
+          );
+        }
+
+        // Ascending: incoming is after outgoing in DOM (slides up from below).
+        // Descending: incoming is before outgoing (slides down from above).
+        const ascending = incomingIndex > outgoingIndex;
+
+        // Init offsets: incoming placed off-screen, outgoing stays in place.
+        // Settle offsets: incoming slides to 0, outgoing exits the other way.
+        const children = new Map<string, { init: number; settle: number }>();
+        children.set(focusedChildId, {
+          init: ascending ? columnHeight : -columnHeight,
+          settle: 0,
+        });
+        children.set(prevId, {
+          init: 0,
+          settle: ascending ? -columnHeight : columnHeight,
+        });
+
+        // When duration is 0, skip the animation phases entirely — let the
+        // normal freeze path handle the transition instantly.
+        if (duration === 0) {
+          // No swap state needed; freeze fires immediately in SceneObject.
+        } else {
+          // Phase 1 — init: place objects at starting positions with no transition.
+          setSwapState({ children, phase: "init" });
+
+          // Phase 2 — settle: enable CSS transition and animate to final positions.
+          rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = null;
+            setSwapState((prev) =>
+              prev ? { children: prev.children, phase: "settle" } : null,
+            );
+
+            // Phase 3 — done: clear swap state so the freeze can fire.
+            timerIdRef.current = setTimeout(() => {
+              timerIdRef.current = null;
+              setSwapState(null);
+            }, duration ?? 300);
+          });
+        }
+      }
+    }, [focusedChildId, childIds, duration]);
+
+    // Clean up pending RAF and timers on unmount.
+    useEffect(() => {
+      return () => {
+        if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+        if (timerIdRef.current !== null) clearTimeout(timerIdRef.current);
+      };
+    }, []);
+
     // Focused columns are flex items that grow/shrink in the horizontal layout.
     const focusedStyle: React.CSSProperties = {
       flex: "0 1 auto",
@@ -127,7 +224,7 @@ export const SceneColumn = forwardRef<HTMLDivElement, SceneColumnProps>(
       : { position: "absolute", opacity: 0, display: "flex", flexDirection: "column" };
 
     return (
-      <ColumnContext.Provider value={{ columnId: id, registerChild, unregisterChild }}>
+      <ColumnContext.Provider value={{ columnId: id, registerChild, unregisterChild, swapState }}>
         <div
           ref={(node) => {
             (internalRef as React.MutableRefObject<HTMLDivElement | null>).current = node;

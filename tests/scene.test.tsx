@@ -593,6 +593,244 @@ describe("Scene behavior", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Vertical swap animation
+  // ---------------------------------------------------------------------------
+
+  describe("Vertical swap animation", () => {
+    test("vertical swap changes focused state correctly", async () => {
+      // Swap should correctly update data-focused attributes for both objects.
+      function FocusSwitcher({ focusB }: { focusB: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused={!focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusB={false} />);
+      await waitForLayout();
+
+      await act(async () => {
+        await rerender(<FocusSwitcher focusB />);
+      });
+      await waitForLayout();
+
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+      expect(objB!.dataset.focused).toBe("true");
+      expect(objA!.dataset.focused).toBe("false");
+    });
+
+    test("ascending swap — incoming object slides up from below", async () => {
+      // When focus moves from obj-a to obj-b (b is after a in DOM), b rises from below.
+      // In the init phase, b should have a positive translateY (placed below).
+      function FocusSwitcher({ focusB }: { focusB: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={100}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused={!focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusB={false} />);
+      await waitForLayout();
+
+      // Trigger the swap — check init-phase transform immediately after render.
+      await act(async () => {
+        await rerender(<FocusSwitcher focusB />);
+      });
+
+      // Read transform right after act(), before RAF fires settle phase.
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      expect(objB).not.toBeNull();
+      // During init phase, incoming (b, ascending) starts at +columnHeight.
+      const transform = objB!.style.transform;
+      expect(transform).toBeTruthy();
+      const match = transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      expect(match).not.toBeNull();
+      const y = parseFloat(match![1]);
+      expect(y).toBeGreaterThanOrEqual(0);
+    });
+
+    test("descending swap — incoming object slides down from above", async () => {
+      // When focus moves from obj-b to obj-a (a is before b in DOM), a descends from above.
+      // In the init phase, a should have a negative translateY (placed above).
+      function FocusSwitcher({ focusA }: { focusA: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={100}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused={focusA}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={!focusA}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusA={false} />);
+      await waitForLayout();
+
+      // Trigger the swap — check init-phase transform immediately after render.
+      await act(async () => {
+        await rerender(<FocusSwitcher focusA />);
+      });
+
+      // Read transform right after act(), before RAF fires settle phase.
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      expect(objA).not.toBeNull();
+      // During init phase, incoming (a, descending) starts at -columnHeight.
+      const transform = objA!.style.transform;
+      expect(transform).toBeTruthy();
+      const match = transform.match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+      expect(match).not.toBeNull();
+      const y = parseFloat(match![1]);
+      expect(y).toBeLessThanOrEqual(0);
+    });
+
+    test("sibling columns unaffected by vertical swap", async () => {
+      // A swap in column 1 should not move objects in column 2.
+      function FocusSwitcher({ focusB }: { focusB: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={100}>
+              <SceneColumn name="col-1">
+                <SceneObject name="obj-a" focused={!focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="col-2">
+                <SceneObject name="obj-c" focused>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusB={false} />);
+      await waitForLayout();
+
+      await act(async () => {
+        await rerender(<FocusSwitcher focusB />);
+      });
+      await waitForLayout();
+
+      // Column 2's object should have no transform applied by the swap.
+      const objC = document.querySelector<HTMLElement>('[data-scene-id="obj-c"]');
+      expect(objC).not.toBeNull();
+      const transform = objC!.style.transform;
+      // No translateY should be applied to a sibling column's object.
+      expect(transform).not.toMatch(/translateY\([^0]/);
+    });
+
+    test("swap completes — outgoing object freezes after animation", async () => {
+      // After the animation duration, the outgoing object should be frozen at absolute position.
+      function FocusSwitcher({ focusB }: { focusB: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={50}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused={!focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusB={false} />);
+      await waitForLayout();
+
+      await act(async () => {
+        await rerender(<FocusSwitcher focusB />);
+      });
+
+      // Wait for animation to finish (50ms duration + buffer).
+      await new Promise((r) => setTimeout(r, 150));
+
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      expect(objA).not.toBeNull();
+      // After swap completes, outgoing object should be frozen (position: absolute).
+      expect(objA!.style.position).toBe("absolute");
+      // Width and height should be non-zero (frozen at last dimensions).
+      expect(parseFloat(objA!.style.width)).toBeGreaterThan(0);
+      expect(parseFloat(objA!.style.height)).toBeGreaterThan(0);
+    });
+
+    test("instant swap with duration={0} — no lingering transforms", async () => {
+      // With duration=0, the swap should complete immediately with no transforms.
+      function FocusSwitcher({ focusB }: { focusB: boolean }) {
+        return (
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col">
+                <SceneObject name="obj-a" focused={!focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+                <SceneObject name="obj-b" focused={focusB}>
+                  <div style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        );
+      }
+
+      const { rerender } = await render(<FocusSwitcher focusB={false} />);
+      await waitForLayout();
+
+      await act(async () => {
+        await rerender(<FocusSwitcher focusB />);
+      });
+      await waitForLayout();
+
+      // After an instant swap, no lingering transforms should remain.
+      const objA = document.querySelector<HTMLElement>('[data-scene-id="obj-a"]');
+      const objB = document.querySelector<HTMLElement>('[data-scene-id="obj-b"]');
+      expect(objA).not.toBeNull();
+      expect(objB).not.toBeNull();
+      // Both should be in their final states without active transforms.
+      expect(objA!.style.transform).not.toMatch(/translateY\([^0]/);
+      expect(objB!.style.transform).not.toMatch(/translateY\([^0]/);
+      // obj-b is the new focused object — it should be relative.
+      expect(objB!.style.position).toBe("relative");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Phase 0: ResizeObserver reframe
   // ---------------------------------------------------------------------------
 

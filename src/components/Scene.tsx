@@ -44,12 +44,24 @@ export function useSceneContext(): SceneContextValue {
 // ColumnContext — communicates column membership from SceneColumn to SceneObject
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-child animation offsets for a vertical swap. Each child's `init` value
+ * is the starting translateY (placed off-screen) and `settle` is where it
+ * animates to (incoming → 0, outgoing → ±columnHeight).
+ */
+export interface SwapState {
+  children: Map<string, { init: number; settle: number }>;
+  phase: "init" | "settle";
+}
+
 export interface ColumnContextValue {
   columnId: string;
   /** Called by SceneObject children to register their ID with the column. */
   registerChild(childId: string): void;
   /** Called by SceneObject children to unregister their ID from the column. */
   unregisterChild(childId: string): void;
+  /** Active vertical swap animation state, or null when no swap is in progress. */
+  swapState: SwapState | null;
 }
 
 export const ColumnContext = createContext<ColumnContextValue | null>(null);
@@ -258,7 +270,7 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     const generatedId = useId();
     const id = name ?? generatedId;
     const internalRef = useRef<HTMLDivElement>(null);
-    const { register, unregister } = useSceneContext();
+    const { register, unregister, duration } = useSceneContext();
     const columnCtx = useContext(ColumnContext);
 
     // Dimensions and position captured at the moment this object lost focus.
@@ -268,15 +280,38 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
     // Track previous focused state to detect focus transitions.
     const prevFocusedRef = useRef(focused);
 
+    // When inside a column with an active swap, defer the freeze until the swap
+    // completes. This keeps the outgoing object in flow (position:relative) during
+    // the slide-out animation instead of snapping it to absolute immediately.
+    // State (not ref) so the render reads a consistent value.
+    const [pendingFreeze, setPendingFreeze] = useState(false);
+
     useLayoutEffect(() => {
       const wasFocused = prevFocusedRef.current;
       prevFocusedRef.current = focused;
 
-      // Focused → unfocused: capture the current position and size so the
-      // element can be placed absolutely at exactly where it was in the flex
-      // layout. offsetLeft/offsetTop are relative to the offsetParent (the
-      // Camera's viewport div, which has position:relative).
       if (wasFocused && !focused && internalRef.current) {
+        const swapActive = columnCtx?.swapState !== null && columnCtx?.swapState !== undefined;
+        if (swapActive) {
+          // Swap will fire the freeze when it completes via the effect below.
+          setPendingFreeze(true);
+        } else {
+          // Focused → unfocused: capture position and size for the freeze.
+          const el = internalRef.current;
+          setFrozenStyle({
+            left: el.offsetLeft,
+            top: el.offsetTop,
+            width: el.offsetWidth,
+            height: el.offsetHeight,
+          });
+        }
+      }
+    }, [focused, columnCtx?.swapState]);
+
+    // When the swap completes (swapState → null), fire any deferred freeze.
+    useLayoutEffect(() => {
+      if (pendingFreeze && !columnCtx?.swapState && internalRef.current) {
+        setPendingFreeze(false);
         const el = internalRef.current;
         setFrozenStyle({
           left: el.offsetLeft,
@@ -285,7 +320,7 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
           height: el.offsetHeight,
         });
       }
-    }, [focused]);
+    }, [pendingFreeze, columnCtx?.swapState]);
 
     useLayoutEffect(() => {
       if (!internalRef.current) return;
@@ -325,12 +360,33 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
       ? { position: "relative" as const }
       : { flex: "0 1 auto" as const, minWidth: 0, position: "relative" as const };
 
-    const unfocusedStyle: React.CSSProperties = frozenStyle
-      // Previously focused: pin at exact frozen dimensions so the element
-      // appears to stay in place visually as it exits the flex layout.
-      ? { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height }
-      // Never been focused: hide until first focus.
-      : { position: "absolute", opacity: 0 };
+    // During an active swap, the outgoing object (unfocused with a pending freeze)
+    // should stay in flow for the slide animation. Override the absolute positioning
+    // until the swap completes and the freeze fires.
+    const isSwappingOut = pendingFreeze && !!columnCtx?.swapState;
+
+    const unfocusedStyle: React.CSSProperties = isSwappingOut
+      // Keep in flow during the swap so transform animation is visible.
+      ? { position: "relative" as const }
+      : frozenStyle
+        // Previously focused: pin at exact frozen dimensions so the element
+        // appears to stay in place visually as it exits the flex layout.
+        ? { position: "absolute", left: frozenStyle.left, top: frozenStyle.top, width: frozenStyle.width, height: frozenStyle.height }
+        // Never been focused: hide until first focus.
+        : { position: "absolute", opacity: 0 };
+
+    // Apply vertical swap transforms when a swap is in progress for this object.
+    const swapEntry = columnCtx?.swapState?.children.get(id);
+    let swapStyle: React.CSSProperties = {};
+    if (swapEntry) {
+      const y = columnCtx!.swapState!.phase === "init" ? swapEntry.init : swapEntry.settle;
+      swapStyle = {
+        transform: `translateY(${y}px)`,
+        ...(columnCtx!.swapState!.phase === "settle"
+          ? { transition: `transform ${duration ?? 300}ms ease-out` }
+          : {}),
+      };
+    }
 
     return (
       <div
@@ -339,11 +395,13 @@ export const SceneObject = forwardRef<HTMLDivElement, SceneObjectProps>(
           if (typeof forwardedRef === "function") forwardedRef(node);
           else if (forwardedRef) forwardedRef.current = node;
         }}
+        data-scene-id={id}
         data-focused={focused}
         {...htmlProps}
         style={{
           ...htmlProps.style,
           ...(focused ? focusedStyle : unfocusedStyle),
+          ...swapStyle,
         }}
       >
         <div inert={!focused || undefined}>
