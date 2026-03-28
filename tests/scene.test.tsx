@@ -1929,3 +1929,163 @@ describe("Scene scroll edge cases", () => {
     expect(scene.querySelector("[data-scrollbar]")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6a: Outer unfocused column positioning
+// ---------------------------------------------------------------------------
+
+describe("Scene outer unfocused column positioning", () => {
+  test("unfocused column left of all focused slides offscreen left", async () => {
+    // With col-left unfocused and col-right focused, col-left should be
+    // translated so it's fully offscreen to the left (translateX is negative,
+    // moving the column past the left edge of the viewport).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused={false}>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const leftCol = getByTestId("content-left").element().closest("[data-column]") as HTMLElement;
+    // Column should be classified as outer-left
+    expect(leftCol.getAttribute("data-column-position")).toBe("outer-left");
+    // The column's bounding rect should be off the left edge of the viewport
+    const rect = leftCol.getBoundingClientRect();
+    expect(rect.right).toBeLessThanOrEqual(0);
+  });
+
+  test("unfocused column right of all focused slides offscreen right", async () => {
+    // With col-left focused and col-right unfocused, col-right should be
+    // fully offscreen to the right.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused={false}>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    // Column should be classified as outer-right
+    expect(rightCol.getAttribute("data-column-position")).toBe("outer-right");
+    // The column's bounding rect should be off the right edge of the viewport (1280px)
+    const rect = rightCol.getBoundingClientRect();
+    expect(rect.left).toBeGreaterThanOrEqual(1280);
+  });
+
+  test("refocusing outer column animates it back into viewport", async () => {
+    // An unfocused outer-right column should slide back into view when focused.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused={false}>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    // Initially offscreen right
+    expect(rightCol.getAttribute("data-column-position")).toBe("outer-right");
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // After refocus, column is back in the flex layout (position: relative)
+    const style = window.getComputedStyle(rightCol);
+    expect(style.position).toBe("relative");
+    // No longer classified as outer
+    expect(rightCol.getAttribute("data-column-position")).not.toBe("outer-right");
+  });
+
+  test("all unfocused — columns stay at last position (camera does not move)", async () => {
+    // When all columns are unfocused, they should keep their last frozen
+    // position rather than jumping to offscreen. This prevents layout thrash
+    // when nothing is focused (the camera stays still).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Record positions while both are focused
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // When no columns are focused, neither should be classified as outer
+    // (they stay put rather than flying offscreen)
+    expect(colA.getAttribute("data-column-position")).not.toBe("outer-left");
+    expect(colA.getAttribute("data-column-position")).not.toBe("outer-right");
+    expect(colB.getAttribute("data-column-position")).not.toBe("outer-left");
+    expect(colB.getAttribute("data-column-position")).not.toBe("outer-right");
+  });
+});
