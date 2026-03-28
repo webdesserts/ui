@@ -92,7 +92,7 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
       ? { position: "relative" }
       : column.isInDepthDeck
         ? { position: "relative" }
-        : { position: "absolute", opacity: 0 }
+        : { position: "absolute" }
     : undefined;
 
   return (

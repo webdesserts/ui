@@ -436,21 +436,46 @@ function SceneViewport({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewportSize.width, viewportSize.height]);
 
-  // Reset horizontal scroll position whenever the focused column layout changes.
-  // This ensures the user always sees from the left edge after a navigation change.
-  // focusKey is intentionally omitted from the deps array for the initial run
-  // (we only want to reset on changes, not on mount).
-  const isFirstRender = useRef(true);
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
+  // Center the focused region within the Camera viewport by setting scrollLeft.
+  //
+  // The stage contains all columns in DOM order. Focused columns occupy some
+  // sub-range of the stage's width. We measure their combined left/right edges
+  // (relative to the stage) and compute the scrollLeft that centers them:
+  //   - If focused region fits the viewport: scrollLeft centers it
+  //   - If focused region overflows: scrollLeft = focusedLeft (left-aligned)
+  //
+  // This runs on every render so it stays in sync with column layout changes.
+  // Runs as useLayoutEffect so the scroll position is set before the browser
+  // paints, avoiding a visible flash of mis-aligned content.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    if (!viewport || !stage) return;
+
+    const focusedCols = Array.from(
+      stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
+    );
+    if (focusedCols.length === 0) return; // no focus — camera stays still
+
+    const stageRect = stage.getBoundingClientRect();
+    const first = focusedCols[0]!.getBoundingClientRect();
+    const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
+
+    // Focused region position relative to the stage left edge
+    const focusedLeft = first.left - stageRect.left + viewport.scrollLeft;
+    const focusedRight = last.right - stageRect.left + viewport.scrollLeft;
+    const focusedWidth = focusedRight - focusedLeft;
+
+    const vpWidth = viewport.clientWidth;
+
+    if (focusedWidth <= vpWidth) {
+      // Center the focused region in the viewport
+      viewport.scrollLeft = focusedLeft - (vpWidth - focusedWidth) / 2;
+    } else {
+      // Left-align when focused content overflows the viewport
+      viewport.scrollLeft = focusedLeft;
     }
-    if (viewportRef.current) {
-      viewportRef.current.scrollLeft = 0;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusKey]);
+  });
 
   // Measure the rightmost focused column's left edge relative to the stage
   // after each render so in-between columns can align to it. Runs on every
@@ -542,6 +567,9 @@ function SceneViewport({
             // Thin scrollbar with transparent track so it doesn't eat into content space.
             scrollbarWidth: "thin",
             scrollbarColor: "rgba(128,128,128,0.4) transparent",
+            // container-type: size lets consumers use cqw/cqh units to size
+            // columns relative to the Camera viewport dimensions.
+            containerType: "size",
           } as React.CSSProperties}
         >
           {/* Stage: the flex row of focused columns. width: fit-content allows the
@@ -569,7 +597,6 @@ function SceneViewport({
               flexDirection: "row",
               alignItems: "stretch",
               width: "fit-content",
-              marginInline: "auto",
               gap: columnGap || undefined,
               padding: padding || undefined,
               perspective: "1000px",

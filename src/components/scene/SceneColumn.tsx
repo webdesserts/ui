@@ -432,56 +432,43 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
-  // flex: 1 1 0 → equal sharing of available viewport width among focused columns.
+  // flex: 0 1 auto → columns size to their content by default. Consumers can
+  // override via className (e.g. adding flex:1 for equal-share or a fixed width).
   const focusedStyle: React.CSSProperties = {
     position: "relative",
-    flex: "1 1 0",
-    minWidth: 0,
+    flex: "0 1 auto",
     opacity: 1,
-    // Clear any inline width/height left over from the frozen state so flex
-    // can recalculate the column size freely.
-    width: "",
-    height: "",
-    // Clip sliding content during vertical swap so unfocused objects don't
-    // peek above or below the column's visible area.
-    overflow: "hidden",
   };
 
-  // Unfocused columns exit flex flow and are hidden. If we have a frozen size,
-  // set explicit dimensions so the column preserves its footprint in the DOM
-  // (needed for FLIP to animate from the correct position when re-focusing).
-  // opacity is set here directly so the initial render doesn't flash before
-  // motion applies the animate prop.
-  const unfocusedStyle: React.CSSProperties = {
+  // Unfocused in-between columns exit flex flow and stack as a depth deck.
+  // All other unfocused columns (outer-left, outer-right, no-position) stay in
+  // flex flow at their frozen size — the Camera viewport clips them.
+  const inBetweenStyle: React.CSSProperties = {
     position: "absolute",
     flex: "none",
-    opacity: 0,
-    ...(frozenSize
-      ? { width: frozenSize.width, height: frozenSize.height }
-      : {}),
+    ...(frozenSize ? { width: frozenSize.width, height: frozenSize.height } : {}),
   };
 
-  // Compute the x offset for outer unfocused columns. Outer-left slides fully
-  // offscreen left; outer-right slides fully offscreen right. We use the
-  // viewport width (from ViewportContext) to guarantee the column clears the
-  // visible area regardless of its current DOM position.
-  //
-  // In-between columns target the left edge of the rightmost focused column
-  // (stackTargetLeft) so they appear to stack behind it in the depth deck.
-  //
-  // Using `viewportWidth` (rather than exact column bounds) for outer columns
-  // is intentional:
-  // - Outer-left: `-viewportWidth` always moves the right edge past x=0.
-  // - Outer-right: `viewportWidth` always moves the left edge past the right edge.
-  // When all columns are unfocused, x stays at 0 (camera stays still).
-  const outerX =
-    position === "outer-left"
-      ? -viewportWidth
-      : position === "outer-right"
-        ? viewportWidth
-        : position === "in-between"
-          ? stackTargetLeft
-          : 0;
+  // Outer unfocused columns stay in the flex row with their frozen size so the
+  // Camera can pan past them. No opacity:0 — the viewport clips visibility.
+  const outerStyle: React.CSSProperties = {
+    position: "relative",
+    flex: "0 0 auto",
+    ...(frozenSize ? { width: frozenSize.width, height: frozenSize.height } : {}),
+  };
+
+  // Select which style applies. Focused columns use focusedStyle; in-between
+  // unfocused columns use inBetweenStyle; all other unfocused use outerStyle.
+  const columnStyle = columnFocused
+    ? focusedStyle
+    : position === "in-between"
+      ? inBetweenStyle
+      : outerStyle;
+
+  // In-between columns animate toward the rightmost focused column's left edge
+  // so they appear stacked behind it. Outer columns stay at x:0 — they are in
+  // the natural flex row position and the Camera viewport clips them.
+  const animateX = position === "in-between" ? stackTargetLeft : 0;
 
   // Depth deck visual values for in-between columns. Deeper columns appear
   // smaller (via scale), more transparent, and stacked lower (z-index).
@@ -491,7 +478,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // so getBoundingClientRect() returns the actual displayed (scaled) dimensions,
   // which lets tests and layout logic compare apparent sizes across depths.
   const depthScale = isInBetween ? Math.max(0.1, 1 - stackDepth * 0.1) : 1;
-  const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : columnFocused ? 1 : 0;
+  // Only in-between columns get depth-scaled opacity. Outer columns are fully
+  // opaque — the viewport clips their visibility, not opacity:0.
+  const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
   const depthZIndex = isInBetween ? 100 - stackDepth : undefined;
 
   // Outer columns use animate-only (no layout FLIP). Focused columns use layout
@@ -522,10 +511,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
         data-content-height={columnFocused ? String(contentHeight) : undefined}
-        animate={{ opacity: depthOpacity, x: outerX, scale: depthScale }}
+        animate={{ opacity: depthOpacity, x: animateX, scale: depthScale }}
         transition={transition}
         style={{
-          ...(columnFocused ? focusedStyle : unfocusedStyle),
+          ...columnStyle,
           ...(depthZIndex !== undefined ? { zIndex: depthZIndex } : {}),
         }}
       >
