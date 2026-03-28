@@ -199,8 +199,15 @@ function SceneViewport({
       if (column.getAttribute("data-column-focused") !== "true") return;
       if (!column.hasAttribute("data-max-scroll")) return;
 
-      // Prevent the viewport from scrolling vertically.
-      e.preventDefault();
+      // Prevent the viewport from scrolling vertically. When the event also has
+      // deltaX (diagonal trackpad gesture), only prevent default if there's no
+      // horizontal scroll needed — otherwise the browser needs the event to
+      // execute its native horizontal scroll via overflow-x: auto. Since the
+      // viewport has overflow-y: hidden, not preventing default is safe for
+      // the vertical axis in that case.
+      if (e.deltaX === 0) {
+        e.preventDefault();
+      }
 
       column.dispatchEvent(
         new CustomEvent("columnscroll", {
