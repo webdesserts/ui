@@ -923,3 +923,160 @@ describe("SceneColumn multi-focus stacking", () => {
     expect(top).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 3: Centering and alignment
+// ---------------------------------------------------------------------------
+
+describe("Scene centering", () => {
+  test("small content is centered horizontally — stage has margin-inline: auto", async () => {
+    // Content that is smaller than the viewport should be centered horizontally
+    // via margin-inline: auto on the stage (flex container with width: fit-content).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Small content: 200px wide in a 1280px viewport */}
+              <div data-testid="content" style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // The stage is the direct child of the scene viewport that wraps the columns.
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
+
+    const stageStyle = window.getComputedStyle(stage!);
+    // margin-inline: auto should result in equal left/right auto margins,
+    // which centers the stage when it's narrower than the viewport.
+    // In computed style, "auto" margins are resolved to px values — both should be > 0
+    // when the content is smaller than the viewport.
+    const marginLeft = parseFloat(stageStyle.marginLeft);
+    const marginRight = parseFloat(stageStyle.marginRight);
+    expect(marginLeft).toBeGreaterThan(0);
+    expect(marginRight).toBeGreaterThan(0);
+    // The margins should be roughly equal (centered)
+    expect(Math.abs(marginLeft - marginRight)).toBeLessThan(2);
+  });
+
+  test("content overflowing horizontally — stage left-aligns (margins collapse to 0)", async () => {
+    // When focused content width exceeds the viewport, margin-inline: auto
+    // collapses to 0 and content left-aligns naturally.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          {/* Three wide columns in a 1280px viewport — total exceeds viewport */}
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused>
+              <div data-testid="content3" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
+
+    // When content overflows, margins should be 0 (no centering offset).
+    const stageStyle = window.getComputedStyle(stage!);
+    const marginLeft = parseFloat(stageStyle.marginLeft);
+    expect(marginLeft).toBe(0);
+  });
+
+  test("small content is centered vertically — column content wrapper has margin-top > 0", async () => {
+    // Content that is shorter than the viewport should be centered vertically
+    // via margin-top on the column content wrapper.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Short content: 100px in an 800px viewport */}
+              <div data-testid="content" style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column?.querySelector("[data-column-content]") as HTMLElement | null;
+    expect(contentWrapper).not.toBeNull();
+
+    // margin-top should be > 0 to center the 100px content in an 800px viewport
+    // Expected: (800 - 100) / 2 = 350px
+    const marginTop = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
+    expect(marginTop).toBeGreaterThan(0);
+  });
+
+  test("column content taller than viewport — margin-top is 0 (top-aligned)", async () => {
+    // When focused content height exceeds the viewport, margin-top should be 0.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Taller than 800px viewport */}
+              <div data-testid="content" style={{ width: 200, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column?.querySelector("[data-column-content]") as HTMLElement | null;
+    expect(contentWrapper).not.toBeNull();
+
+    const marginTop = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
+    // Content overflows — no top margin
+    expect(marginTop).toBe(0);
+  });
+
+  test("small content — top-left is centered in viewport", async () => {
+    // When content fits both axes, it should be visually centered in the viewport.
+    // Check that the content's bounding rect is roughly centered within 1280x800.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const rect = content.getBoundingClientRect();
+
+    // Horizontal center: in a 1280px viewport with 200px content,
+    // content should be near x = 540 (center - half-width)
+    expect(rect.left).toBeGreaterThan(200);   // not left-aligned
+    expect(rect.right).toBeLessThan(1080);    // not right-aligned
+
+    // Vertical center: in an 800px viewport with 100px content,
+    // content should be near y = 350
+    expect(rect.top).toBeGreaterThan(100);    // not top-aligned
+    expect(rect.bottom).toBeLessThan(700);    // not bottom-aligned
+  });
+});
