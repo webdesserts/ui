@@ -214,6 +214,73 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     return () => el.removeEventListener("columnscroll", handler);
   }, []); // colRef is stable; maxScrollRef and scrollOffsetRef are mutable refs
 
+  // Ref to the latest viewport height for use in the keyboard handler (avoids
+  // stale closure — we want the current value at the time of the keypress).
+  const viewportHeightRef = useRef(viewportHeight);
+  viewportHeightRef.current = viewportHeight;
+
+  // Keyboard scroll: intercept arrow/page/home/end keys when keyboard focus is
+  // inside this column. Standard scroll amounts match browser conventions.
+  useEffect(() => {
+    const el = colRef.current;
+    if (!el) return;
+
+    const handler = (e: KeyboardEvent) => {
+      // Only handle when this column has focused content to scroll.
+      if (maxScrollRef.current <= 0) return;
+
+      let delta = 0;
+      const pageSize = viewportHeightRef.current;
+
+      switch (e.key) {
+        case "ArrowDown":
+          delta = 40;
+          break;
+        case "ArrowUp":
+          delta = -40;
+          break;
+        case "PageDown":
+        case " ":
+          if (e.key === " " && e.shiftKey) {
+            delta = -pageSize;
+          } else {
+            delta = pageSize;
+          }
+          break;
+        case "PageUp":
+          delta = -pageSize;
+          break;
+        case "Home":
+          // Scroll to top: set offset to 0
+          scrollOffsetRef.current = 0;
+          setScrollOffset(0);
+          e.preventDefault();
+          return;
+        case "End":
+          // Scroll to bottom
+          scrollOffsetRef.current = maxScrollRef.current;
+          setScrollOffset(maxScrollRef.current);
+          e.preventDefault();
+          return;
+        default:
+          return; // Not a scroll key — don't intercept
+      }
+
+      if (delta !== 0) {
+        const newOffset = Math.max(
+          0,
+          Math.min(maxScrollRef.current, scrollOffsetRef.current + delta),
+        );
+        scrollOffsetRef.current = newOffset;
+        setScrollOffset(newOffset);
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, []);
+
   // Compute the top offset during render using heights captured in the previous
   // render's useLayoutEffect. This is accurate for focus swaps (object content
   // doesn't change when only focus changes) and avoids a two-render cycle.

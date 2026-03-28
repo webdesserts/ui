@@ -1643,8 +1643,10 @@ describe("Scene keyboard scroll", () => {
 
     // Should scroll by approximately viewport height (800px)
     const topAfter = parseFloat(contentWrapper.style.top || "0");
-    // top is negative, so scrolled amount is the absolute value
-    expect(topAfter).toBeLessThan(-400); // at least half viewport scroll
+    // top is negative, so scrolled amount is the absolute value.
+    // Page Down scrolls by viewport height (800px), clamped to maxScroll (400px).
+    expect(topAfter).toBeLessThanOrEqual(-400); // at least as much as maxScroll
+    expect(topAfter).toBeLessThan(-200); // at least half viewport scroll
   });
 
   test("Arrow Down scrolls column by 40px", async () => {
