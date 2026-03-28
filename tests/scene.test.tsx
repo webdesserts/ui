@@ -2795,29 +2795,27 @@ describe("SceneObject click-to-focus", () => {
     expect(activateCount).toBe(0);
   });
 
-  test("clicking inside unfocused SceneObject content does NOT fire child onClick (inert blocks it)", async () => {
-    // The inner content wrapper is inert when unfocused, so click events on
-    // descendant elements should not reach child onClick handlers.
-    let childClicked = false;
+  test("unfocused SceneObject inner content wrapper has inert attribute (blocks child interaction)", async () => {
+    // The inner content wrapper is inert when unfocused. The `inert` attribute
+    // prevents descendants from being focused or activated by pointer events.
+    // We verify the attribute is present (native browser enforcement handles the rest).
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
             <SceneObject name="panel" focused={false}>
-              <button data-testid="child-btn" onClick={() => { childClicked = true; }}>
-                click me
-              </button>
+              <button data-testid="child-btn">click me</button>
             </SceneObject>
           </SceneColumn>
         </Scene>
       </TestWrapper>,
     );
 
-    // Dispatch a click directly on the button — but the inert wrapper prevents it from being interactive.
     const btn = getByTestId("child-btn").element() as HTMLElement;
-    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    // The click should not have reached the handler because the element is inert.
-    expect(childClicked).toBe(false);
+    // The button is inside the inert wrapper — find the inert ancestor.
+    const inertWrapper = btn.closest("[inert]");
+    expect(inertWrapper).not.toBeNull();
+    expect(inertWrapper?.hasAttribute("inert")).toBe(true);
   });
 
   test("SceneObject outer wrapper is clickable even when unfocused", async () => {

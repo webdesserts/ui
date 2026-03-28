@@ -7,6 +7,12 @@ export interface SceneObjectProps {
   /** Whether this object is currently in focus. Focused objects participate in the flex layout. */
   focused: boolean;
   children: React.ReactNode;
+  /**
+   * Called when an unfocused SceneObject is clicked. The consumer should use
+   * this to set `focused={true}` on this object, which triggers a Scene layout
+   * transition. Not called when the object is already focused.
+   */
+  onActivate?: () => void;
 }
 
 /**
@@ -23,7 +29,7 @@ export interface SceneObjectProps {
  *   <ArticlePanel />
  * </SceneObject>
  */
-export function SceneObject({ name, focused, children }: SceneObjectProps) {
+export function SceneObject({ name, focused, children, onActivate }: SceneObjectProps) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const column = useContext(ColumnContext);
 
@@ -69,6 +75,7 @@ export function SceneObject({ name, focused, children }: SceneObjectProps) {
       data-scene-id={name}
       data-focused={String(focused)}
       style={inColumnStyle}
+      onClick={!focused ? onActivate : undefined}
     >
       {/* Inner wrapper: inert when unfocused to disable all descendant interaction.
           React 19 treats inert={true} as the attribute present, inert={false} as absent. */}
