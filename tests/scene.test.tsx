@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
@@ -2978,5 +2978,181 @@ describe("SceneColumn scroll accessibility", () => {
     const content = getByTestId("content").element();
     const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("aria-label")).toBe("nav content, scrollable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9a: Spring physics — rapid focus changes
+// ---------------------------------------------------------------------------
+
+describe("Scene spring physics", () => {
+  test("rapid focus changes settle on the final target", async () => {
+    // Three sequential focus changes should settle on the last focused object.
+    // With duration=0 each rerender is instant, so final state is deterministic.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Quick sequential focus changes: a → b → c
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // After all changes, only obj-c should be focused — column must be focused
+    // (position: relative) and obj-c must have data-focused=true.
+    const colEl = getByTestId("content-c").element().closest("[data-column]") as HTMLElement;
+    expect(colEl.getAttribute("data-column-focused")).toBe("true");
+
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+    expect(objC.getAttribute("data-focused")).toBe("true");
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    expect(objA.getAttribute("data-focused")).toBe("false");
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    expect(objB.getAttribute("data-focused")).toBe("false");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9b: Reduced motion
+// ---------------------------------------------------------------------------
+
+describe("Scene reduced motion", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockReducedMotion(): () => void {
+    const spy = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      } as MediaQueryList),
+    );
+    return () => spy.mockRestore();
+  }
+
+  test("reduced motion: layout changes still apply correctly", async () => {
+    // Even with prefers-reduced-motion, focus state and layout must work.
+    const restore = mockReducedMotion();
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // The column should still be correctly focused regardless of reduced motion.
+    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    expect(col.getAttribute("data-column-focused")).toBe("true");
+
+    const obj = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    expect(obj.getAttribute("data-focused")).toBe("true");
+
+    restore();
+  });
+
+  test("reduced motion: scene viewport has data-reduced-motion attribute when prefers-reduced-motion is active", async () => {
+    // When prefers-reduced-motion is active, the scene's viewport element should
+    // have a data-reduced-motion attribute so consumers and tests can verify
+    // the mode is being detected.
+    const restore = mockReducedMotion();
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
+    // This attribute is added by the implementation when reduced motion is detected.
+    expect(scene.hasAttribute("data-reduced-motion")).toBe(true);
+
+    restore();
+  });
+
+  test("reduced motion: scene viewport does NOT have data-reduced-motion attribute when motion is allowed", async () => {
+    // Without prefers-reduced-motion, the attribute should be absent.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
+    expect(scene.hasAttribute("data-reduced-motion")).toBe(false);
   });
 });
