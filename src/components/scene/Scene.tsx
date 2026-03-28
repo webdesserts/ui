@@ -3,6 +3,7 @@ import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
+import { motion } from "motion/react";
 
 export interface SceneProps {
   children: React.ReactNode;
@@ -77,9 +78,22 @@ export function Scene({ children, duration, debug = false }: SceneProps) {
           transitioning: false,
         }}
       >
-        <div data-testid="scene" style={{ display: "flex", flexDirection: "row" }}>
+        {/* layoutScroll tells motion to account for scroll offset when measuring
+            FLIP positions inside this overflow-hidden container. */}
+        <motion.div
+          layoutScroll
+          data-testid="scene"
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "stretch",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+          }}
+        >
           {wrappedChildren}
-        </div>
+        </motion.div>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>
   );

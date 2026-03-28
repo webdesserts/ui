@@ -248,10 +248,10 @@ describe("SceneColumn flex layout", () => {
 
     const style = await getColumnStyle(getByTestId, "content");
     expect(style.position).toBe("relative");
-    // flex shorthand resolves to "0 1 auto" or individual properties
-    expect(style.flexGrow).toBe("0");
+    // flex: 1 1 0 — equal sharing of viewport width among focused columns
+    expect(style.flexGrow).toBe("1");
     expect(style.flexShrink).toBe("1");
-    expect(style.flexBasis).toBe("auto");
+    expect(style.flexBasis).toBe("0px");
   });
 
   test("unfocused column (never focused) has position: absolute and opacity: 0", async () => {
