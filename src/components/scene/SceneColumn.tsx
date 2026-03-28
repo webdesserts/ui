@@ -612,10 +612,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // Outer columns stay at x:0 — they're in the natural flex row position.
   const peekOffsetPx = isInBetween ? stackDepth * 20 : 0;
   const animateX = position === "in-between" ? stackTargetLeft - peekOffsetPx : 0;
-  // translateZ pushes the column away from the viewer along the Z axis. The
-  // stage's CSS perspective projects this into a smaller apparent size. Each
-  // depth level recedes 100px further from the viewer.
-  const depthZ = isInBetween ? -(stackDepth * 100) : 0;
+  // Scale creates the visual depth effect: deeper columns appear smaller.
+  // Using scale instead of translateZ because preserve-3d breaks z-index
+  // ordering (depth deck renders on top of focused columns).
+  const depthScale = isInBetween ? Math.max(0.5, 1 - stackDepth * 0.08) : 1;
   // Only in-between columns get depth-scaled opacity. Outer columns are fully
   // opaque — the viewport clips their visibility, not opacity:0.
   const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
@@ -672,13 +672,14 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           opacity: depthOpacity,
           x: animateX,
           y: inBetweenY,
-          z: depthZ,
+          scale: depthScale,
         }}
         transition={transition}
         style={{
           ...columnStyle,
           ...(depthZIndex !== undefined ? { zIndex: depthZIndex } : {}),
           opacity: depthOpacity,
+          scale: depthScale,
           filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
         }}
       >

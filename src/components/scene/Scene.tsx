@@ -764,8 +764,9 @@ function SceneViewport({
               alignItems: "stretch",
               gap: columnGap || undefined,
               padding: padding || undefined,
-              perspective: "1000px",
-              transformStyle: "preserve-3d",
+              // perspective + preserve-3d removed: translateZ inside preserve-3d
+              // breaks z-index ordering (depth deck renders on top of focused).
+              // Using CSS scale + z-index for depth visuals instead.
               // Debug: magenta outline on the stage to distinguish it from the
               // cyan viewport outline. Purely cosmetic — no layout effect.
               outline: debug ? "2px solid magenta" : undefined,
