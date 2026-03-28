@@ -370,7 +370,6 @@ function SceneViewport({
   children,
   debugObjects,
   debugColumnStacks,
-  focusKey,
   reducedMotion,
   onTransitionStart,
   onTransitionComplete,
@@ -380,8 +379,6 @@ function SceneViewport({
   debugObjects: DebugObjectEntry[] | null;
   /** Unfocused column stacking info for the debug overlay. */
   debugColumnStacks: DebugColumnStackEntry[] | null;
-  /** Changes whenever the focused column layout changes, triggering a scroll reset. */
-  focusKey: string;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
   /** Called when a layout animation starts. */
@@ -391,17 +388,22 @@ function SceneViewport({
   /** Called whenever the viewport dimensions change. */
   onViewportSizeChange: (size: ViewportDimensions) => void;
 }) {
-  const { debug, columnGap, padding } = useSceneConfig();
+  const { debug, columnGap, padding, duration, stiffness, damping } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+  // stageLeft: the CSS `left` value of the absolutely-positioned stage div.
+  // Adjusted each render to keep the focused region horizontally centered in
+  // the viewport. When focused content overflows the viewport, stageLeft is
+  // clamped so the focused region left-aligns at x=0 (and overflow-x: auto
+  // enables native scrolling for the rest).
+  const [stageLeft, setStageLeft] = useState(0);
+  // When focused content overflows the viewport width, enable native horizontal
+  // scroll on the viewport so the user can scroll to see all focused content.
+  const [overflowsX, setOverflowsX] = useState(false);
   // stackTargetLeft: left edge of the rightmost focused column relative to the
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
-  // perspectiveOriginX: horizontal center of the rightmost focused column,
-  // relative to the stage. Used as the perspective-origin so in-between columns
-  // appear to recede toward the focused content rather than toward the stage center.
-  const [perspectiveOriginX, setPerspectiveOriginX] = useState(0);
 
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
@@ -440,17 +442,25 @@ function SceneViewport({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewportSize.width, viewportSize.height]);
 
-  // Center the focused region within the Camera viewport by setting scrollLeft.
+  // Center the focused region within the Camera viewport by computing stageLeft.
   //
-  // The stage contains all columns in DOM order. Focused columns occupy some
-  // sub-range of the stage's width. We measure their combined left/right edges
-  // (relative to the stage) and compute the scrollLeft that centers them:
-  //   - If focused region fits the viewport: scrollLeft centers it
-  //   - If focused region overflows: scrollLeft = focusedLeft (left-aligned)
+  // The stage is absolutely positioned within the viewport. We measure the
+  // focused columns' positions relative to the stage itself:
+  //   focusedNaturalLeft = first.left - stageRect.left
+  //
+  // This is the column's offset within the stage's flex layout — it is invariant
+  // regardless of where the stage is currently panned (both colRect.left and
+  // stageRect.left shift together when stageLeft changes). This means consecutive
+  // renders always compute the same target and the loop terminates after one
+  // setState.
+  //
+  // Centering formula:
+  //   - If focused region fits the viewport: stageLeft = (vpWidth - focusedWidth) / 2 - focusedNaturalLeft
+  //   - If focused region overflows: stageLeft = -focusedNaturalLeft (left-aligned)
   //
   // This runs on every render so it stays in sync with column layout changes.
-  // Runs as useLayoutEffect so the scroll position is set before the browser
-  // paints, avoiding a visible flash of mis-aligned content.
+  // Runs as useLayoutEffect so the stage position is applied before paint,
+  // avoiding a visible flash of mis-aligned content.
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     const stage = stageRef.current;
@@ -459,31 +469,43 @@ function SceneViewport({
     const focusedCols = Array.from(
       stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
     );
-    if (focusedCols.length === 0) return; // no focus — camera stays still
+    if (focusedCols.length === 0) {
+      // No focused columns — keep stage at current position (camera stays still).
+      return;
+    }
 
     const stageRect = stage.getBoundingClientRect();
     const first = focusedCols[0]!.getBoundingClientRect();
     const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
 
-    // Focused region position relative to the stage left edge
-    const focusedLeft = first.left - stageRect.left + viewport.scrollLeft;
-    const focusedRight = last.right - stageRect.left + viewport.scrollLeft;
-    const focusedWidth = focusedRight - focusedLeft;
+    // Column's natural offset within the stage flex layout. Subtracting
+    // stageRect.left cancels out the current stageLeft offset, giving a stable
+    // value that doesn't change across renders as the stage pans.
+    const focusedNaturalLeft = first.left - stageRect.left;
+    const focusedNaturalRight = last.right - stageRect.left;
+    const focusedWidth = focusedNaturalRight - focusedNaturalLeft;
 
     const vpWidth = viewport.clientWidth;
 
+    let newStageLeft: number;
+    let newOverflowsX: boolean;
     if (focusedWidth <= vpWidth) {
-      // Center the focused region in the viewport
-      viewport.scrollLeft = focusedLeft - (vpWidth - focusedWidth) / 2;
+      // Center the focused region in the viewport.
+      newStageLeft = (vpWidth - focusedWidth) / 2 - focusedNaturalLeft;
+      newOverflowsX = false;
     } else {
-      // Left-align when focused content overflows the viewport
-      viewport.scrollLeft = focusedLeft;
+      // Focused content overflows — left-align it at the viewport's left edge.
+      newStageLeft = -focusedNaturalLeft;
+      newOverflowsX = true;
     }
+
+    setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
+    setOverflowsX((prev) => (prev === newOverflowsX ? prev : newOverflowsX));
   });
 
   // Measure the rightmost focused column's left edge relative to the stage
   // after each render so in-between columns can align to it. Runs on every
-  // render (like the viewport size measurement) so it stays current.
+  // render so it stays current with focus changes.
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -497,15 +519,11 @@ function SceneViewport({
     const stageRect = stage.getBoundingClientRect();
     const colRect = rightmostFocused.getBoundingClientRect();
 
-    // left edge of the rightmost focused column, relative to the stage.
+    // Left edge of the rightmost focused column relative to the stage. This is
+    // the in-stage x-offset used to position in-between (depth deck) columns so
+    // they peek leftward from behind the rightmost focused column.
     const newTargetLeft = colRect.left - stageRect.left;
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
-
-    // Horizontal center of the rightmost focused column — this is where the
-    // perspective vanishing point sits so in-between columns appear to recede
-    // toward the focused content.
-    const newOriginX = newTargetLeft + colRect.width / 2;
-    setPerspectiveOriginX((prev) => (prev === newOriginX ? prev : newOriginX));
   });
 
   // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
@@ -549,29 +567,28 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, []);
 
+  const transition =
+    duration === 0
+      ? { duration: 0 }
+      : { type: "spring" as const, stiffness, damping };
+
   return (
     <ViewportContext.Provider value={viewportSize}>
       <DepthDeckContext.Provider value={stackTargetLeft}>
-        {/* layoutScroll tells motion to account for scroll offset when measuring
-            FLIP positions inside this overflow-x: auto container.
-            overflow-x: auto enables horizontal scrolling when focused columns
-            exceed the viewport width. overflow-y: hidden prevents vertical
-            scroll at this level — each column handles vertical scroll independently
-            (Phase 5). */}
-        <motion.div
+        {/* Viewport: the clipping window. position:relative establishes the
+            containing block for the absolutely-positioned stage.
+            overflow-x: auto when focused content overflows, hidden otherwise —
+            this enables native horizontal scroll without fighting the stage pan.
+            overflow-y: hidden prevents vertical scroll at this level. */}
+        <div
           ref={viewportRef}
-          layoutScroll
           data-testid="scene"
           data-reduced-motion={reducedMotion ? "" : undefined}
-          onLayoutAnimationStart={onTransitionStart}
-          onLayoutAnimationComplete={onTransitionComplete}
           style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "stretch",
+            position: "relative",
             width: "100%",
             height: "100%",
-            overflowX: "auto",
+            overflowX: overflowsX ? "auto" : "hidden",
             overflowY: "hidden",
             outline: debug ? "2px solid cyan" : undefined,
             // Thin scrollbar with transparent track so it doesn't eat into content space.
@@ -582,40 +599,42 @@ function SceneViewport({
             containerType: "size",
           } as React.CSSProperties}
         >
-          {/* Stage: the flex row of focused columns. width: fit-content allows the
-              stage to shrink to content width. margin-inline: auto centers the
-              stage within the viewport when it's narrower. When it overflows (or
-              all columns are flexible and fill the stage), margins collapse to 0
-              and content left-aligns naturally.
-
-              Flexible (flex: 1 1 0) columns grow to fill the stage width, which
-              is their own intrinsic content size — they share that width equally.
-              Columns with explicit minimum widths (e.g. minWidth: 300px) determine
-              the stage's width directly.
+          {/* Stage: absolutely positioned within the viewport. `left` pans the
+              scene so the focused region stays horizontally centered. No CSS
+              transforms are used for panning — direct `left` positioning
+              preserves text rendering quality (no subpixel transform artifacts).
 
               perspective + transform-style: preserve-3d create the 3D stacking
-              context for in-between unfocused columns (depth deck). Perspective
-              origin is set dynamically near the right focused column so pushed-back
-              columns appear to recede toward it. position: relative establishes
-              the containing block for absolutely-positioned in-between columns. */}
-          <div
+              context for in-between unfocused columns (depth deck). position:
+              relative (over the absolute base) is handled by `position: absolute`
+              itself — it establishes the containing block for absolutely-positioned
+              in-between columns.
+
+              Focused columns have zIndex:200; in-between columns have lower z-index
+              (100 - depth) so focused content always renders on top. */}
+          <motion.div
             ref={stageRef}
             data-stage
+            animate={{ left: stageLeft }}
+            transition={transition}
+            onLayoutAnimationStart={onTransitionStart}
+            onLayoutAnimationComplete={onTransitionComplete}
             style={{
-              position: "relative",
+              position: "absolute",
+              top: 0,
+              left: stageLeft,
+              height: "100%",
               display: "flex",
               flexDirection: "row",
               alignItems: "stretch",
-              width: "fit-content",
               gap: columnGap || undefined,
               padding: padding || undefined,
               perspective: "1000px",
               transformStyle: "preserve-3d",
-              perspectiveOrigin: `${perspectiveOriginX}px 50%`,
             }}
           >
             {children}
-          </div>
+          </motion.div>
           {/* Overlay is inside the scene div so tests can find it via
               scene.querySelector('[data-debug-overlay]'). position:fixed
               ensures it doesn't participate in flex layout. */}
@@ -627,7 +646,7 @@ function SceneViewport({
               stageRef={stageRef}
             />
           )}
-        </motion.div>
+        </div>
       </DepthDeckContext.Provider>
     </ViewportContext.Provider>
   );
@@ -674,14 +693,6 @@ export function Scene({
   // SceneViewport whenever the viewport element is measured.
   const [viewportBounds, setViewportBounds] = useState({ top: 0, left: 0, width: 0, height: 0 });
 
-  // Compute a key that changes whenever the set of focused objects changes.
-  // SceneViewport uses this to reset horizontal scroll on navigation changes.
-  const allObjects = collectObjectEntries(children);
-  const focusKey = allObjects
-    .filter((o) => o.focused)
-    .map((o) => o.name)
-    .join(",");
-
   // Compute position classifications for all columns so SceneColumn can
   // animate unfocused columns offscreen or into a depth deck.
   const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
@@ -722,7 +733,6 @@ export function Scene({
             <SceneViewport
               debugObjects={debugObjects}
               debugColumnStacks={debugColumnStacks}
-              focusKey={focusKey}
               reducedMotion={prefersReducedMotion}
               onTransitionStart={() => setTransitioning(true)}
               onTransitionComplete={() => setTransitioning(false)}

@@ -79,20 +79,23 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
     focusable?.focus();
   }, [focused]);
 
-  // Within a column, unfocused objects are removed from flow so they don't
-  // affect the column's natural content height. Focused objects stay in flow.
+  // Within a focused column, unfocused objects are removed from flow so they
+  // don't push down the focused object. They are also hidden so they don't
+  // render on top of the focused object (topOffset may be 0 if the object was
+  // never previously focused and has no saved natural height).
+  //
+  // Within an unfocused column (depth deck or outer), all objects stay in flow
+  // (isInDepthDeck = true) so the column sizes to its content — necessary for
+  // outer columns to have natural width and for depth-deck perspective sizing.
+  //
   // When there is no parent column context (standalone usage), fall back to
   // default (static) positioning.
-  //
-  // Exception: when the parent column is in the depth deck (in-between,
-  // unfocused as a whole), unfocused SceneObjects stay in flow so the column
-  // sizes to its content — required for perspective-depth width comparison.
   const inColumnStyle: React.CSSProperties | undefined = column
     ? focused
       ? { position: "relative" }
       : column.isInDepthDeck
         ? { position: "relative" }
-        : { position: "absolute" }
+        : { position: "absolute", visibility: "hidden" }
     : undefined;
 
   return (

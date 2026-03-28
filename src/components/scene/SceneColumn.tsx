@@ -440,11 +440,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     opacity: 1,
   };
 
-  // Unfocused in-between columns exit flex flow and stack as a depth deck.
-  // All other unfocused columns (outer-left, outer-right, no-position) stay in
-  // flex flow at their frozen size — the Camera viewport clips them.
+  // Unfocused in-between columns exit flex flow and stack as a depth deck,
+  // positioned behind the rightmost focused column. top:0 anchors them to the
+  // stage top so they align with the focused row; x-translation (via animate)
+  // slides them to the left edge of the rightmost focused column.
   const inBetweenStyle: React.CSSProperties = {
     position: "absolute",
+    top: 0,
     flex: "none",
     ...(frozenSize ? { width: frozenSize.width, height: frozenSize.height } : {}),
   };
@@ -484,7 +486,19 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // Greyscale increases with depth: depth-1 → 25%, depth-2 → 50%, etc.
   // Reinforces the sense of receding into the background.
   const depthGreyscale = isInBetween ? stackDepth * 0.25 : 0;
-  const depthZIndex = isInBetween ? 100 - stackDepth : undefined;
+  // Focused columns render on top of the depth deck — their z-index must
+  // exceed the highest possible in-between depth index (100 - 1 = 99).
+  const depthZIndex = columnFocused ? 200 : isInBetween ? 100 - stackDepth : undefined;
+
+  // In-between columns are position:absolute from the stage top. To visually
+  // align them with the focused content (which is centered via marginTop),
+  // we translate them down to the vertical center of the viewport.
+  // colHeight is the column's frozen or natural height — used for centering.
+  const colHeight = frozenSize?.height ?? (colRef.current?.getBoundingClientRect().height ?? 0);
+  const inBetweenY =
+    isInBetween && viewportHeight > 0 && colHeight > 0
+      ? (viewportHeight - colHeight) / 2
+      : 0;
 
   // Outer columns use animate-only (no layout FLIP). Focused columns use layout
   // FLIP so they animate smoothly in and out of the flex row.
@@ -502,7 +516,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const isScrollable = columnFocused && maxScroll > 0;
 
   return (
-    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: isInBetween }}>
+    // isInDepthDeck is true for ALL unfocused columns, not just in-between ones.
+    // Outer unfocused columns also need their SceneObjects in flow so the column
+    // has natural dimensions (otherwise position: absolute children yield a
+    // zero-width column that overlaps with adjacent focused columns).
+    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: !columnFocused }}>
       <motion.div
         ref={colRef}
         {...(usesLayout ? { layout: true } : {})}
@@ -517,13 +535,15 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         animate={{
           opacity: depthOpacity,
           x: animateX,
+          y: inBetweenY,
           z: depthZ,
-          filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : "none",
         }}
         transition={transition}
         style={{
           ...columnStyle,
           ...(depthZIndex !== undefined ? { zIndex: depthZIndex } : {}),
+          opacity: depthOpacity,
+          filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
         }}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.

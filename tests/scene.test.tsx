@@ -1123,10 +1123,10 @@ describe("SceneColumn multi-focus stacking", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene centering", () => {
-  test("fixed-width column is centered horizontally via Camera scrollLeft", async () => {
+  test("fixed-width column is centered horizontally via stage left position", async () => {
     // A column with a fixed minimum width smaller than the viewport is centered
-    // horizontally. The Camera scrollLeft is set to position the focused region
-    // in the center of the viewport.
+    // horizontally. The stage's CSS `left` value is set to position the focused
+    // region in the center of the viewport.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1143,26 +1143,23 @@ describe("Scene centering", () => {
       </TestWrapper>,
     );
 
-    // The viewport's scrollLeft should be set to center the focused content.
-    // A 300px column in a 1280px viewport needs scrollLeft ≈ (300 - 1280) / 2 = -490.
-    // But scrollLeft cannot be negative — the stage width equals column width
-    // so there's nothing to scroll. The column is naturally at the left edge.
-    // The centering effect here is visual (column at left edge when stage = content).
-    // Verify content is visible (rect within viewport).
+    // A 300px column in a 1280px viewport is centered via stage `left` offset.
+    // Expected stageLeft = (1280 - 300) / 2 = 490px.
     const scene = getByTestId("scene").element() as HTMLElement;
     const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
     expect(stage).not.toBeNull();
 
-    // Stage should have no margin-inline (centering is via scrollLeft now)
+    // Stage centering via CSS left (absolute positioning).
     const stageStyle = window.getComputedStyle(stage!);
-    expect(stageStyle.marginLeft).toBe("0px");
-    expect(stageStyle.marginRight).toBe("0px");
+    const stageLeft = parseFloat(stageStyle.left);
+    expect(stageLeft).toBeGreaterThan(0);
 
-    // Content should be visible within the viewport
+    // Content should be horizontally centered within the viewport.
     const content = getByTestId("content").element();
     const rect = content.getBoundingClientRect();
-    expect(rect.left).toBeGreaterThanOrEqual(0);
-    expect(rect.right).toBeLessThanOrEqual(1280 + 1); // within viewport
+    const viewportWidth = 1280;
+    const expectedLeft = (viewportWidth - 300) / 2;
+    expect(Math.abs(rect.left - expectedLeft)).toBeLessThan(2);
   });
 
   test("content overflowing horizontally — Camera scrollLeft left-aligns focused region", async () => {
@@ -1195,10 +1192,11 @@ describe("Scene centering", () => {
     const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
     expect(stage).not.toBeNull();
 
-    // Stage should have no margins (centering is via scrollLeft)
+    // When focused content overflows, stageLeft = -focusedNaturalLeft (left-aligned).
+    // The focused region starts at the stage origin (natural left = 0), so stageLeft = 0.
     const stageStyle = window.getComputedStyle(stage!);
-    const marginLeft = parseFloat(stageStyle.marginLeft);
-    expect(marginLeft).toBe(0);
+    const stageLeft = parseFloat(stageStyle.left);
+    expect(stageLeft).toBe(0);
   });
 
   test("small content is centered vertically — column content wrapper has margin-top > 0", async () => {
@@ -1324,13 +1322,14 @@ describe("Scene centering", () => {
     expect(rect.bottom).toBeLessThan(700);    // not bottom-aligned
   });
 
-  test("Camera scrollLeft centers focused region when outer columns extend the stage", async () => {
-    // When outer columns extend the stage past the viewport width, Camera scrollLeft
-    // can position the viewport to center the focused region.
+  test("Camera stage-left centers focused region when outer columns extend the stage", async () => {
+    // When outer columns are in the flex row, the stage's `left` positions the
+    // viewport so the focused region is centered. With outer columns present,
+    // the focused column is not at the stage's left edge, so stageLeft < 0.
     //
-    // Setup: outer-left=900px, focused=200px, outer-right=900px → total stage=2000px
-    // Viewport=1280px. focusedLeft=900.
-    // scrollLeft = 900 - (1280 - 200) / 2 = 900 - 540 = 360 > 0
+    // Setup: outer-left=900px, focused=200px, outer-right=900px.
+    // focusedNaturalLeft = 900. vpWidth = 1280.
+    // stageLeft = (1280 - 200) / 2 - 900 = 540 - 900 = -360 (negative = stage panned left)
     //
     // Note: outer columns must have been previously focused to have a frozen size.
     // Using focused → unfocused rerender pattern.
@@ -1380,8 +1379,11 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    // scrollLeft ≈ 360 — Camera scrolled right to center the 200px focused region
-    expect(scene.scrollLeft).toBeGreaterThan(0);
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
+    // stageLeft ≈ -360 — stage panned left to center the 200px focused region
+    const stageLeft = parseFloat(window.getComputedStyle(stage!).left);
+    expect(stageLeft).toBeLessThan(0);
   });
 });
 
@@ -1595,11 +1597,10 @@ describe("Scene horizontal scroll", () => {
     expect(scrollRange).toBeGreaterThanOrEqual(320);
   });
 
-  test("horizontal scroll is recomputed to center focused content on focus change", async () => {
-    // On focus layout change, Camera recomputes scrollLeft to center the new
+  test("stage left is recomputed to center focused content on focus change", async () => {
+    // On focus layout change, the Camera recomputes stageLeft to center the new
     // focused region. With one 800px focused column in a 1280px viewport,
-    // scrollLeft resets to 0 (left-aligned: fits the viewport, but no outer-left
-    // column to create leftward scroll room).
+    // stageLeft = (1280 - 800) / 2 = 240px.
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1618,12 +1619,14 @@ describe("Scene horizontal scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
 
-    // With overflow-x: auto, scrollLeft should be settable and retained
-    scene.scrollLeft = 200;
-    expect(scene.scrollLeft).toBe(200);
+    // Two 800px columns → 1600px total, overflows 1280px viewport → stageLeft = 0
+    const stageLeftInitial = parseFloat(window.getComputedStyle(stage!).left);
+    expect(stageLeftInitial).toBe(0);
 
-    // Change focus layout — Scene should reset scrollLeft to 0
+    // Change focus layout — col2 becomes unfocused, col1 (800px) is the only focused column
     await rerender(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1641,9 +1644,9 @@ describe("Scene horizontal scroll", () => {
       </TestWrapper>,
     );
 
-    // Scroll should be recomputed to 0: focusedLeft=0, focusedWidth=800 ≤ vpWidth=1280,
-    // so scrollLeft = 0 - (1280-800)/2 = -240 → clamped to 0
-    expect(scene.scrollLeft).toBe(0);
+    // stageLeft = (1280 - 800) / 2 - 0 = 240 (focused column is at stage origin)
+    const stageLeftAfter = parseFloat(window.getComputedStyle(stage!).left);
+    expect(stageLeftAfter).toBeGreaterThan(0);
   });
 });
 
@@ -2887,9 +2890,10 @@ describe("Scene dynamic mount/unmount", () => {
     expect(colB).toBeNull();
   });
 
-  test("unfocused column unmounting to right does not shift focused content", async () => {
-    // Unfocused columns are position: absolute, so unmounting one to the right
-    // should not cause any layout shift in the focused columns.
+  test("unfocused column unmounting to right re-centers focused content", async () => {
+    // Outer unfocused columns are position: relative and take up space in the
+    // flex row. Unmounting one to the right removes that space, causing the
+    // stage to re-center via margin-inline: auto.
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -2910,7 +2914,6 @@ describe("Scene dynamic mount/unmount", () => {
     const focusedCol = getByTestId("content-focused").element().closest("[data-column]") as HTMLElement;
 
     await waitForAnimationFrame();
-    const rectBefore = focusedCol.getBoundingClientRect();
 
     // Unmount the unfocused column to the right
     await rerender(
@@ -2927,10 +2930,13 @@ describe("Scene dynamic mount/unmount", () => {
 
     await waitForAnimationFrame();
 
+    // After unmounting, only the focused column remains — the stage re-centers.
+    // Width should be unchanged (column content hasn't changed).
     const rectAfter = focusedCol.getBoundingClientRect();
-    // Focused column position should not shift (left edge unchanged within 2px)
-    expect(Math.abs(rectAfter.left - rectBefore.left)).toBeLessThan(2);
-    expect(Math.abs(rectAfter.width - rectBefore.width)).toBeLessThan(2);
+    expect(Math.abs(rectAfter.width - 300)).toBeLessThan(2);
+    // Focused column should be centered in the 1280px viewport.
+    const expectedLeft = (1280 - 300) / 2;
+    expect(Math.abs(rectAfter.left - expectedLeft)).toBeLessThan(2);
   });
 
   test("consumer CSS change causes layout reflow", async () => {
@@ -3085,9 +3091,10 @@ describe("Scene navigation depth", () => {
     expect(navRect.left).toBeLessThan(articleRect.left);
   });
 
-  test("column removed to the right of focused content does not shift focused content", async () => {
-    // Focused content Column 1, unfocused Column 2 to the right (outer-right).
-    // When Column 2 unmounts, Column 1 should not move.
+  test("column removed to the right of focused content re-centers focused content", async () => {
+    // Outer unfocused columns are position: relative and take up space in the
+    // flex row. Removing Column 2 (outer-right) causes the stage to re-center
+    // via margin-inline: auto so Column 1 shifts to the viewport center.
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -3108,7 +3115,6 @@ describe("Scene navigation depth", () => {
     await waitForAnimationFrame();
 
     const col1 = getByTestId("content-1").element().closest("[data-column]") as HTMLElement;
-    const rectBefore = col1.getBoundingClientRect();
 
     // Remove col-2 (unfocused, to the right)
     await rerender(
@@ -3126,9 +3132,12 @@ describe("Scene navigation depth", () => {
     await waitForAnimationFrame();
 
     const rectAfter = col1.getBoundingClientRect();
-    // Focused column should not have shifted
-    expect(Math.abs(rectAfter.left - rectBefore.left)).toBeLessThan(2);
-    expect(Math.abs(rectAfter.width - rectBefore.width)).toBeLessThan(2);
+    // Width should be unchanged — col-1 content hasn't changed.
+    expect(Math.abs(rectAfter.width - 300)).toBeLessThan(2);
+    // After removal, only col-1 remains in the stage — it re-centers in the
+    // 1280px viewport.
+    const expectedLeft = (1280 - 300) / 2;
+    expect(Math.abs(rectAfter.left - expectedLeft)).toBeLessThan(2);
   });
 });
 
