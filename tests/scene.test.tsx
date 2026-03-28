@@ -1832,3 +1832,100 @@ describe("Scene scroll position management", () => {
     expect(topAfter).toBeLessThanOrEqual(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 5e: Edge cases — diagonal scroll and viewport resize
+// ---------------------------------------------------------------------------
+
+describe("Scene scroll edge cases", () => {
+  test("diagonal trackpad gesture scrolls both axes simultaneously", async () => {
+    // A wheel event with both deltaX and deltaY should:
+    // - Route deltaY to the column's vertical scroll state
+    // - Route deltaX to the viewport's native horizontal scroll (overflow-x: auto)
+    // Both should happen in the same event, not sequentially.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="panel1" focused>
+              <div data-testid="content1" style={{ minWidth: 800, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ minWidth: 800, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const col1 = getByTestId("content1")
+      .element()
+      .closest("[data-column]") as HTMLElement;
+    const col1Content = col1.querySelector("[data-column-content]") as HTMLElement;
+    const col1Rect = col1.getBoundingClientRect();
+
+    // Initial state: no vertical or horizontal scroll
+    expect(parseFloat(col1Content.style.top || "0")).toBe(0);
+    expect(scene.scrollLeft).toBe(0);
+
+    // Diagonal wheel event: deltaX scrolls horizontally, deltaY scrolls vertically
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 100,
+        deltaY: 150,
+        clientX: col1Rect.left + col1Rect.width / 2,
+        clientY: col1Rect.top + col1Rect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    await waitForAnimationFrame();
+
+    // Vertical: col1 should have scrolled by 150px
+    const verticalTop = parseFloat(col1Content.style.top || "0");
+    expect(verticalTop).toBe(-150);
+  });
+
+  test("viewport resize: content now fits — scrollbar disappears", async () => {
+    // When content overflows the viewport, a scrollbar should appear.
+    // When the content shrinks to fit, the scrollbar should disappear.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Tall content — overflows 800px viewport */}
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+
+    // Verify scrollbar is present
+    expect(scene.querySelector("[data-scrollbar]")).not.toBeNull();
+
+    // Swap in content that fits the viewport
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Short content — fits within 800px viewport */}
+              <div data-testid="content" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Scrollbar should be gone
+    expect(scene.querySelector("[data-scrollbar]")).toBeNull();
+  });
+});
