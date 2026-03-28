@@ -1599,3 +1599,234 @@ describe("Scene vertical scroll", () => {
     expect(marginTopAfter).toBe(marginTopBefore);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 5c: Keyboard scroll + scroll position management
+// ---------------------------------------------------------------------------
+
+describe("Scene keyboard scroll", () => {
+  test("Page Down scrolls column containing keyboard focus by viewport height", async () => {
+    // When the user presses Page Down while keyboard focus is inside a focused
+    // column, the column should scroll by approximately one viewport height.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }}>
+                {/* A focusable element so keyboard focus can land inside */}
+                <button data-testid="focusable-btn">click me</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Focus an element inside the column so keyboard events route there
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    // Before: top should be 0
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+
+    // Dispatch Page Down on the column
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }),
+    );
+
+    await waitForAnimationFrame();
+
+    // Should scroll by approximately viewport height (800px)
+    const topAfter = parseFloat(contentWrapper.style.top || "0");
+    // top is negative, so scrolled amount is the absolute value
+    expect(topAfter).toBeLessThan(-400); // at least half viewport scroll
+  });
+
+  test("Arrow Down scrolls column by 40px", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }}>
+                <button data-testid="focusable-btn">click me</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+
+    await waitForAnimationFrame();
+
+    const topAfter = parseFloat(contentWrapper.style.top || "0");
+    expect(topAfter).toBe(-40);
+  });
+
+  test("Home key scrolls column to top (offset 0)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }}>
+                <button data-testid="focusable-btn">click me</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    // Scroll down first
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-40);
+
+    // Then Home to return to top
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+  });
+
+  test("End key scrolls column to bottom (maxScroll offset)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }}>
+                <button data-testid="focusable-btn">click me</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    // End key scrolls to max
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    const topAfter = parseFloat(contentWrapper.style.top || "0");
+    // maxScroll = 1200 - 800 = 400, so top should be -400
+    expect(topAfter).toBeLessThan(-300);
+  });
+});
+
+describe("Scene scroll position management", () => {
+  test("vertical scroll resets to 0 when column first becomes focused", async () => {
+    // A newly-focused column should start with scrollOffset = 0.
+    // (It has never been focused before, so there's no saved position.)
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // On first render, scroll offset should be 0 (top of content)
+    const top = parseFloat(contentWrapper.style.top || "0");
+    expect(top).toBe(0);
+  });
+
+  test("scroll offset is clamped when maxScroll decreases (content shrinks)", async () => {
+    // If the column is scrolled and then the content shrinks so that
+    // maxScroll decreases, scrollOffset should be clamped to the new maxScroll.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll down to 300px
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-300);
+
+    // Shrink content so maxScroll drops to 100px (content height 900px in 800px viewport)
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 900 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // scrollOffset should be clamped to new maxScroll = 900 - 800 = 100
+    const topAfter = parseFloat(contentWrapper.style.top || "0");
+    expect(topAfter).toBeGreaterThanOrEqual(-100);
+    expect(topAfter).toBeLessThanOrEqual(0);
+  });
+});
