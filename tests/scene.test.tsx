@@ -2303,3 +2303,349 @@ describe("Scene depth deck stacking", () => {
     expect(opacity2).toBeLessThan(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 7a: Dynamic mount/unmount
+// ---------------------------------------------------------------------------
+
+describe("Scene dynamic mount/unmount", () => {
+  test("new focused column mounts — layout includes it in the flex row", async () => {
+    // When a new SceneColumn with a focused object mounts into the scene, it
+    // should immediately participate in the flex layout alongside existing
+    // focused columns.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Initially only one column is focused.
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+    expect(window.getComputedStyle(colA).position).toBe("relative");
+
+    // Mount a second focused column
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // The new column should exist and be in the flex layout
+    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    expect(window.getComputedStyle(colA).position).toBe("relative");
+    expect(window.getComputedStyle(colB).position).toBe("relative");
+
+    // col-b should appear to the right of col-a (flex row ordering)
+    const rectA = colA.getBoundingClientRect();
+    const rectB = colB.getBoundingClientRect();
+    expect(rectB.left).toBeGreaterThanOrEqual(rectA.right - 2);
+  });
+
+  test("focused column unmounts — remaining column is still in flex layout", async () => {
+    // When a focused column unmounts, the remaining focused column should
+    // still be part of the flex layout (position: relative).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+
+    // Unmount col-b
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // col-a should still be in flex layout after col-b unmounts
+    expect(window.getComputedStyle(colA).position).toBe("relative");
+
+    // col-b should no longer exist in the DOM
+    const colB = document.querySelector("[data-column='col-b']");
+    expect(colB).toBeNull();
+  });
+
+  test("unfocused column unmounting to right does not shift focused content", async () => {
+    // Unfocused columns are position: absolute, so unmounting one to the right
+    // should not cause any layout shift in the focused columns.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-focused">
+            <SceneObject name="obj-focused" focused>
+              <div data-testid="content-focused" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-unfocused">
+            <SceneObject name="obj-unfocused" focused={false}>
+              <div data-testid="content-unfocused" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const focusedCol = getByTestId("content-focused").element().closest("[data-column]") as HTMLElement;
+
+    await waitForAnimationFrame();
+    const rectBefore = focusedCol.getBoundingClientRect();
+
+    // Unmount the unfocused column to the right
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-focused">
+            <SceneObject name="obj-focused" focused>
+              <div data-testid="content-focused" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const rectAfter = focusedCol.getBoundingClientRect();
+    // Focused column position should not shift (left edge unchanged within 2px)
+    expect(Math.abs(rectAfter.left - rectBefore.left)).toBeLessThan(2);
+    expect(Math.abs(rectAfter.width - rectBefore.width)).toBeLessThan(2);
+  });
+
+  test("consumer CSS change causes layout reflow", async () => {
+    // When consumer CSS on a focused object changes (e.g. minWidth),
+    // the flex layout should reflow to accommodate the new size. The column
+    // should grow to fit the new minimum width.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Start with 200px min-width */}
+              <div data-testid="content" style={{ minWidth: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+
+    // Record the initial column width — should be at least 200px
+    const widthBefore = col.getBoundingClientRect().width;
+    expect(widthBefore).toBeGreaterThanOrEqual(200);
+
+    // Increase the min-width — the layout should reflow
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ minWidth: 600, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // Column should now be at least 600px wide
+    const widthAfter = col.getBoundingClientRect().width;
+    expect(widthAfter).toBeGreaterThanOrEqual(600);
+    expect(widthAfter).toBeGreaterThan(widthBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 7c: Navigation depth — new column entering from right
+// ---------------------------------------------------------------------------
+
+describe("Scene navigation depth", () => {
+  test("new focused column enters the flex layout at its natural position", async () => {
+    // When a new focused SceneColumn mounts, it should end up in the correct
+    // flex position (to the right of existing focused columns).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Mount col-2 focused to the right of col-1
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-2">
+            <SceneObject name="obj-2" focused>
+              <div data-testid="content-2" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const col1 = getByTestId("content-1").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content-2").element().closest("[data-column]") as HTMLElement;
+
+    // col-2 should appear to the right of col-1 in the flex layout.
+    const rect1 = col1.getBoundingClientRect();
+    const rect2 = col2.getBoundingClientRect();
+    expect(rect2.left).toBeGreaterThanOrEqual(rect1.right - 2);
+
+    // Both should be in flex flow (position: relative)
+    expect(window.getComputedStyle(col2).position).toBe("relative");
+  });
+
+  test("back navigation: outer-left unfocused column can become focused again", async () => {
+    // When navigating back, a previously outer-left unfocused column becomes focused.
+    // After the transition it should be in the flex layout and visible.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="nav-panel" focused={false}>
+              <div data-testid="content-nav" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject name="article-panel" focused>
+              <div data-testid="content-article" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const navCol = getByTestId("content-nav").element().closest("[data-column]") as HTMLElement;
+    // Initially nav is outer-left (unfocused, to the left of focused article)
+    expect(navCol.getAttribute("data-column-position")).toBe("outer-left");
+
+    // Navigate back: nav becomes focused, article stays focused
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="nav-panel" focused>
+              <div data-testid="content-nav" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject name="article-panel" focused>
+              <div data-testid="content-article" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // Nav column should now be in the flex layout (focused)
+    expect(window.getComputedStyle(navCol).position).toBe("relative");
+    expect(navCol.getAttribute("data-column-position")).toBeNull();
+
+    // Nav should appear to the left of article (in DOM order)
+    const articleCol = getByTestId("content-article").element().closest("[data-column]") as HTMLElement;
+    const navRect = navCol.getBoundingClientRect();
+    const articleRect = articleCol.getBoundingClientRect();
+    expect(navRect.left).toBeLessThan(articleRect.left);
+  });
+
+  test("column removed to the right of focused content does not shift focused content", async () => {
+    // Focused content Column 1, unfocused Column 2 to the right (outer-right).
+    // When Column 2 unmounts, Column 1 should not move.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-2">
+            <SceneObject name="obj-2" focused={false}>
+              <div data-testid="content-2" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const col1 = getByTestId("content-1").element().closest("[data-column]") as HTMLElement;
+    const rectBefore = col1.getBoundingClientRect();
+
+    // Remove col-2 (unfocused, to the right)
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const rectAfter = col1.getBoundingClientRect();
+    // Focused column should not have shifted
+    expect(Math.abs(rectAfter.left - rectBefore.left)).toBeLessThan(2);
+    expect(Math.abs(rectAfter.width - rectBefore.width)).toBeLessThan(2);
+  });
+});
