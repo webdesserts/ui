@@ -12,6 +12,7 @@ import { motion } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
+import { ColumnPositionContext } from "./ColumnPositionContext";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -141,7 +142,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
   const { duration } = useSceneConfig();
-  const { height: viewportHeight } = useContext(ViewportContext);
+  const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
+  const columnPositions = useContext(ColumnPositionContext);
+  const position = columnPositions.get(name) ?? null;
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -416,19 +419,40 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       : {}),
   };
 
+  // Compute the x offset for outer unfocused columns. Outer-left slides fully
+  // offscreen left; outer-right slides fully offscreen right. We use the
+  // viewport width (from ViewportContext) to guarantee the column clears the
+  // visible area regardless of its current DOM position.
+  //
+  // Using `viewportWidth` (rather than exact column bounds) is intentional:
+  // - Outer-left: `-viewportWidth` always moves the right edge past x=0.
+  // - Outer-right: `viewportWidth` always moves the left edge past the right edge.
+  // When all columns are unfocused, x stays at 0 (camera stays still).
+  const outerX =
+    position === "outer-left"
+      ? -viewportWidth
+      : position === "outer-right"
+        ? viewportWidth
+        : 0;
+
+  // Outer columns use animate-only (no layout FLIP). Focused columns use layout
+  // FLIP so they animate smoothly in and out of the flex row.
+  const usesLayout = columnFocused;
+
   const isScrollable = columnFocused && maxScroll > 0;
 
   return (
     <ColumnContext.Provider value={{ register, reportHeight }}>
       <motion.div
         ref={colRef}
-        layout
+        {...(usesLayout ? { layout: true } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
+        data-column-position={position ?? undefined}
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
         data-content-height={columnFocused ? String(contentHeight) : undefined}
-        animate={{ opacity: columnFocused ? 1 : 0 }}
+        animate={{ opacity: columnFocused ? 1 : 0, x: outerX }}
         transition={transition}
         style={columnFocused ? focusedStyle : unfocusedStyle}
       >

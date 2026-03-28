@@ -1959,6 +1959,9 @@ describe("Scene outer unfocused column positioning", () => {
     const leftCol = getByTestId("content-left").element().closest("[data-column]") as HTMLElement;
     // Column should be classified as outer-left
     expect(leftCol.getAttribute("data-column-position")).toBe("outer-left");
+    // Wait for motion to apply the transform (even with duration=0, the
+    // transform is applied asynchronously on the next animation frame).
+    await waitForAnimationFrame();
     // The column's bounding rect should be off the left edge of the viewport
     const rect = leftCol.getBoundingClientRect();
     expect(rect.right).toBeLessThanOrEqual(0);
@@ -1987,6 +1990,8 @@ describe("Scene outer unfocused column positioning", () => {
     const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
     // Column should be classified as outer-right
     expect(rightCol.getAttribute("data-column-position")).toBe("outer-right");
+    // Wait for motion to apply the transform.
+    await waitForAnimationFrame();
     // The column's bounding rect should be off the right edge of the viewport (1280px)
     const rect = rightCol.getBoundingClientRect();
     expect(rect.left).toBeGreaterThanOrEqual(1280);

@@ -4,7 +4,87 @@ import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
 import { ViewportContext } from "./ViewportContext";
+import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { motion } from "motion/react";
+
+/**
+ * Collects the focused state of each direct SceneColumn child (in order).
+ * Returns an array of `{ name, focused }` entries for the columns.
+ */
+function collectColumnFocusStates(
+  children: React.ReactNode,
+): Array<{ name: string; focused: boolean }> {
+  const result: Array<{ name: string; focused: boolean }> = [];
+
+  React.Children.forEach(children, (child) => {
+    if (!isValidElement(child)) return;
+
+    const type = child.type as { displayName?: string } | string;
+    const isColumn =
+      typeof type !== "string" &&
+      (type === SceneColumn || type.displayName === "SceneColumn");
+
+    if (!isColumn) return;
+
+    const props = child.props as { name?: string; children?: React.ReactNode };
+    const name = props.name ?? "";
+
+    // A column is focused if any of its SceneObject children are focused.
+    const columnFocused = React.Children.toArray(
+      props.children,
+    ).some(
+      (c) =>
+        isValidElement<SceneObjectProps>(c) &&
+        c.type === SceneObject &&
+        c.props.focused === true,
+    );
+
+    result.push({ name, focused: columnFocused });
+  });
+
+  return result;
+}
+
+/**
+ * Computes a position classification for each column based on which columns
+ * are focused. Outer-left columns slide offscreen left, outer-right slide
+ * right, in-between stack as a depth deck.
+ *
+ * When no columns are focused, all positions are null (camera stays still).
+ */
+export function computeColumnPositions(
+  columns: Array<{ name: string; focused: boolean }>,
+): Map<string, ColumnPosition> {
+  const positions = new Map<string, ColumnPosition>();
+
+  const focusedIndices = columns
+    .map((c, i) => ({ i, focused: c.focused }))
+    .filter((x) => x.focused)
+    .map((x) => x.i);
+
+  // When nothing is focused, columns stay at last position — don't slide offscreen.
+  if (focusedIndices.length === 0) {
+    columns.forEach((c) => positions.set(c.name, null));
+    return positions;
+  }
+
+  const leftmostFocused = focusedIndices[0]!;
+  const rightmostFocused = focusedIndices[focusedIndices.length - 1]!;
+
+  columns.forEach((col, i) => {
+    if (col.focused) {
+      positions.set(col.name, null); // focused — in flex flow
+    } else if (i < leftmostFocused) {
+      positions.set(col.name, "outer-left");
+    } else if (i > rightmostFocused) {
+      positions.set(col.name, "outer-right");
+    } else {
+      positions.set(col.name, "in-between");
+    }
+  });
+
+  return positions;
+}
 
 export interface SceneProps {
   children: React.ReactNode;
@@ -390,6 +470,11 @@ export function Scene({
     .map((o) => o.name)
     .join(",");
 
+  // Compute position classifications for all columns so SceneColumn can
+  // animate unfocused columns offscreen or into a depth deck.
+  const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
+  const columnPositions = computeColumnPositions(columnStates);
+
   return (
     <SceneConfigContext.Provider
       value={{ stiffness: 300, damping: 30, padding, columnGap, duration, debug }}
@@ -400,9 +485,11 @@ export function Scene({
           transitioning: false,
         }}
       >
-        <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
-          {wrappedChildren}
-        </SceneViewport>
+        <ColumnPositionContext.Provider value={columnPositions}>
+          <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
+            {wrappedChildren}
+          </SceneViewport>
+        </ColumnPositionContext.Provider>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>
   );
