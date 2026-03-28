@@ -247,6 +247,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // The last measured size while the column was focused. Set to null while
   // focused (no freeze applied) and to a FrozenSize after losing focus.
   const [frozenSize, setFrozenSize] = useState<FrozenSize | null>(null);
+  // Content height at the time the column lost focus, used for vertical
+  // centering of unfocused columns (so they maintain consistent positioning).
+  const [frozenContentHeight, setFrozenContentHeight] = useState(0);
 
   // Tracks the latest size observed via ResizeObserver while focused.
   const lastObservedSize = useRef<FrozenSize>({ width: 0, height: 0 });
@@ -490,6 +493,8 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     } else if (wasEverFocused.current) {
       // Freeze at the last captured dimensions so the column doesn't collapse.
       setFrozenSize({ ...lastObservedSize.current });
+      // Save content height for vertical centering of unfocused columns.
+      setFrozenContentHeight(contentHeight);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
@@ -523,9 +528,16 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0
   // and content aligns to the top.
+  // Vertical centering for all columns. Focused columns use their live
+  // contentHeight. Previously-focused columns use frozenContentHeight.
+  // Never-focused columns measure their content wrapper directly.
+  let effectiveContentHeight = columnFocused ? contentHeight : frozenContentHeight;
+  if (effectiveContentHeight === 0 && contentWrapperRef.current) {
+    effectiveContentHeight = contentWrapperRef.current.getBoundingClientRect().height;
+  }
   const marginTop =
-    viewportHeight > 0 && contentHeight > 0 && columnFocused
-      ? Math.max(0, (viewportHeight - contentHeight) / 2)
+    viewportHeight > 0 && effectiveContentHeight > 0
+      ? Math.max(0, (viewportHeight - effectiveContentHeight) / 2)
       : 0;
 
   // Registration and height-reporting callbacks provided to child SceneObjects.
