@@ -2094,3 +2094,206 @@ describe("Scene outer unfocused column positioning", () => {
     expect(colB.getAttribute("data-column-position")).not.toBe("outer-right");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6d: Depth deck stacking for in-between unfocused columns
+// ---------------------------------------------------------------------------
+
+describe("Scene depth deck stacking", () => {
+  test("in-between unfocused column is classified as in-between", async () => {
+    // Three columns: left and right are focused, middle is unfocused.
+    // The middle column should be classified as "in-between".
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    expect(middleCol.getAttribute("data-column-position")).toBe("in-between");
+  });
+
+  test("in-between column stacks under right focused column (positioned near right)", async () => {
+    // An in-between unfocused column should appear in roughly the same
+    // horizontal area as the right focused column — stacked behind it.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+
+    const middleRect = middleCol.getBoundingClientRect();
+    const rightRect = rightCol.getBoundingClientRect();
+
+    // In-between column should overlap with the right focused column's area.
+    // Their left edges should be close (within 50px).
+    expect(Math.abs(middleRect.left - rightRect.left)).toBeLessThan(50);
+  });
+
+  test("in-between column appears smaller than natural size (perspective depth)", async () => {
+    // The depth deck uses perspective + translateZ to create the stacking visual.
+    // An in-between column at depth-1 should appear smaller than its natural size.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const middleRect = middleCol.getBoundingClientRect();
+
+    // The column's rendered (projected) width should be less than its frozen width (300px).
+    // Perspective projection reduces apparent size for elements pushed back in Z.
+    expect(middleRect.width).toBeLessThan(300);
+  });
+
+  test("multiple in-between columns: deeper columns appear further back", async () => {
+    // Four columns: left and right focused, two in between unfocused.
+    // The column closer to the right focused column should have depth-1,
+    // the one further away depth-2. Depth-2 should appear even smaller.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+
+    // Depth increases going away from the right focused column.
+    // col-middle2 is closer to col-right → depth-1 (shallower, closer to right)
+    // col-middle1 is further from col-right → depth-2 (deeper, further back)
+    expect(middle1.getAttribute("data-stack-depth")).toBe("2");
+    expect(middle2.getAttribute("data-stack-depth")).toBe("1");
+
+    // Depth-2 (middle1) should appear smaller than depth-1 (middle2)
+    const rect1 = middle1.getBoundingClientRect();
+    const rect2 = middle2.getBoundingClientRect();
+    expect(rect1.width).toBeLessThan(rect2.width);
+  });
+
+  test("depth-1 has higher opacity than depth-2", async () => {
+    // Shallower stacked columns should be more opaque than deeper ones.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+
+    // Depth is measured from right focused column:
+    // col-middle2 (adjacent to right) → depth-1, higher opacity
+    // col-middle1 (further from right) → depth-2, lower opacity
+    const opacity1 = parseFloat(window.getComputedStyle(middle1).opacity);
+    const opacity2 = parseFloat(window.getComputedStyle(middle2).opacity);
+
+    // depth-2 (middle1) should have lower opacity than depth-1 (middle2)
+    expect(opacity1).toBeLessThan(opacity2);
+    // Both should be below 1 (they are unfocused/stacked)
+    expect(opacity1).toBeLessThan(1);
+    expect(opacity2).toBeLessThan(1);
+  });
+});
