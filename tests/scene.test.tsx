@@ -2818,7 +2818,7 @@ describe("SceneObject click-to-focus", () => {
     expect(inertWrapper?.hasAttribute("inert")).toBe(true);
   });
 
-  test("SceneObject outer wrapper is clickable even when unfocused", async () => {
+  test("SceneObject outer wrapper is clickable even when unfocused (outer not inert)", async () => {
     // The outer wrapper must NOT be inert — only the inner content wrapper is.
     // This is what enables click-to-focus: the outer div receives click events
     // even though the content inside is inert.
@@ -2840,5 +2840,77 @@ describe("SceneObject click-to-focus", () => {
     // The inner wrapper (parent of content) should have inert.
     const innerWrapper = getByTestId("content").element().parentElement;
     expect(innerWrapper?.hasAttribute("inert")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8c: Keyboard focus management
+// ---------------------------------------------------------------------------
+
+describe("SceneObject keyboard focus management", () => {
+  test("focus change moves keyboard focus to first focusable element in new content", async () => {
+    // When a SceneObject transitions from unfocused to focused, keyboard focus
+    // should move to the first focusable descendant so keyboard users don't
+    // need to manually tab into the newly visible content.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <button data-testid="btn-in-panel">action</button>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Panel is not focused — button should not have keyboard focus.
+    const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+    expect(document.activeElement).not.toBe(btn);
+
+    // Transition: make the panel focused.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <button data-testid="btn-in-panel">action</button>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // After becoming focused, the first focusable element should receive keyboard focus.
+    expect(document.activeElement).toBe(btn);
+  });
+
+  test("if no focusable elements, focus does not throw", async () => {
+    // When a SceneObject becomes focused but contains no interactive elements,
+    // the focus logic should degrade gracefully without throwing.
+    const { rerender } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div>no buttons here</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Should not throw even when no focusable element is found.
+    await expect(rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div>no buttons here</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    )).resolves.not.toThrow();
   });
 });
