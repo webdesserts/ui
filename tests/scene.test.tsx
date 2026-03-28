@@ -523,3 +523,87 @@ describe("SceneColumn unfocused freeze", () => {
     expect(window.getComputedStyle(col2).position).toBe("relative");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1: Debug mode
+// ---------------------------------------------------------------------------
+
+describe("Scene debug mode", () => {
+  test("debug disabled — no overlays present", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element();
+    // No debug overlay should be present when debug is not enabled
+    expect(scene.querySelector("[data-debug-overlay]")).toBeNull();
+  });
+
+  test("debug does not affect layout", async () => {
+    // Enabling debug should not change the column's computed position or flex
+    const { getByTestId: withDebug } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="debug-content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const colDebug = withDebug("debug-content").element().closest("[data-column]") as HTMLElement;
+    const styleDebug = window.getComputedStyle(colDebug);
+    expect(styleDebug.position).toBe("relative");
+    expect(styleDebug.flexGrow).toBe("1");
+  });
+
+  test("debug enabled — viewport has cyan outline", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const style = window.getComputedStyle(scene);
+    // Debug mode adds a cyan outline to the viewport
+    expect(style.outline).toContain("cyan");
+  });
+
+  test("debug enabled — overlay panel lists object names and focus state", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="my-panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element();
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // Overlay should mention the object name and focused state
+    expect(overlay?.textContent).toContain("my-panel");
+    expect(overlay?.textContent).toContain("focused");
+  });
+});
