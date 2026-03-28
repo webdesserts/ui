@@ -165,17 +165,9 @@ function computeWithinColumnDepths(
     // (the first focused object after this one in DOM order).
     const lowerFocusedIndex = i + 1 + focusedAfterIndex;
 
-    // Depth: how many unfocused between-objects are between this one and the
-    // lower focused sibling? Objects closer to the lower focused sibling have
-    // lower depth indices.
-    let depth = 1;
-    for (let j = i + 1; j < lowerFocusedIndex; j++) {
-      if (!objectStates[j]!.focused) depth++;
-    }
-    // The object immediately above lowerFocused is depth-1, so re-count from
-    // the other direction: depth = number of between-unfocused objects from
-    // this object to the lower focused sibling (exclusive), + 1.
-    depth = lowerFocusedIndex - i;
+    // Depth = distance from this object to the lower focused sibling.
+    // The object immediately above lowerFocused is depth-1, further away is higher.
+    const depth = lowerFocusedIndex - i;
 
     // anchorTop = cumulative height of all objects before the lower focused sibling.
     let anchorTop = 0;
