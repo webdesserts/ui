@@ -540,7 +540,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           ref={contentWrapperRef}
           data-column-content
           role="region"
-          aria-label={`${name} content, scrollable`}
+          aria-label={`${name} content${isScrollable ? ", scrollable" : ""}`}
           tabIndex={0}
           animate={{ top: combinedTop }}
           transition={transition}

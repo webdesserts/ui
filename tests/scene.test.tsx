@@ -3156,7 +3156,7 @@ describe("SceneColumn scroll accessibility", () => {
 
     const content = getByTestId("content").element();
     const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
-    expect(contentWrapper.getAttribute("aria-label")).toBe("nav content, scrollable");
+    expect(contentWrapper.getAttribute("aria-label")).toBe("nav content");
   });
 });
 
