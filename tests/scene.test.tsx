@@ -1056,6 +1056,50 @@ describe("Scene centering", () => {
     expect(marginTop).toBe(0);
   });
 
+  test("viewport resize: centered content becomes left-aligned when it overflows", async () => {
+    // A focused column that fits the viewport should be centered. When the viewport
+    // is resized to be smaller than the content, the margin-top should drop to 0.
+    // We simulate this by starting with short content (fits 800px viewport) then
+    // swapping in tall content (overflows).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Short content — fits 800px viewport */}
+              <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement | null;
+
+    // Initially centered (margin-top > 0)
+    const marginTopBefore = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
+    expect(marginTopBefore).toBeGreaterThan(0);
+
+    // Swap to tall content that overflows the viewport
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Tall content — exceeds 800px viewport */}
+              <div data-testid="content" style={{ minWidth: 200, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Now overflowing — margin-top should be 0 (top-aligned)
+    const marginTopAfter = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
+    expect(marginTopAfter).toBe(0);
+  });
+
   test("small content — both axes centered in viewport", async () => {
     // When content fits both axes, it should be visually centered in the viewport.
     // Check that the content's bounding rect is roughly centered within 1280x800.
@@ -1085,5 +1129,138 @@ describe("Scene centering", () => {
     // content should be near y = 350
     expect(rect.top).toBeGreaterThan(100);    // not top-aligned
     expect(rect.bottom).toBeLessThan(700);    // not bottom-aligned
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3: Gaps and padding
+// ---------------------------------------------------------------------------
+
+describe("Scene gaps and padding", () => {
+  test("columnGap creates space between focused columns", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} columnGap={40}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // The stage flex container should have gap applied. Measure the visual gap
+    // between the right edge of col1 and the left edge of col2.
+    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+
+    const right1 = col1.getBoundingClientRect().right;
+    const left2 = col2.getBoundingClientRect().left;
+    const gap = left2 - right1;
+
+    expect(gap).toBe(40);
+  });
+
+  test("objectGap creates space between focused objects in a column", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" objectGap={24}>
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    const bottomA = objA.getBoundingClientRect().bottom;
+    const topB = objB.getBoundingClientRect().top;
+    const gap = topB - bottomA;
+
+    expect(gap).toBe(24);
+  });
+
+  test("default gap is zero — no space between columns or objects", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+
+    const right1 = col1.getBoundingClientRect().right;
+    const left2 = col2.getBoundingClientRect().left;
+    expect(left2 - right1).toBe(0);
+  });
+
+  test("padding adds space around focused columns in the stage", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={32}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
+
+    const stageStyle = window.getComputedStyle(stage!);
+    expect(parseFloat(stageStyle.paddingTop)).toBe(32);
+    expect(parseFloat(stageStyle.paddingRight)).toBe(32);
+    expect(parseFloat(stageStyle.paddingBottom)).toBe(32);
+    expect(parseFloat(stageStyle.paddingLeft)).toBe(32);
+  });
+
+  test("default padding is zero", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    expect(stage).not.toBeNull();
+
+    const stageStyle = window.getComputedStyle(stage!);
+    expect(parseFloat(stageStyle.padding)).toBe(0);
   });
 });
