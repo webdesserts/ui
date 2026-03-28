@@ -84,8 +84,51 @@ function collectObjectEntries(children: React.ReactNode): DebugObjectEntry[] {
   return entries;
 }
 
+/** Per-column scroll state read from DOM data attributes for the debug overlay. */
+interface DebugColumnScroll {
+  name: string;
+  scrollOffset: number;
+  contentHeight: number;
+  viewportHeight: number;
+  scrollable: boolean;
+}
+
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
-function SceneDebugOverlay({ objects }: { objects: DebugObjectEntry[] }) {
+function SceneDebugOverlay({
+  objects,
+  viewportRef,
+}: {
+  objects: DebugObjectEntry[];
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  // Read current scroll state from column DOM attributes. This is debug-only
+  // so reading from the DOM directly is acceptable.
+  const columnScrollStates: DebugColumnScroll[] = [];
+  const viewport = viewportRef.current;
+  if (viewport) {
+    const columns = viewport.querySelectorAll("[data-column]");
+    columns.forEach((col) => {
+      const name = col.getAttribute("data-column") ?? "?";
+      const focused = col.getAttribute("data-column-focused") === "true";
+      if (!focused) return;
+      const scrollOffset = parseFloat(col.getAttribute("data-scroll-offset") ?? "0");
+      const contentHeight = parseFloat(col.getAttribute("data-content-height") ?? "0");
+      const maxScroll = parseFloat(col.getAttribute("data-max-scroll") ?? "0");
+      const viewportHeight = contentHeight - maxScroll; // viewport = content - maxScroll
+      columnScrollStates.push({
+        name,
+        scrollOffset,
+        contentHeight,
+        viewportHeight,
+        scrollable: maxScroll > 0,
+      });
+    });
+  }
+
+  const scrollLeft = viewport?.scrollLeft ?? 0;
+  const scrollWidth = viewport?.scrollWidth ?? 0;
+  const clientWidth = viewport?.clientWidth ?? 0;
+
   return (
     <div
       data-debug-overlay
@@ -115,6 +158,34 @@ function SceneDebugOverlay({ objects }: { objects: DebugObjectEntry[] }) {
           </span>
         </div>
       ))}
+
+      {columnScrollStates.length > 0 && (
+        <>
+          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+            Vertical scroll
+          </div>
+          {columnScrollStates.map((col) => (
+            <div key={col.name} data-debug-scroll-column={col.name}>
+              <span style={{ color: col.scrollable ? "#facc15" : "#9ca3af" }}>
+                {col.name}
+              </span>
+              {": "}
+              <span>{Math.round(col.scrollOffset)}</span>
+              {" / "}
+              <span>{Math.round(col.contentHeight - col.viewportHeight)}</span>
+              {col.scrollable ? " 📜" : " ✓"}
+            </div>
+          ))}
+        </>
+      )}
+
+      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+        Horizontal scroll
+      </div>
+      <div data-debug-h-scroll>
+        {Math.round(scrollLeft)} / {Math.round(scrollWidth - clientWidth)} (vp:{" "}
+        {Math.round(clientWidth)})
+      </div>
     </div>
   );
 }
@@ -274,7 +345,9 @@ function SceneViewport({
         {/* Overlay is inside the scene div so tests can find it via
             scene.querySelector('[data-debug-overlay]'). position:fixed
             ensures it doesn't participate in flex layout. */}
-        {debug && debugObjects && <SceneDebugOverlay objects={debugObjects} />}
+        {debug && debugObjects && (
+          <SceneDebugOverlay objects={debugObjects} viewportRef={viewportRef} />
+        )}
       </motion.div>
     </ViewportContext.Provider>
   );
