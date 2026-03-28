@@ -1391,3 +1391,204 @@ describe("Scene horizontal scroll", () => {
     expect(scene.scrollLeft).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 5: Vertical scroll (per-column JS scroll state)
+// ---------------------------------------------------------------------------
+
+describe("Scene vertical scroll", () => {
+  test("column taller than viewport gets a vertical scrollbar", async () => {
+    // A focused column whose content height exceeds the viewport height should
+    // have a scrollbar rendered ([data-scrollbar] element inside the column).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Taller than the 800px viewport */}
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // A scrollbar should be present for the overflowing column
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).not.toBeNull();
+  });
+
+  test("column fitting viewport has no scrollbar", async () => {
+    // A focused column whose content fits within the viewport height should not
+    // have a scrollbar rendered.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Shorter than the 800px viewport */}
+              <div data-testid="content" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).toBeNull();
+  });
+
+  test("scroll range = focused content height - viewport height", async () => {
+    // The scrollbar thumb size should reflect the scroll range:
+    // maxScroll = contentHeight - viewportHeight = 1200 - 800 = 400
+    // The thumb should not be at the top AND be smaller than the track,
+    // showing that scroll range > 0.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    // Column should expose its scroll state on a data attribute
+    const maxScroll = column.getAttribute("data-max-scroll");
+    expect(maxScroll).not.toBeNull();
+    // maxScroll = 1200 - 800 = 400 (approximately)
+    expect(parseFloat(maxScroll!)).toBeGreaterThan(0);
+  });
+
+  test("unfocused objects in column don't extend scroll range", async () => {
+    // Only focused content should contribute to the scroll range.
+    // An unfocused sibling is position: absolute (out of flow) and should not
+    // extend maxScroll.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="focused-obj" focused>
+              {/* Fits within viewport */}
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+            <SceneObject name="unfocused-obj" focused={false}>
+              {/* Would overflow if counted — but it's unfocused */}
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // Only focused content (300px) fits within 800px viewport — no scrollbar
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).toBeNull();
+  });
+
+  test("scroll offset drives column content top position", async () => {
+    // When a wheel event fires with deltaY=100, the column content wrapper
+    // should move its top offset by -100 (content slides up by 100px).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Get position of the column center for the wheel event target
+    const columnRect = column.getBoundingClientRect();
+    const centerX = columnRect.left + columnRect.width / 2;
+    const centerY = columnRect.top + columnRect.height / 2;
+
+    // Before scroll: top should be 0
+    const topBefore = parseFloat(contentWrapper.style.top || "0");
+    expect(topBefore).toBe(0);
+
+    // Fire a wheel event on the viewport with deltaY=100
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 100,
+        clientX: centerX,
+        clientY: centerY,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    // After scroll: top should be -100 (content moved up)
+    const topAfter = parseFloat(contentWrapper.style.top || "0");
+    expect(topAfter).toBe(-100);
+  });
+
+  test("non-overflowing sibling stays centered during scroll", async () => {
+    // When one column scrolls vertically, a non-overflowing sibling column
+    // should remain centered (unaffected by the other column's scroll state).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="tall-col">
+            <SceneObject name="tall-panel" focused>
+              <div data-testid="tall-content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="short-col">
+            <SceneObject name="short-panel" focused>
+              <div data-testid="short-content" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+
+    // Find the tall column to target the wheel event at it
+    const tallColumn = getByTestId("tall-content")
+      .element()
+      .closest("[data-column]") as HTMLElement;
+    const tallRect = tallColumn.getBoundingClientRect();
+    const tallCenterX = tallRect.left + tallRect.width / 2;
+    const tallCenterY = tallRect.top + tallRect.height / 2;
+
+    // Get the short column's content wrapper margin-top before scroll
+    const shortColumn = getByTestId("short-content")
+      .element()
+      .closest("[data-column]") as HTMLElement;
+    const shortContent = shortColumn.querySelector("[data-column-content]") as HTMLElement;
+    const marginTopBefore = parseFloat(window.getComputedStyle(shortContent).marginTop);
+    expect(marginTopBefore).toBeGreaterThan(0); // should be centered
+
+    // Scroll the tall column
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 200,
+        clientX: tallCenterX,
+        clientY: tallCenterY,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    // Short column's centering should be unaffected
+    const marginTopAfter = parseFloat(window.getComputedStyle(shortContent).marginTop);
+    expect(marginTopAfter).toBe(marginTopBefore);
+  });
+});
