@@ -352,3 +352,174 @@ describe("SceneColumn flex layout", () => {
     expect(width1).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 1: Unfocused freeze
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn unfocused freeze", () => {
+  test("column freezes at last dimensions when all children lose focus", async () => {
+    // Render a column with a focused child that has explicit dimensions,
+    // then re-render with the child unfocused. The column should retain a
+    // non-zero width and height (the frozen dimensions).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Measure dimensions while focused
+    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    const focusedWidth = col.getBoundingClientRect().width;
+    const focusedHeight = col.getBoundingClientRect().height;
+    expect(focusedWidth).toBeGreaterThan(0);
+    expect(focusedHeight).toBeGreaterThan(0);
+
+    // Lose focus — the column should freeze at its last size
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const frozenWidth = col.style.width;
+    const frozenHeight = col.style.height;
+
+    // Frozen size should be set as inline styles (non-zero)
+    expect(parseFloat(frozenWidth)).toBeGreaterThan(0);
+    expect(parseFloat(frozenHeight)).toBeGreaterThan(0);
+  });
+
+  test("unfocused column stays in DOM", async () => {
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Column should still be present in the DOM after losing focus
+    const col = getByTestId("content").element().closest("[data-column]");
+    expect(col).not.toBeNull();
+    expect(col?.getAttribute("data-column-focused")).toBe("false");
+  });
+
+  test("re-focusing column returns it to flex layout (position: relative)", async () => {
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Lose focus
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Regain focus
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    const style = window.getComputedStyle(col);
+    expect(style.position).toBe("relative");
+    // Inline frozen width/height should be cleared
+    expect(col.style.width).toBe("");
+    expect(col.style.height).toBe("");
+  });
+
+  test("focus change: previously focused becomes absolute, newly focused becomes relative", async () => {
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused={false}>
+              <div data-testid="content2" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Swap focus: col1 loses, col2 gains
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused={false}>
+              <div data-testid="content1" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+
+    expect(window.getComputedStyle(col1).position).toBe("absolute");
+    expect(window.getComputedStyle(col2).position).toBe("relative");
+  });
+});
