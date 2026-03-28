@@ -602,15 +602,16 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       ? inBetweenStyle
       : outerStyle;
 
-  // In-between columns animate toward the rightmost focused column's left edge
-  // so they appear stacked behind it. Outer columns stay at x:0 — they are in
-  // the natural flex row position and the Camera viewport clips them.
-  const animateX = position === "in-between" ? stackTargetLeft : 0;
-
   // Depth deck visual values for in-between columns. Deeper columns appear
   // smaller (via perspective + translateZ), more transparent, more greyscale,
   // and stacked lower (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
+
+  // In-between columns animate toward the rightmost focused column's left edge
+  // minus a peek offset per depth, so deeper columns peek further left.
+  // Outer columns stay at x:0 — they're in the natural flex row position.
+  const peekOffsetPx = isInBetween ? stackDepth * 20 : 0;
+  const animateX = position === "in-between" ? stackTargetLeft - peekOffsetPx : 0;
   // translateZ pushes the column away from the viewer along the Z axis. The
   // stage's CSS perspective projects this into a smaller apparent size. Each
   // depth level recedes 100px further from the viewer.
