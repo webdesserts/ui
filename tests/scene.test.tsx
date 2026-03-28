@@ -2904,11 +2904,12 @@ describe("Scene depth deck stacking", () => {
     const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
     const transform = window.getComputedStyle(middleCol).transform;
 
-    // Depth deck columns use CSS scale for the depth visual effect.
-    // The computed transform should include a scale factor < 1, visible as
-    // a matrix with values < 1 on the diagonal.
+    // Depth deck columns use perspective + translateZ for the depth visual effect.
+    // The computed transform should include a 3D matrix (matrix3d) reflecting the
+    // translateZ applied to push the column back in the perspective field.
     expect(transform).toBeTruthy();
     // Verify the column appears smaller than its natural 300px width.
+    // Perspective projection reduces the apparent size of elements pushed back in Z.
     const rect = middleCol.getBoundingClientRect();
     expect(rect.width).toBeLessThan(300);
   });

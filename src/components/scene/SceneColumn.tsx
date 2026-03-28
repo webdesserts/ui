@@ -607,30 +607,35 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // and stacked lower (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
 
-  // In-between columns animate toward the rightmost focused column's left edge
-  // minus a peek offset per depth, so deeper columns peek further left.
+  // In-between columns animate toward the rightmost focused column's left edge.
+  // Perspective projection naturally shifts them toward the perspective-origin,
+  // creating the peek effect without a manual x offset.
   // Outer columns stay at x:0 — they're in the natural flex row position.
-  const peekOffsetPx = isInBetween ? stackDepth * 20 : 0;
-  const animateX = position === "in-between" ? stackTargetLeft - peekOffsetPx : 0;
-  // Scale creates the visual depth effect: deeper columns appear smaller.
-  // Using scale instead of translateZ because preserve-3d breaks z-index
-  // ordering (depth deck renders on top of focused columns).
-  const depthScale = isInBetween ? Math.max(0.5, 1 - stackDepth * 0.08) : 1;
+  const animateX = position === "in-between" ? stackTargetLeft : 0;
+  // translateZ pushes in-between columns back in 3D space. The stage's
+  // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
+  // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.
+  // Focused columns explicitly sit at translateZ(0) to participate in the 3D
+  // stacking context and always render in front of in-between columns.
+  // depthZ must be declared AFTER isInBetween (variable ordering).
+  const depthZ = isInBetween ? -(stackDepth * 100) : 0;
   // Only in-between columns get depth-scaled opacity. Outer columns are fully
   // opaque — the viewport clips their visibility, not opacity:0.
   const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
   // Greyscale increases with depth: depth-1 → 25%, depth-2 → 50%, etc.
   // Reinforces the sense of receding into the background.
   const depthGreyscale = isInBetween ? stackDepth * 0.25 : 0;
-  // Focused columns render on top of the depth deck — their z-index must
-  // exceed the highest possible in-between depth index (100 - 1 = 99).
-  const depthZIndex = columnFocused ? 200 : isInBetween ? 100 - stackDepth : undefined;
+  // z-index is NOT used inside preserve-3d — 3D z-ordering is determined
+  // entirely by translateZ values (higher z = closer = rendered in front).
 
   // In-between columns are position:absolute from the stage top. To visually
   // align them with the focused content (which is centered via marginTop),
   // we translate them down to the vertical center of the viewport.
   // colHeight is the column's frozen or natural height — used for centering.
-  const colHeight = frozenSize?.height ?? (colRef.current?.getBoundingClientRect().height ?? 0);
+  // For in-between columns without a frozenSize, skip centering (top-aligned)
+  // rather than calling getBoundingClientRect which returns projected sizes
+  // inside the preserve-3d context.
+  const colHeight = frozenSize?.height ?? (isInBetween ? 0 : (colRef.current?.getBoundingClientRect().height ?? 0));
   const inBetweenY =
     isInBetween && viewportHeight > 0 && colHeight > 0
       ? (viewportHeight - colHeight) / 2
@@ -672,14 +677,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           opacity: depthOpacity,
           x: animateX,
           y: inBetweenY,
-          scale: depthScale,
+          z: depthZ,
         }}
         transition={transition}
         style={{
           ...columnStyle,
-          ...(depthZIndex !== undefined ? { zIndex: depthZIndex } : {}),
           opacity: depthOpacity,
-          scale: depthScale,
+          z: depthZ,
           filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
         }}
       >

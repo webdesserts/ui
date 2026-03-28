@@ -539,6 +539,11 @@ function SceneViewport({
   // stackTargetLeft: left edge of the rightmost focused column relative to the
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
+  // perspectiveOrigin: CSS perspective-origin for the stage's 3D context.
+  // Set to the center of the rightmost focused column so in-between columns
+  // (pushed back via translateZ) project naturally toward that focal point,
+  // creating a "receding behind the right column" depth effect.
+  const [perspectiveOrigin, setPerspectiveOrigin] = useState("50% 50%");
 
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
@@ -659,6 +664,15 @@ function SceneViewport({
     // they peek leftward from behind the rightmost focused column.
     const newTargetLeft = colRect.left - stageRect.left;
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
+
+    // Perspective origin follows the center of the rightmost focused column so
+    // that in-between columns (pushed back via translateZ) project naturally
+    // toward this focal point. Projection at translateZ(0) is identity, so
+    // focused columns are never affected by perspective-origin changes.
+    const colCenterX = colRect.left - stageRect.left + colRect.width / 2;
+    const colCenterY = colRect.top - stageRect.top + colRect.height / 2;
+    const newOrigin = `${colCenterX}px ${colCenterY}px`;
+    setPerspectiveOrigin((prev) => (prev === newOrigin ? prev : newOrigin));
   });
 
   // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
@@ -739,14 +753,13 @@ function SceneViewport({
               transforms are used for panning — direct `left` positioning
               preserves text rendering quality (no subpixel transform artifacts).
 
-              perspective + transform-style: preserve-3d create the 3D stacking
-              context for in-between unfocused columns (depth deck). position:
-              relative (over the absolute base) is handled by `position: absolute`
-              itself — it establishes the containing block for absolutely-positioned
-              in-between columns.
-
-              Focused columns have zIndex:200; in-between columns have lower z-index
-              (100 - depth) so focused content always renders on top. */}
+              perspective + transform-style: preserve-3d establish the 3D stacking
+              context for depth deck columns. Focused columns sit at translateZ(0)
+              (identity — no visual change), while in-between unfocused columns
+              receive negative translateZ values so they project smaller and shift
+              toward the perspective-origin, creating a natural receding effect.
+              z-index is not used inside preserve-3d — 3D z-ordering is determined
+              entirely by translateZ values. */}
           <motion.div
             ref={stageRef}
             data-stage
@@ -764,9 +777,9 @@ function SceneViewport({
               alignItems: "stretch",
               gap: columnGap || undefined,
               padding: padding || undefined,
-              // perspective + preserve-3d removed: translateZ inside preserve-3d
-              // breaks z-index ordering (depth deck renders on top of focused).
-              // Using CSS scale + z-index for depth visuals instead.
+              perspective: "800px",
+              transformStyle: "preserve-3d",
+              perspectiveOrigin,
               // Debug: magenta outline on the stage to distinguish it from the
               // cyan viewport outline. Purely cosmetic — no layout effect.
               outline: debug ? "2px solid magenta" : undefined,
