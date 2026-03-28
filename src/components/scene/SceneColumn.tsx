@@ -318,6 +318,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // their content naturally (position: absolute, no explicit dimensions).
   const wasEverFocused = useRef(columnFocused);
 
+  // True only on the very first render. Used to detect a freshly mounted
+  // column so it can animate in from offscreen rather than appearing at rest.
+  const isMountingRef = useRef(true);
+  useEffect(() => {
+    isMountingRef.current = false;
+  }, []);
+
   // Track column focus state: set up a ResizeObserver for ongoing size changes
   // while focused, freeze the last size on focus loss, and clear on re-focus.
   useEffect(() => {
@@ -476,6 +483,15 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // FLIP so they animate smoothly in and out of the flex row.
   const usesLayout = columnFocused;
 
+  // A column that mounts for the first time already focused should enter from
+  // the right (depth-forward navigation). motion will animate from this initial
+  // position to the flex layout position via the layout FLIP mechanism.
+  // When duration=0 (tests), motion skips the initial state immediately.
+  const mountInitial =
+    isMountingRef.current && columnFocused && viewportWidth > 0
+      ? { x: viewportWidth }
+      : undefined;
+
   const isScrollable = columnFocused && maxScroll > 0;
 
   return (
@@ -483,6 +499,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       <motion.div
         ref={colRef}
         {...(usesLayout ? { layout: true } : {})}
+        {...(mountInitial ? { initial: mountInitial } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
         data-column-position={position ?? undefined}
