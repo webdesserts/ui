@@ -1264,3 +1264,130 @@ describe("Scene gaps and padding", () => {
     expect(parseFloat(stageStyle.padding)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 4: Horizontal scroll (camera movement)
+// ---------------------------------------------------------------------------
+
+describe("Scene horizontal scroll", () => {
+  test("focused columns wider than viewport — overflow-x is auto (scrollable)", async () => {
+    // When content exceeds the viewport width, the scene element must have
+    // overflow-x: auto so the horizontal scrollbar appears. overflow: hidden
+    // clips content but doesn't allow scrolling.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // Content overflows AND scrolling is enabled (not clipped)
+    expect(scene.scrollWidth).toBeGreaterThan(scene.clientWidth);
+    const overflowX = window.getComputedStyle(scene).overflowX;
+    expect(overflowX).toBe("auto");
+  });
+
+  test("focused columns fit viewport — no horizontal overflow", async () => {
+    // A 200px column in a 1280px viewport fits — no overflow.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // No overflow — scrollWidth should equal clientWidth
+    expect(scene.scrollWidth).toBe(scene.clientWidth);
+  });
+
+  test("horizontal scroll range = total focused width - viewport width", async () => {
+    // Two 800px columns → 1600px total. In a 1280px viewport, scroll range ≥ 320px.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // scrollWidth - clientWidth should be ≥ 320px (the overflow amount)
+    const scrollRange = scene.scrollWidth - scene.clientWidth;
+    expect(scrollRange).toBeGreaterThanOrEqual(320);
+  });
+
+  test("horizontal scroll position can be set and resets to 0 on focus change", async () => {
+    // With overflow-x: auto, scrollLeft persists when set. On focus layout change,
+    // the Scene should reset scrollLeft to 0. This test verifies both that scrolling
+    // is actually enabled (scrollLeft takes effect) and that reset happens.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+
+    // With overflow-x: auto, scrollLeft should be settable and retained
+    scene.scrollLeft = 200;
+    expect(scene.scrollLeft).toBe(200);
+
+    // Change focus layout — Scene should reset scrollLeft to 0
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused={false}>
+              <div data-testid="content2" style={{ minWidth: 800, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Scroll should have reset to 0 after focus layout change
+    expect(scene.scrollLeft).toBe(0);
+  });
+});

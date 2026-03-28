@@ -123,9 +123,12 @@ function SceneDebugOverlay({ objects }: { objects: DebugObjectEntry[] }) {
 function SceneViewport({
   children,
   debugObjects,
+  focusKey,
 }: {
   children: React.ReactNode;
   debugObjects: DebugObjectEntry[] | null;
+  /** Changes whenever the focused column layout changes, triggering a scroll reset. */
+  focusKey: string;
 }) {
   const { debug, columnGap, padding } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -161,10 +164,30 @@ function SceneViewport({
     return () => observer.disconnect();
   }, []);
 
+  // Reset horizontal scroll position whenever the focused column layout changes.
+  // This ensures the user always sees from the left edge after a navigation change.
+  // focusKey is intentionally omitted from the deps array for the initial run
+  // (we only want to reset on changes, not on mount).
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (viewportRef.current) {
+      viewportRef.current.scrollLeft = 0;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
+
   return (
     <ViewportContext.Provider value={viewportSize}>
       {/* layoutScroll tells motion to account for scroll offset when measuring
-          FLIP positions inside this overflow-hidden container. */}
+          FLIP positions inside this overflow-x: auto container.
+          overflow-x: auto enables horizontal scrolling when focused columns
+          exceed the viewport width. overflow-y: hidden prevents vertical
+          scroll at this level — each column handles vertical scroll independently
+          (Phase 5). */}
       <motion.div
         ref={viewportRef}
         layoutScroll
@@ -175,9 +198,13 @@ function SceneViewport({
           alignItems: "stretch",
           width: "100%",
           height: "100%",
-          overflow: "hidden",
+          overflowX: "auto",
+          overflowY: "hidden",
           outline: debug ? "2px solid cyan" : undefined,
-        }}
+          // Thin scrollbar with transparent track so it doesn't eat into content space.
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(128,128,128,0.4) transparent",
+        } as React.CSSProperties}
       >
         {/* Stage: the flex row of focused columns. width: fit-content allows the
             stage to shrink to content width. margin-inline: auto centers the
@@ -241,6 +268,14 @@ export function Scene({
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
 
+  // Compute a key that changes whenever the set of focused objects changes.
+  // SceneViewport uses this to reset horizontal scroll on navigation changes.
+  const allObjects = collectObjectEntries(children);
+  const focusKey = allObjects
+    .filter((o) => o.focused)
+    .map((o) => o.name)
+    .join(",");
+
   return (
     <SceneConfigContext.Provider
       value={{ stiffness: 300, damping: 30, padding, columnGap, duration, debug }}
@@ -251,7 +286,7 @@ export function Scene({
           transitioning: false,
         }}
       >
-        <SceneViewport debugObjects={debugObjects}>
+        <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
           {wrappedChildren}
         </SceneViewport>
       </CameraContext.Provider>
