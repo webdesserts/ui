@@ -217,6 +217,104 @@ interface DebugColumnScroll {
   scrollable: boolean;
 }
 
+/** Measured bounds of a SceneObject for the debug overlay. */
+interface DebugObjectBounds {
+  name: string;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Absolutely-positioned overlay elements that draw colored outlines around each
+ * SceneObject. Rendered inside the viewport so positions are relative to it.
+ * `pointer-events: none` ensures these overlays never interfere with interaction.
+ */
+function SceneObjectOutlines({
+  objects,
+  viewportRef,
+}: {
+  objects: DebugObjectEntry[];
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [outlines, setOutlines] = useState<DebugObjectBounds[]>([]);
+
+  // Measure each SceneObject's bounding rect relative to the viewport after
+  // every render. Runs as useLayoutEffect to reflect current layout.
+  // Compares values before calling setState to avoid infinite re-render loops.
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const vpRect = viewport.getBoundingClientRect();
+    const measured: DebugObjectBounds[] = [];
+
+    for (const obj of objects) {
+      const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      measured.push({
+        name: obj.name,
+        width: rect.width,
+        height: rect.height,
+        x: rect.left - vpRect.left,
+        y: rect.top - vpRect.top,
+      });
+    }
+
+    setOutlines((prev) => {
+      // Avoid re-render if nothing changed — stable identity check via serialized key.
+      const key = (arr: DebugObjectBounds[]) =>
+        arr.map((o) => `${o.name}:${o.width}:${o.height}:${o.x}:${o.y}`).join(",");
+      return key(prev) === key(measured) ? prev : measured;
+    });
+  });
+
+  return (
+    <>
+      {outlines.map((obj) => {
+        const focused = objects.find((o) => o.name === obj.name)?.focused ?? false;
+        const borderColor = focused ? "green" : "gray";
+        return (
+          <div
+            key={obj.name}
+            data-debug-object-outline={obj.name}
+            style={{
+              position: "absolute",
+              left: obj.x,
+              top: obj.y,
+              width: obj.width,
+              height: obj.height,
+              border: `1px solid ${borderColor}`,
+              pointerEvents: "none",
+              boxSizing: "border-box",
+              zIndex: 9998,
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                background: borderColor,
+                color: "#fff",
+                fontFamily: "monospace",
+                fontSize: 10,
+                padding: "0 2px",
+                lineHeight: "14px",
+                pointerEvents: "none",
+              }}
+            >
+              {obj.name}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
 function SceneDebugOverlay({
   objects,
@@ -274,6 +372,24 @@ function SceneDebugOverlay({
     });
   }
 
+  // Measure object bounds for the overlay panel display.
+  const objectBounds: DebugObjectBounds[] = [];
+  if (viewport) {
+    const vpRect = viewport.getBoundingClientRect();
+    for (const obj of objects) {
+      const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      objectBounds.push({
+        name: obj.name,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        x: Math.round(rect.left - vpRect.left),
+        y: Math.round(rect.top - vpRect.top),
+      });
+    }
+  }
+
   return (
     <div
       data-debug-overlay
@@ -292,17 +408,26 @@ function SceneDebugOverlay({
       }}
     >
       <div style={{ fontWeight: "bold", marginBottom: 4 }}>Scene objects</div>
-      {objects.map((obj) => (
-        <div key={obj.name}>
-          <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
-            {obj.name}
-          </span>
-          {" — "}
-          <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
-            {obj.focused ? "focused" : "unfocused"}
-          </span>
-        </div>
-      ))}
+      {objects.map((obj) => {
+        const bounds = objectBounds.find((b) => b.name === obj.name);
+        return (
+          <div key={obj.name}>
+            <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
+              {obj.name}
+            </span>
+            {" — "}
+            <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
+              {obj.focused ? "focused" : "unfocused"}
+            </span>
+            {bounds && (
+              <span style={{ color: "#6b7280" }}>
+                {" "}
+                {bounds.width}×{bounds.height} @ {bounds.x},{bounds.y}
+              </span>
+            )}
+          </div>
+        );
+      })}
 
       {offsetParentWarnings.length > 0 && (
         <>
@@ -361,6 +486,15 @@ function SceneDebugOverlay({
       <div data-debug-h-scroll>
         {Math.round(scrollLeft)} / {Math.round(scrollWidth - clientWidth)} (vp:{" "}
         {Math.round(clientWidth)})
+      </div>
+
+      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+        Camera
+      </div>
+      <div data-debug-camera>
+        <span style={{ color: "#93c5fd" }}>viewport</span>
+        {": "}
+        {Math.round(clientWidth)} × {Math.round(viewport?.clientHeight ?? 0)}
       </div>
     </div>
   );
@@ -632,10 +766,22 @@ function SceneViewport({
               padding: padding || undefined,
               perspective: "1000px",
               transformStyle: "preserve-3d",
+              // Debug: magenta outline on the stage to distinguish it from the
+              // cyan viewport outline. Purely cosmetic — no layout effect.
+              outline: debug ? "2px solid magenta" : undefined,
             }}
           >
             {children}
           </motion.div>
+          {/* Object outlines: absolutely positioned colored borders for each
+              SceneObject. Rendered outside the stage so positions are relative
+              to the viewport, not the panning stage. */}
+          {debug && debugObjects && (
+            <SceneObjectOutlines
+              objects={debugObjects}
+              viewportRef={viewportRef}
+            />
+          )}
           {/* Overlay is inside the scene div so tests can find it via
               scene.querySelector('[data-debug-overlay]'). position:fixed
               ensures it doesn't participate in flex layout. */}

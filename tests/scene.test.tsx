@@ -802,6 +802,211 @@ describe("Scene debug — toggle", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Debug — remaining overlay features (spec: scene-debug.feature)
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — stage outline", () => {
+  test("Debug — stage has magenta outline", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    expect(stage).not.toBeNull();
+    const style = window.getComputedStyle(stage);
+    // Debug mode adds a magenta outline to the stage.
+    const outline = style.outline + style.outlineColor;
+    expect(outline).toMatch(/magenta|rgb\(255,\s*0,\s*255\)/);
+  });
+
+  test("Debug — stage outline is absent when debug is off", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const style = window.getComputedStyle(stage);
+    const outline = style.outline + style.outlineColor;
+    expect(outline).not.toMatch(/magenta|rgb\(255,\s*0,\s*255\)/);
+  });
+});
+
+describe("Scene debug — SceneObject outlines", () => {
+  test("Debug — focused objects have green outline with name", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="my-panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // Focused object overlay should be present
+    const focusedOverlay = scene.querySelector("[data-debug-object-outline='my-panel']") as HTMLElement;
+    expect(focusedOverlay).not.toBeNull();
+    // Should have green color
+    const style = window.getComputedStyle(focusedOverlay);
+    const borderColor = style.borderColor + style.outlineColor + style.border;
+    expect(borderColor).toMatch(/green|rgb\(0,\s*128,\s*0\)|rgb\(0,\s*255,\s*0\)|#0f0/i);
+    // Should display the name
+    expect(focusedOverlay.textContent).toContain("my-panel");
+  });
+
+  test("Debug — unfocused objects have gray outline with name", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="unfocused-panel" focused={false}>
+              <div data-testid="content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const unfocusedOverlay = scene.querySelector("[data-debug-object-outline='unfocused-panel']") as HTMLElement;
+    expect(unfocusedOverlay).not.toBeNull();
+    // Unfocused overlay should have gray color
+    const style = window.getComputedStyle(unfocusedOverlay);
+    const borderColor = style.borderColor + style.outlineColor + style.border;
+    expect(borderColor).toMatch(/gray|grey|rgb\(1(28|58|88),/i);
+    // Should display the name
+    expect(unfocusedOverlay.textContent).toContain("unfocused-panel");
+  });
+
+  test("Debug — SceneObject outlines are not present when debug is off", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="my-panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const outlines = scene.querySelectorAll("[data-debug-object-outline]");
+    expect(outlines.length).toBe(0);
+  });
+});
+
+describe("Scene debug — overlay computed bounds", () => {
+  test("Debug — overlay shows computed bounds per object", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="my-panel" focused style={{ width: 300, height: 200 }}>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // Overlay should show dimensions (width × height) for the object
+    expect(overlay?.textContent).toMatch(/\d+\s*[×x]\s*\d+/);
+  });
+});
+
+describe("Scene debug — Camera state in overlay", () => {
+  test("Debug — overlay shows Camera target bounds and viewport dimensions", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused style={{ width: 300, height: 200 }}>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // Should show a "Camera" or "viewport" section
+    expect(overlay?.textContent).toMatch(/camera|viewport/i);
+    // Should contain numbers that represent viewport dimensions
+    expect(overlay?.textContent).toMatch(/\d+/);
+  });
+
+  test("Debug — overlay has a section labeled for Camera", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const cameraSection = scene.querySelector("[data-debug-camera]");
+    expect(cameraSection).not.toBeNull();
+  });
+});
+
+describe("Scene debug — per-column scroll state in overlay", () => {
+  test("Debug — overlay shows per-column vertical scroll state", async () => {
+    // A tall SceneObject that makes its column scrollable
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="scrollable-col">
+            <SceneObject name="tall-panel" focused style={{ width: 300, height: 2000 }}>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // The overlay should show scroll state for the scrollable column
+    const scrollSection = scene.querySelector("[data-debug-scroll-column='scrollable-col']");
+    expect(scrollSection).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 2: Vertical swap within a column
 // ---------------------------------------------------------------------------
 
