@@ -471,8 +471,8 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const animateX = position === "in-between" ? stackTargetLeft : 0;
 
   // Depth deck visual values for in-between columns. Deeper columns appear
-  // smaller (via perspective + translateZ), more transparent, and stacked lower
-  // (z-index).
+  // smaller (via perspective + translateZ), more transparent, more greyscale,
+  // and stacked lower (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
   // translateZ pushes the column away from the viewer along the Z axis. The
   // stage's CSS perspective projects this into a smaller apparent size. Each
@@ -481,6 +481,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // Only in-between columns get depth-scaled opacity. Outer columns are fully
   // opaque — the viewport clips their visibility, not opacity:0.
   const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
+  // Greyscale increases with depth: depth-1 → 25%, depth-2 → 50%, etc.
+  // Reinforces the sense of receding into the background.
+  const depthGreyscale = isInBetween ? stackDepth * 0.25 : 0;
   const depthZIndex = isInBetween ? 100 - stackDepth : undefined;
 
   // Outer columns use animate-only (no layout FLIP). Focused columns use layout
@@ -515,6 +518,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           opacity: depthOpacity,
           x: animateX,
           z: depthZ,
+          filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : "none",
         }}
         transition={transition}
         style={{

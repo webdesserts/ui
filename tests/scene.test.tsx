@@ -2709,6 +2709,81 @@ describe("Scene depth deck stacking", () => {
     expect(rect.width).toBeLessThan(300);
   });
 
+  test("depth-1 in-between column has greyscale filter applied", async () => {
+    // In-between columns at depth-1 should have a 25% greyscale filter applied.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const filter = window.getComputedStyle(middleCol).filter;
+
+    // depth-1 → grayscale(0.25)
+    expect(filter).toContain("grayscale(0.25)");
+  });
+
+  test("deeper columns have more greyscale than shallower columns", async () => {
+    // depth-2 should have grayscale(0.5), depth-1 should have grayscale(0.25).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // col-middle2 is adjacent to col-right → depth-1 → grayscale(0.25)
+    // col-middle1 is further from col-right → depth-2 → grayscale(0.5)
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+
+    const filter1 = window.getComputedStyle(middle1).filter;
+    const filter2 = window.getComputedStyle(middle2).filter;
+
+    expect(filter2).toContain("grayscale(0.25)");
+    expect(filter1).toContain("grayscale(0.5)");
+  });
 });
 
 // ---------------------------------------------------------------------------
