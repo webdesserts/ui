@@ -240,3 +240,104 @@ describe("Scene vertical swap and multi-focus", () => {
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2: 3D depth deck visual tests
+// ---------------------------------------------------------------------------
+
+describe("Scene depth deck", () => {
+  it("scene-depth-deck-3d-perspective", async () => {
+    // Two focused outer columns, two unfocused in-between columns stacked in the
+    // depth deck. The perspective + translateZ effect should make the stacked
+    // columns appear smaller and receding. The greyscale filter visually
+    // reinforces the depth.
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-panel" focused>
+              <div
+                style={{
+                  width: 200,
+                  height: 300,
+                  background: "rgba(99,102,241,0.3)",
+                  border: "1px solid rgba(99,102,241,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Left (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle1">
+            <SceneObject name="middle1-panel" focused={false}>
+              <div
+                style={{
+                  width: 200,
+                  height: 300,
+                  background: "rgba(244,114,182,0.3)",
+                  border: "1px solid rgba(244,114,182,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Middle 1 (depth-2)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle2">
+            <SceneObject name="middle2-panel" focused={false}>
+              <div
+                style={{
+                  width: 200,
+                  height: 300,
+                  background: "rgba(52,211,153,0.3)",
+                  border: "1px solid rgba(52,211,153,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Middle 2 (depth-1)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-panel" focused>
+              <div
+                style={{
+                  width: 200,
+                  height: 300,
+                  background: "rgba(251,191,36,0.3)",
+                  border: "1px solid rgba(251,191,36,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Right (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+});

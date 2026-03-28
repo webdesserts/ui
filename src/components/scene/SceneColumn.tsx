@@ -471,13 +471,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const animateX = position === "in-between" ? stackTargetLeft : 0;
 
   // Depth deck visual values for in-between columns. Deeper columns appear
-  // smaller (via scale), more transparent, and stacked lower (z-index).
+  // smaller (via perspective + translateZ), more transparent, and stacked lower
+  // (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
-  // Scale shrinks each deeper column by 10% per depth level, creating the
-  // visual impression of receding layers. Scale is used instead of translateZ
-  // so getBoundingClientRect() returns the actual displayed (scaled) dimensions,
-  // which lets tests and layout logic compare apparent sizes across depths.
-  const depthScale = isInBetween ? Math.max(0.1, 1 - stackDepth * 0.1) : 1;
+  // translateZ pushes the column away from the viewer along the Z axis. The
+  // stage's CSS perspective projects this into a smaller apparent size. Each
+  // depth level recedes 100px further from the viewer.
+  const depthZ = isInBetween ? -(stackDepth * 100) : 0;
   // Only in-between columns get depth-scaled opacity. Outer columns are fully
   // opaque — the viewport clips their visibility, not opacity:0.
   const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
@@ -511,7 +511,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
         data-content-height={columnFocused ? String(contentHeight) : undefined}
-        animate={{ opacity: depthOpacity, x: animateX, scale: depthScale }}
+        animate={{
+          opacity: depthOpacity,
+          x: animateX,
+          z: depthZ,
+        }}
         transition={transition}
         style={{
           ...columnStyle,

@@ -398,6 +398,10 @@ function SceneViewport({
   // stackTargetLeft: left edge of the rightmost focused column relative to the
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
+  // perspectiveOriginX: horizontal center of the rightmost focused column,
+  // relative to the stage. Used as the perspective-origin so in-between columns
+  // appear to recede toward the focused content rather than toward the stage center.
+  const [perspectiveOriginX, setPerspectiveOriginX] = useState(0);
 
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
@@ -496,6 +500,12 @@ function SceneViewport({
     // left edge of the rightmost focused column, relative to the stage.
     const newTargetLeft = colRect.left - stageRect.left;
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
+
+    // Horizontal center of the rightmost focused column — this is where the
+    // perspective vanishing point sits so in-between columns appear to recede
+    // toward the focused content.
+    const newOriginX = newTargetLeft + colRect.width / 2;
+    setPerspectiveOriginX((prev) => (prev === newOriginX ? prev : newOriginX));
   });
 
   // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
@@ -601,6 +611,7 @@ function SceneViewport({
               padding: padding || undefined,
               perspective: "1000px",
               transformStyle: "preserve-3d",
+              perspectiveOrigin: `${perspectiveOriginX}px 50%`,
             }}
           >
             {children}

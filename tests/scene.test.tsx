@@ -2664,6 +2664,51 @@ describe("Scene depth deck stacking", () => {
     expect(opacity1).toBeLessThan(1);
     expect(opacity2).toBeLessThan(1);
   });
+
+  test("depth-1 in-between column transform contains translateZ (not scale)", async () => {
+    // Depth is implemented via perspective + translateZ, not CSS scale.
+    // The column's transform string should include a translateZ with a negative
+    // value, pushing it away from the viewer into the 3D perspective field.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const transform = window.getComputedStyle(middleCol).transform;
+
+    // Should use translateZ (matrix3d), not a 2D scale transform.
+    // A 3D transform resolves to a matrix3d in computed style; a plain scale
+    // resolves to matrix(a,0,0,d,0,0) with no Z component. We verify that
+    // the column is NOT using a 2D scale (which would have matrix(...) format
+    // without the 3d/z depth component active in a meaningful way).
+    expect(transform).toMatch(/matrix3d/);
+    // Also verify no standalone scale() is present (scale is gone from animate).
+    // The transform matrix should encode Z translation, not scale reduction.
+    // We verify depth by checking the column appears smaller than natural size.
+    const rect = middleCol.getBoundingClientRect();
+    expect(rect.width).toBeLessThan(300);
+  });
+
 });
 
 // ---------------------------------------------------------------------------
