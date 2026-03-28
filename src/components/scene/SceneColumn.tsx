@@ -14,13 +14,21 @@ import { useSceneConfig } from "./useSceneConfig";
 import type { FrozenSize } from "./types";
 
 // ---------------------------------------------------------------------------
-// ColumnContext — lets SceneObjects register their elements with their parent
-// column. The column uses these to compute vertical offsets for the swap.
+// ColumnContext — lets SceneObjects register their elements and report their
+// natural heights to the parent column.
 // ---------------------------------------------------------------------------
 
 interface ColumnRegistration {
   /** Register a SceneObject's outer element. Returns an unregister function. */
   register: (name: string, el: HTMLElement) => () => void;
+  /**
+   * Report the in-flow height of this object. Called by focused SceneObjects
+   * after each render so the column has reliable height data for offset
+   * computation — getBoundingClientRect on an absolute-positioned element
+   * reports its intrinsic size, but we need to distinguish "was in flow"
+   * heights from potentially-zero absolute heights.
+   */
+  reportHeight: (name: string, height: number) => void;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
@@ -60,17 +68,17 @@ function deriveObjectStates(
 
 /**
  * Computes the natural vertical offset (in px) that the content wrapper must
- * slide to in order to bring the focused object into view at the top of the
- * column. Returns 0 when multiple objects are focused (stacking mode — show
- * from top).
+ * slide to bring the (single) focused object into view at the top of the
+ * column. Returns 0 when multiple objects are focused (stacking — show from
+ * top) or when no objects are focused.
  *
- * The offset is the sum of heights of all objects that appear before the
- * (single) focused object in DOM order, where "height" is the natural rendered
- * height of that object's registered element.
+ * Uses saved natural heights (reported by focused SceneObjects) rather than
+ * live getBoundingClientRect() to avoid misreading heights of
+ * absolute-positioned elements.
  */
 function computeTopOffset(
   objectStates: Array<{ name: string; focused: boolean }>,
-  registeredEls: Map<string, HTMLElement>,
+  naturalHeights: Map<string, number>,
 ): number {
   const focusedNames = objectStates
     .filter((o) => o.focused)
@@ -81,14 +89,13 @@ function computeTopOffset(
 
   const focusedName = focusedNames[0]!;
 
-  // Sum the natural heights of all objects that come before the focused one.
+  // Sum the natural heights of all objects that appear before the focused one
+  // in DOM order. Objects that were never focused have no saved height and
+  // contribute 0 (their natural position in the stack).
   let offset = 0;
   for (const { name } of objectStates) {
     if (name === focusedName) break;
-    const el = registeredEls.get(name);
-    if (el) {
-      offset += el.getBoundingClientRect().height;
-    }
+    offset += naturalHeights.get(name) ?? 0;
   }
   return offset;
 }
@@ -133,9 +140,11 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
-
-  // The vertical offset to apply to the column content wrapper.
-  const [topOffset, setTopOffset] = useState(0);
+  // Natural in-flow heights of each object, updated by focused SceneObjects via
+  // useLayoutEffect. Heights from the previous render are available during the
+  // current render — valid for computing swap offsets since object content
+  // doesn't change during a focus-only re-render.
+  const naturalHeights = useRef<Map<string, number>>(new Map());
 
   // The last measured size while the column was focused. Set to null while
   // focused (no freeze applied) and to a FrozenSize after losing focus.
@@ -145,13 +154,10 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
   const lastObservedSize = useRef<FrozenSize>({ width: 0, height: 0 });
   const colRef = useRef<HTMLDivElement | null>(null);
 
-  // Recompute the top offset whenever focus state changes.
-  useEffect(() => {
-    const offset = computeTopOffset(objectStates, registeredEls.current);
-    setTopOffset(offset);
-    // objectStates is an inline array — compare by serialized focused states
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objectStates.map((o) => `${o.name}:${o.focused}`).join(",")]);
+  // Compute the top offset during render using heights captured in the previous
+  // render's useLayoutEffect. This is accurate for focus swaps (object content
+  // doesn't change when only focus changes) and avoids a two-render cycle.
+  const topOffset = computeTopOffset(objectStates, naturalHeights.current);
 
   // While the column is focused, snapshot its current dimensions synchronously
   // after each render (useLayoutEffect fires before the browser paints). This
@@ -196,12 +202,17 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
     }
   }, [columnFocused]);
 
-  // Registration callback provided to child SceneObjects via ColumnContext.
+  // Registration and height-reporting callbacks provided to child SceneObjects.
   const register = useCallback((objName: string, el: HTMLElement) => {
     registeredEls.current.set(objName, el);
     return () => {
       registeredEls.current.delete(objName);
+      naturalHeights.current.delete(objName);
     };
+  }, []);
+
+  const reportHeight = useCallback((objName: string, height: number) => {
+    naturalHeights.current.set(objName, height);
   }, []);
 
   // duration=0 → instant transitions for tests; undefined → spring physics.
@@ -219,6 +230,9 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
     // can recalculate the column size freely.
     width: "",
     height: "",
+    // Clip sliding content during vertical swap so unfocused objects don't
+    // peek above or below the column's visible area.
+    overflow: "hidden",
   };
 
   // Unfocused columns exit flex flow and are hidden. If we have a frozen size,
@@ -236,7 +250,7 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
   };
 
   return (
-    <ColumnContext.Provider value={{ register }}>
+    <ColumnContext.Provider value={{ register, reportHeight }}>
       <motion.div
         ref={colRef}
         layout

@@ -28,14 +28,24 @@ export function SceneObject({ name, focused, children }: SceneObjectProps) {
   const column = useContext(ColumnContext);
 
   // Register this object's DOM element with the parent SceneColumn so the
-  // column can measure its height for vertical offset calculations.
-  // useLayoutEffect fires before the parent column's useLayoutEffect (children
-  // fire bottom-up), ensuring elements are registered before the column
-  // computes the vertical offset.
+  // column can track it. useLayoutEffect fires bottom-up (children before
+  // parent), ensuring registration happens before the column's own
+  // useLayoutEffect reads the registered elements.
   useLayoutEffect(() => {
     if (!column || !outerRef.current) return;
     return column.register(name, outerRef.current);
   }, [column, name]);
+
+  // While focused and in-flow, report the rendered height to the column so
+  // it can compute accurate vertical offsets for swap animations. We capture
+  // height after each render while focused; the column reads these saved
+  // heights rather than getBoundingClientRect() at arbitrary times (which
+  // would return wrong values for absolutely-positioned elements).
+  useLayoutEffect(() => {
+    if (!focused || !column || !outerRef.current) return;
+    const { height } = outerRef.current.getBoundingClientRect();
+    column.reportHeight(name, height);
+  });
 
   // Within a column, unfocused objects are removed from flow so they don't
   // affect the column's natural content height. Focused objects stay in flow.
