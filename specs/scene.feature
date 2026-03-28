@@ -188,10 +188,12 @@ Feature: Scene
 
   # --- Focused Flex Layout ---
 
-  Scenario: Focused objects share available width
+  Scenario: Focused objects share available width via consumer CSS
     Given a 1000px wide viewport
-    And two flexible SceneObjects focused in separate columns
+    And two focused SceneObjects in separate columns, each sized with cqw units
     Then both should share the 1000px width
+    Note: columns are content-sized by default. Sharing is opt-in via consumer
+    CSS (cqw units, explicit widths, or calc expressions)
 
   Scenario: Focused object with max-width
     Given a 1000px wide viewport
