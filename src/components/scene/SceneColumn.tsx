@@ -12,6 +12,7 @@ import { motion } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
+import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -159,9 +160,59 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const colRef = useRef<HTMLDivElement | null>(null);
 
   // Focused content height tracked via ResizeObserver on the content wrapper.
-  // Used to compute vertical centering margin-top.
+  // Used to compute vertical centering margin-top and scroll bounds.
   const [contentHeight, setContentHeight] = useState(0);
   const contentWrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Vertical scroll state (pure JS — no overflow-y, no proxy divs)
+  //
+  // scrollOffset drives `top: -scrollOffset` on the content wrapper.
+  // maxScroll = contentHeight - viewportHeight (clamped to 0 when content fits).
+  // The viewport's wheel handler dispatches a custom 'columnscroll' event on
+  // the column element with a deltaY payload, and we update scrollOffset here.
+  // -------------------------------------------------------------------------
+
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const scrollOffsetRef = useRef(0);
+
+  const maxScroll = Math.max(
+    0,
+    columnFocused && viewportHeight > 0 ? contentHeight - viewportHeight : 0,
+  );
+  const maxScrollRef = useRef(maxScroll);
+  maxScrollRef.current = maxScroll;
+
+  // Clamp scrollOffset to [0, maxScroll] whenever maxScroll changes (e.g. on
+  // content resize or viewport resize).
+  useEffect(() => {
+    if (scrollOffsetRef.current > maxScroll) {
+      const clamped = Math.min(scrollOffsetRef.current, maxScroll);
+      scrollOffsetRef.current = clamped;
+      setScrollOffset(clamped);
+    }
+  }, [maxScroll]);
+
+  // Listen for custom 'columnscroll' events dispatched by the Scene viewport's
+  // wheel handler. The event carries a `deltaY` detail value; we add it to the
+  // current scrollOffset and clamp to [0, maxScroll].
+  useEffect(() => {
+    const el = colRef.current;
+    if (!el) return;
+
+    const handler = (e: Event) => {
+      const { deltaY } = (e as CustomEvent<{ deltaY: number }>).detail;
+      const newOffset = Math.max(
+        0,
+        Math.min(maxScrollRef.current, scrollOffsetRef.current + deltaY),
+      );
+      scrollOffsetRef.current = newOffset;
+      setScrollOffset(newOffset);
+    };
+
+    el.addEventListener("columnscroll", handler);
+    return () => el.removeEventListener("columnscroll", handler);
+  }, []); // colRef is stable; maxScrollRef and scrollOffsetRef are mutable refs
 
   // Compute the top offset during render using heights captured in the previous
   // render's useLayoutEffect. This is accurate for focus swaps (object content
@@ -261,6 +312,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // duration=0 → instant transitions for tests; undefined → spring physics.
   const transition = duration === 0 ? { duration: 0 } : { type: "spring" as const };
 
+  // The combined vertical offset applied to the content wrapper:
+  // - topOffset: vertical swap offset (bring focused object into view)
+  // - scrollOffset: JS scroll state (driven by wheel events)
+  // Both are subtracted so positive values slide the content up.
+  const combinedTop = -(topOffset + scrollOffset);
+
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
   // flex: 1 1 0 → equal sharing of available viewport width among focused columns.
@@ -292,6 +349,8 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       : {}),
   };
 
+  const isScrollable = columnFocused && maxScroll > 0;
+
   return (
     <ColumnContext.Provider value={{ register, reportHeight }}>
       <motion.div
@@ -299,6 +358,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         layout
         data-column={name}
         data-column-focused={String(columnFocused)}
+        data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         animate={{ opacity: columnFocused ? 1 : 0 }}
         transition={transition}
         style={columnFocused ? focusedStyle : unfocusedStyle}
@@ -311,11 +371,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         <motion.div
           ref={contentWrapperRef}
           data-column-content
-          animate={{ top: -topOffset }}
+          animate={{ top: combinedTop }}
           transition={transition}
           style={{
             position: "relative",
-            top: -topOffset,
+            top: combinedTop,
             marginTop,
             display: "flex",
             flexDirection: "column",
@@ -324,6 +384,19 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         >
           {children}
         </motion.div>
+
+        {/* Custom scrollbar — only rendered when focused content overflows. */}
+        {isScrollable && viewportHeight > 0 && (
+          <Scrollbar
+            scrollOffset={scrollOffset}
+            maxScroll={maxScroll}
+            trackHeight={viewportHeight}
+            onScroll={(newOffset) => {
+              scrollOffsetRef.current = newOffset;
+              setScrollOffset(newOffset);
+            }}
+          />
+        )}
       </motion.div>
     </ColumnContext.Provider>
   );

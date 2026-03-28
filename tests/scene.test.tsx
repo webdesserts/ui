@@ -2,6 +2,7 @@ import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
+import { waitForAnimationFrame } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1533,6 +1534,9 @@ describe("Scene vertical scroll", () => {
       }),
     );
 
+    // Wait for React state update and motion to apply the new top value.
+    await waitForAnimationFrame();
+
     // After scroll: top should be -100 (content moved up)
     const topAfter = parseFloat(contentWrapper.style.top || "0");
     expect(topAfter).toBe(-100);
@@ -1586,6 +1590,9 @@ describe("Scene vertical scroll", () => {
         cancelable: true,
       }),
     );
+
+    // Wait for React state update to propagate
+    await waitForAnimationFrame();
 
     // Short column's centering should be unaffected
     const marginTopAfter = parseFloat(window.getComputedStyle(shortContent).marginTop);

@@ -180,6 +180,40 @@ function SceneViewport({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 
+  // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
+  // event. deltaX is left to the native horizontal scroll on the viewport.
+  // Registered as non-passive so preventDefault() is allowed.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const handler = (e: WheelEvent) => {
+      if (e.deltaY === 0) return;
+
+      // Find which [data-column] element is under the cursor.
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const column = target?.closest("[data-column]");
+      if (!column) return;
+
+      // Only route to focused columns that can scroll.
+      if (column.getAttribute("data-column-focused") !== "true") return;
+      if (!column.hasAttribute("data-max-scroll")) return;
+
+      // Prevent the viewport from scrolling vertically.
+      e.preventDefault();
+
+      column.dispatchEvent(
+        new CustomEvent("columnscroll", {
+          detail: { deltaY: e.deltaY },
+          bubbles: false,
+        }),
+      );
+    };
+
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
   return (
     <ViewportContext.Provider value={viewportSize}>
       {/* layoutScroll tells motion to account for scroll offset when measuring
