@@ -15,6 +15,10 @@ export interface SceneProps {
   duration?: number;
   /** Enable debug overlays. */
   debug?: boolean;
+  /** Gap (in px) between focused columns in the stage flex row. Defaults to 0. */
+  columnGap?: number;
+  /** Padding (in px) around the stage content. Defaults to 0. */
+  padding?: number;
 }
 
 /** A snapshot of a SceneObject's state for the debug overlay. */
@@ -123,7 +127,7 @@ function SceneViewport({
   children: React.ReactNode;
   debugObjects: DebugObjectEntry[] | null;
 }) {
-  const { debug } = useSceneConfig();
+  const { debug, columnGap, padding } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
 
@@ -193,6 +197,8 @@ function SceneViewport({
             alignItems: "stretch",
             width: "fit-content",
             marginInline: "auto",
+            gap: columnGap || undefined,
+            padding: padding || undefined,
           }}
         >
           {children}
@@ -225,13 +231,19 @@ function SceneViewport({
  *   </SceneColumn>
  * </Scene>
  */
-export function Scene({ children, duration, debug = false }: SceneProps) {
+export function Scene({
+  children,
+  duration,
+  debug = false,
+  columnGap = 0,
+  padding = 0,
+}: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
 
   return (
     <SceneConfigContext.Provider
-      value={{ stiffness: 300, damping: 30, padding: 0, duration, debug }}
+      value={{ stiffness: 300, damping: 30, padding, columnGap, duration, debug }}
     >
       <CameraContext.Provider
         value={{

@@ -109,6 +109,8 @@ export interface SceneColumnProps {
   /** Stable name for this column. Shown in debug mode and used for implicit wrapping. */
   name: string;
   children: React.ReactNode;
+  /** Gap (in px) between focused objects in this column's flex stack. Defaults to 0. */
+  objectGap?: number;
 }
 
 /**
@@ -134,7 +136,7 @@ export interface SceneColumnProps {
  *   </SceneObject>
  * </SceneColumn>
  */
-export function SceneColumn({ name, children }: SceneColumnProps) {
+export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
   const { duration } = useSceneConfig();
@@ -303,13 +305,22 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.
             margin-top centers focused content vertically when it fits the
-            viewport. When content overflows, marginTop is 0 (top-aligned). */}
+            viewport. When content overflows, marginTop is 0 (top-aligned).
+            display: flex + flex-direction: column lets gap apply between
+            focused objects in multi-focus stacking. */}
         <motion.div
           ref={contentWrapperRef}
           data-column-content
           animate={{ top: -topOffset }}
           transition={transition}
-          style={{ position: "relative", top: -topOffset, marginTop }}
+          style={{
+            position: "relative",
+            top: -topOffset,
+            marginTop,
+            display: "flex",
+            flexDirection: "column",
+            gap: objectGap || undefined,
+          }}
         >
           {children}
         </motion.div>

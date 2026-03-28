@@ -8,6 +8,8 @@ export interface SceneConfig {
   damping: number;
   /** Padding (in px) around the stage content. */
   padding: number;
+  /** Gap (in px) between focused columns in the stage flex row. */
+  columnGap: number;
   /**
    * Animation duration override (in ms). Set to 0 to disable all animations —
    * useful in tests to avoid waiting for spring settle times.
@@ -21,6 +23,7 @@ const defaultConfig: SceneConfig = {
   stiffness: 300,
   damping: 30,
   padding: 0,
+  columnGap: 0,
   duration: undefined,
   debug: false,
 };
