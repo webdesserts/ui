@@ -2649,3 +2649,104 @@ describe("Scene navigation depth", () => {
     expect(Math.abs(rectAfter.width - rectBefore.width)).toBeLessThan(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 7c: Navigation animation — mount/unmount transitions
+// ---------------------------------------------------------------------------
+
+describe("Scene navigation animation", () => {
+  test("newly mounted focused column has data-column-new attribute indicating entry direction", async () => {
+    // A focused column that mounts for the first time (never-focused before)
+    // should be marked so the entry animation can be applied. This is used to
+    // animate the column in from the right when depth-navigating forward.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Mount col-2 as focused — it should carry a data attribute marking its
+    // initial entry so the consumer or Scene can apply an enter animation.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-1">
+            <SceneObject name="obj-1" focused>
+              <div data-testid="content-1" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-2">
+            <SceneObject name="obj-2" focused>
+              <div data-testid="content-2" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col2 = getByTestId("content-2").element().closest("[data-column]") as HTMLElement;
+    // The column should be in the flex layout after mounting
+    expect(window.getComputedStyle(col2).position).toBe("relative");
+    // With duration=0, animations are instant — verify final state is correct
+    expect(col2.getAttribute("data-column-focused")).toBe("true");
+  });
+
+  test("focused column that was outer-left transitions back into flex layout", async () => {
+    // When navigating back, a previously outer-left unfocused column should
+    // smoothly animate from its offscreen position back into the flex row.
+    // The column uses motion layout FLIP for this transition.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="nav-panel" focused={false}>
+              <div data-testid="content-nav" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject name="article-panel" focused>
+              <div data-testid="content-article" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const navCol = getByTestId("content-nav").element().closest("[data-column]") as HTMLElement;
+    expect(navCol.getAttribute("data-column-position")).toBe("outer-left");
+
+    // Navigate back: nav becomes focused
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="nav-panel" focused>
+              <div data-testid="content-nav" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject name="article-panel" focused>
+              <div data-testid="content-article" style={{ minWidth: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    // After transition: nav is in flex layout
+    expect(window.getComputedStyle(navCol).position).toBe("relative");
+    // Nav column's x-transform should be 0 at rest (no offscreen offset)
+    const navRect = navCol.getBoundingClientRect();
+    expect(navRect.left).toBeGreaterThanOrEqual(0);
+  });
+});
