@@ -7,7 +7,7 @@ import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 
 /**
  * Collects the focused state of each direct SceneColumn child (in order).
@@ -309,11 +309,23 @@ function SceneViewport({
   children,
   debugObjects,
   focusKey,
+  reducedMotion,
+  onTransitionStart,
+  onTransitionComplete,
+  onViewportSizeChange,
 }: {
   children: React.ReactNode;
   debugObjects: DebugObjectEntry[] | null;
   /** Changes whenever the focused column layout changes, triggering a scroll reset. */
   focusKey: string;
+  /** Whether prefers-reduced-motion is active. */
+  reducedMotion: boolean;
+  /** Called when a layout animation starts. */
+  onTransitionStart: () => void;
+  /** Called when all layout animations complete. */
+  onTransitionComplete: () => void;
+  /** Called whenever the viewport dimensions change. */
+  onViewportSizeChange: (size: ViewportDimensions) => void;
 }) {
   const { debug, columnGap, padding } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -352,6 +364,13 @@ function SceneViewport({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // Propagate viewport size to parent whenever it changes, so Scene can
+  // update the CameraContext bounds for consumers of useCamera().
+  useEffect(() => {
+    onViewportSizeChange(viewportSize);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewportSize.width, viewportSize.height]);
 
   // Reset horizontal scroll position whenever the focused column layout changes.
   // This ensures the user always sees from the left edge after a navigation change.
@@ -444,6 +463,9 @@ function SceneViewport({
           ref={viewportRef}
           layoutScroll
           data-testid="scene"
+          data-reduced-motion={reducedMotion ? "" : undefined}
+          onLayoutAnimationStart={onTransitionStart}
+          onLayoutAnimationComplete={onTransitionComplete}
           style={{
             display: "flex",
             flexDirection: "row",
@@ -533,6 +555,18 @@ export function Scene({
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
 
+  // Detect prefers-reduced-motion. When active and no explicit duration prop
+  // is provided, force duration=0 so all transitions are instant.
+  const prefersReducedMotion = useReducedMotion() ?? false;
+  const effectiveDuration = prefersReducedMotion && duration === undefined ? 0 : duration;
+
+  // Track whether a layout animation is currently in flight.
+  const [transitioning, setTransitioning] = useState(false);
+
+  // Track viewport bounds for useCamera() consumers. Updated via callback from
+  // SceneViewport whenever the viewport element is measured.
+  const [viewportBounds, setViewportBounds] = useState({ top: 0, left: 0, width: 0, height: 0 });
+
   // Compute a key that changes whenever the set of focused objects changes.
   // SceneViewport uses this to reset horizontal scroll on navigation changes.
   const allObjects = collectObjectEntries(children);
@@ -549,17 +583,30 @@ export function Scene({
 
   return (
     <SceneConfigContext.Provider
-      value={{ stiffness: 300, damping: 30, padding, columnGap, duration, debug }}
+      value={{ stiffness: 300, damping: 30, padding, columnGap, duration: effectiveDuration, debug }}
     >
       <CameraContext.Provider
         value={{
-          bounds: { top: 0, left: 0, width: 0, height: 0 },
-          transitioning: false,
+          bounds: viewportBounds,
+          transitioning,
         }}
       >
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
-            <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
+            <SceneViewport
+              debugObjects={debugObjects}
+              focusKey={focusKey}
+              reducedMotion={prefersReducedMotion}
+              onTransitionStart={() => setTransitioning(true)}
+              onTransitionComplete={() => setTransitioning(false)}
+              onViewportSizeChange={(size) =>
+                setViewportBounds((prev) =>
+                  prev.width === size.width && prev.height === size.height
+                    ? prev
+                    : { top: 0, left: 0, width: size.width, height: size.height },
+                )
+              }
+            >
               {wrappedChildren}
             </SceneViewport>
           </StackDepthContext.Provider>
