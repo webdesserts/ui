@@ -1,28 +1,53 @@
 Feature: Scene Navigation
-  Content is organized in SceneColumns. Objects within a column
-  share a horizontal slot and swap vertically. Columns participate
-  in the Scene's horizontal flex layout. Navigation deeper goes
-  right, back goes left.
+  Content is organized in SceneColumns. A column is a container
+  with its own width — adjacent columns position relative to the
+  column boundary, not individual objects within it. Objects
+  within a column fill the column width by default, but the
+  consumer controls object sizing via CSS (alignment, stretch,
+  max-width, etc.).
+
+  Columns participate in the Scene's horizontal flex layout.
+  Navigation deeper goes right, back goes left.
+
+  Unfocused columns are positioned by the Scene based on their
+  relation to focused columns: outer columns slide offscreen;
+  in-between columns stack as a depth deck behind the right
+  focused column.
+
+  Within a column, the same stacking behavior applies: unfocused
+  objects between two focused objects stack as a depth deck behind
+  the lower focused object.
 
   # --- Columns ---
+
+  Scenario: Column is a container with its own width
+    Given a SceneColumn with a focused object narrower than the column
+    Then the column should maintain its width
+    And adjacent columns should position relative to the column boundary
+
+  Scenario: Objects fill column width by default
+    Given a SceneColumn with a focused object
+    Then the object should fill the column's width by default
+    And the consumer can override sizing via CSS (max-width, alignment, etc.)
 
   Scenario: Column displays one focused object
     Given a SceneColumn with two SceneObjects where the first is focused
     Then only the first object should be visible in that column's position
 
-  Scenario: Vertical swap within a column
+  Scenario: Vertical swap pushes the column to show the new object
     Given a SceneColumn with Object A focused and Object B unfocused
     When Object B becomes focused and Object A becomes unfocused
-    Then Object A should slide out vertically
-    And Object B should slide into the focused position
+    Then the column should push vertically until Object B is visible
+    And if Object B fits the viewport height, it should be centered vertically
+    And if Object B is taller than the viewport, it should be top-aligned
     And the column's horizontal position should not change
 
   Scenario: Vertical swap direction follows DOM order
     Given a SceneColumn where Object A is before Object B in DOM order
     When focus changes from Object A to Object B
-    Then content should slide upward (B rises into view)
+    Then the column should push upward (B rises into view)
     When focus changes from Object B back to Object A
-    Then content should slide downward (A descends into view)
+    Then the column should push downward (A descends into view)
 
   Scenario: Sibling columns unaffected by vertical swaps
     Given two SceneColumns side by side, each with a focused object
@@ -30,25 +55,37 @@ Feature: Scene Navigation
     Then the second column's object should not move
 
   Scenario: Multiple focused objects in a column stack vertically
-    Given a SceneColumn with two focused SceneObjects
+    Given a SceneColumn with two adjacent focused SceneObjects
     Then both should be visible, stacked vertically within the column
 
-  Scenario: Vertical extension becomes one scrollable unit
-    Given a SceneColumn with two focused SceneObjects
+  Scenario: Unfocused objects between focused objects stack as depth deck
+    Given a SceneColumn with Object A (focused), Object B (unfocused), Object C (focused)
+    Then Object B should be positioned under Object C (the lower focused object)
+    And it should peek out above and be scaled down for depth
+    With the same visual treatment as column-level stacking
+    And the gap between Object A and Object C should be configurable
+
+  Scenario: Multiple unfocused objects between focused objects stack with depth
+    Given a SceneColumn with Object A (focused), Objects B and C (unfocused), Object D (focused)
+    Then B and C should be positioned under Object D
+    Each scaled down further and peeking out more to show increasing depth
+
+  Scenario: Vertical extension becomes one scrollable column
+    Given a SceneColumn with two adjacent focused SceneObjects
     And their combined height exceeds the viewport
-    Then they should scroll together continuously as one unit
+    Then the column should move vertically as one continuous unit
     And there should not be a separate scrollbar per object
 
   Scenario: Unfocusing an extended object shrinks the column
     Given a SceneColumn with two focused objects stacked vertically
     When one becomes unfocused
     Then the column should animate to show only the remaining focused object
-    And the scroll range should update accordingly
+    And the vertical scroll range should update accordingly
 
   Scenario: Column with no focused objects
     Given a SceneColumn where all objects are unfocused
     Then the column should not participate in the focused flex layout
-    And its objects should be frozen at their last sizes
+    And its objects should remain at their last sizes
 
   # --- Horizontal Navigation ---
 
@@ -56,11 +93,23 @@ Feature: Scene Navigation
     Given three SceneColumns each with a focused object in a 1200px viewport
     Then all three columns should share the 1200px width
 
-  Scenario: Unfocusing a column slides it off-viewport
+  Scenario: Outer unfocused column slides offscreen
     Given Navigation and Article columns both focused
-    When Navigation becomes unfocused
+    When Navigation becomes unfocused and is to the left of the leftmost focused column
     Then Navigation should slide outside the viewport to the left
     And Article should expand to fill the viewport
+
+  Scenario: In-between unfocused column stacks as depth deck
+    Given Column A (focused), Column B (unfocused), and Column C (focused)
+    Then Column B should be positioned under Column C (the right focused column)
+    And it should peek out to the left and be scaled down for depth
+    And the gap between Column A and Column C should be configurable at the scene level
+
+  Scenario: In-between stacking animation sequence
+    Given an unfocused column that needs to move into a depth stack
+    Then the column should animate as if picked up from the right
+    And travel left, being set down on the column to its left
+    Repeating until all in-between columns are stacked under the right focused column
 
   Scenario: Refocusing a column slides it back
     Given Navigation was unfocused and outside the viewport
@@ -80,7 +129,7 @@ Feature: Scene Navigation
     Given Column 1 is unfocused to the left and Column 2 is focused
     When Column 2 becomes unfocused and Column 1 becomes focused
     Then Column 1 should animate back into view from the left
-    And Column 2 should slide to the right outside the viewport
+    And Column 2 should remain at its last size and slide to the right outside the viewport
 
   Scenario: Column removed to the right does not shift focused content
     Given focused content in Column 1 and unfocused Column 2 to the right
@@ -112,27 +161,12 @@ Feature: Scene Navigation
     Given a flexible Article column with max-width of 70ch
     And a wide viewport
     Then Article should render at 70ch
-    And the remaining space should not be allocated to other focused columns
+    And the focused columns should be centered with equal space on both sides
 
   Scenario: Very narrow viewport
     Given three focused columns in a 320px viewport
     Then columns should compress to share the 320px
     And if any column hits its min-width, horizontal scrolling should appear
 
-  # --- Collapse Pattern ---
-
-  Scenario: Object collapses from full-width to sidebar
-    Given a Navigation SceneObject filling the viewport
-    When the consumer changes Navigation's max-width to a narrow sidebar size
-    And a new Page column becomes focused
-    Then Navigation should animate to its new narrow width
-    And Page should fill the remaining space
-
-  # --- Composable / Nested Scenes ---
-
-  Scenario: Nested Scene manages its own focus
-    Given a parent Scene with a sidebar column and content column
-    And the content column contains a nested Scene
-    When focus changes inside the nested Scene
-    Then only the nested Scene's Camera should animate
-    And the parent Scene's layout should not change
+  # Nested Scenes are not supported. The vertical column and
+  # multi-focus layout should cover all known use cases.

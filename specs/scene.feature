@@ -1,8 +1,44 @@
 Feature: Scene
   A 2D spatial navigation system. SceneObjects live in SceneColumns.
-  Focused objects participate in a responsive flex layout filling
-  the viewport. The Camera spring-animates to keep all focused
-  objects fully visible within the viewport bounds (plus padding).
+  The scene is a horizontal row of columns in DOM order, each sized
+  to fit their content by default (consumer can override via CSS).
+  All columns are always present and visible — the scene is a real
+  space, not a set of hidden panels.
+
+  The Scene is a spatial layout, not a scroll view. Columns and
+  objects exist in a 2D space — they are placed in the scene, not
+  inside a clipping container. The Camera is the visible window
+  into that space. Content outside the Camera's view (offscreen
+  columns, stacked deck columns, content above or below during
+  scroll) still exists in the scene, it is simply off-camera.
+
+  When columns are focused, they participate in a responsive flex
+  layout filling the viewport. Unfocused columns are positioned
+  by the Scene: outer columns slide offscreen, in-between columns
+  stack as a depth deck behind the nearest focused column.
+
+  # --- Initial Layout ---
+
+  Scenario: All columns are visible on initial render
+    Given a Scene with three columns, none focused
+    Then all three columns should be laid out in a horizontal row
+    And each column should be sized to fit its content
+    And columns should be aligned to the top (flex-start)
+
+  Scenario: Column size is based on content by default
+    Given a SceneColumn containing a 400px wide element
+    Then the column should be 400px wide
+    And adjacent columns should position relative to that width
+
+  Scenario: Consumer can override column sizing via CSS
+    Given a SceneColumn with a className that sets width to 50vw
+    Then the column should be 50vw wide regardless of content size
+
+  Scenario: First focus animates from initial position
+    Given a Scene with all columns visible but none focused
+    When one column becomes focused
+    Then it should animate from its initial position into the focused flex layout
+    And unfocused columns should animate to their offscreen/stacked positions
 
   # --- Focus ---
 
@@ -16,25 +52,21 @@ Feature: Scene
     Then the Camera viewport should encompass both objects
     And both should be fully visible
 
-  Scenario: No objects focused — browse mode
+  Scenario: Multiple columns can be focused simultaneously
+    Given a Scene with Navigation, Article, and Chat columns
+    When Navigation and Chat are both focused
+    Then both columns should participate in the horizontal flex layout
+    And the Article column should be treated as unfocused
+
+  Scenario: If everything goes unfocused the camera doesn't move
     Given a Scene where objects were previously focused
     When all objects become unfocused
     Then the Camera should stay at its last position
-    But the scroll range should expand to encompass the entire Scene
-    So the user can scroll around and click an object to refocus it
 
   Scenario: Focused object unmounts
     Given two focused SceneObjects
     When one unmounts
     Then the Camera should reframe to the remaining focused object
-
-  Scenario: Only focused object unmounts — enters browse mode
-    Given one focused SceneObject
-    When it unmounts and no other objects are focused
-    Then the Camera should hold its last position
-    But the scroll range should expand to the entire Scene
-    And unfocused objects should be visible but receded
-    And the user can scroll to find and click an object to refocus
 
   Scenario: Focus changes
     Given two focused SceneObjects
@@ -46,7 +78,32 @@ Feature: Scene
   Scenario: Unfocused objects remain in the DOM
     Given focused and unfocused objects
     Then unfocused objects should still be rendered in the DOM
-    But they should be positioned outside the Camera's viewport bounds
+
+  Scenario: Outer unfocused columns slide offscreen
+    Given focused columns in the center of the Scene
+    And unfocused columns to the left of the leftmost focused column
+    And unfocused columns to the right of the rightmost focused column
+    Then outer-left unfocused columns should be positioned offscreen to the left
+    And outer-right unfocused columns should be positioned offscreen to the right
+
+  Scenario: In-between unfocused columns stack as a depth deck
+    Given two focused columns with one unfocused column between them
+    Then the unfocused column should be positioned under the right focused column
+    And it should peek out to the left to indicate its presence
+    And it should be scaled down slightly to appear farther back in the scene
+
+  Scenario: Multiple in-between columns stack with increasing depth
+    Given two focused columns with three unfocused columns between them
+    Then all three unfocused columns should be positioned under the right focused column
+    And each successive column deeper in the stack should be scaled down further
+    And each should peek out slightly more to the left
+
+  Scenario: Stacking animation — columns picked up and set down
+    Given an unfocused column transitioning from outer to in-between position
+    When the column needs to move into the depth stack
+    Then it should animate as if picked up from the right
+    And set down on top of the column to its left
+    Repeating until it is adjacent to the left focused column
 
   Scenario: Unfocused objects freeze at their last size
     Given a focused SceneObject at 400px wide
@@ -59,17 +116,42 @@ Feature: Scene
     When it becomes focused in a 1000px viewport alongside a flexible sibling
     Then it should spring-animate from 200px to its new flex-assigned width
 
+  # --- Unfocused Visual Treatment ---
+
+  # The Scene applies all stacking visual treatment to unfocused objects.
+  # Consumers can override appearance via className, but the Scene owns
+  # the default: position, z-index, depth (z-transform), opacity, and
+  # greyscale — each scaled by stack depth.
+
+  Scenario: Scene applies stacking visuals to unfocused columns
+    Given a Scene with focused and unfocused columns
+    Then the Scene should apply position, z-index, and z-transform to unfocused columns
+    And unfocused columns deeper in the stack should have lower opacity and more greyscale
+    Without any consumer configuration
+
+  Scenario: Stacking depth scales opacity and greyscale
+    Given three unfocused columns stacked at depths 1, 2, and 3
+    Then the depth-1 column should have the highest opacity and least greyscale
+    And the depth-3 column should have the lowest opacity and most greyscale
+
+  Scenario: Consumer can override stacking visuals via className
+    Given a Scene with unfocused columns
+    When the consumer applies a custom className to a SceneObject
+    Then the consumer's styles can override the Scene's default stacking treatment
+
   # --- Unfocused Interactivity ---
 
   Scenario: Clicking an unfocused object refocuses it
-    Given an unfocused SceneObject visible in the background
+    Given an unfocused SceneObject
     When the user clicks anywhere on it
     Then it should become focused
+    Because the SceneObject wrapper remains clickable even when its content is inert
 
   Scenario: Unfocused object internals are not interactive
     Given an unfocused SceneObject containing buttons and form inputs
     Then those buttons and inputs should not be clickable or focusable
-    And they should be marked as inert
+    Because the content inside the SceneObject is marked as inert
+    But the SceneObject wrapper itself remains interactive for click-to-focus
 
   # --- Focused Content Stability ---
 
@@ -103,14 +185,6 @@ Feature: Scene
     When the consumer unmounts the unfocused content
     Then the focused content may shift leftward
     Because left-to-right order determines scene position
-
-  # --- Consumer controls visual treatment ---
-
-  Scenario: Scene exposes focused state for consumer styling
-    Given a Scene with focused and unfocused SceneObjects
-    Then the Scene should expose each object's focused state
-    And the consumer is responsible for visual treatment of unfocused objects
-    Because the Scene has no opinion about opacity, grayscale, or depth
 
   # --- Focused Flex Layout ---
 
@@ -148,13 +222,14 @@ Feature: Scene
     Given a focused SceneObject with flexible width and tall content
     And the viewport is 800px wide and 600px tall
     Then the object should fill the 800px width
-    And a vertical scrollbar should appear for the tall content
+    And the column should be vertically scrollable
 
   Scenario: Fixed width, fixed height (DataTable pattern)
     Given a focused SceneObject at 1200px wide and 2000px tall
     And the viewport is 800px × 600px
     Then the object should maintain 1200px × 2000px
-    And both horizontal and vertical scrollbars should appear
+    And the scene should be horizontally scrollable (camera movement)
+    And the column should be vertically scrollable (column movement)
 
   Scenario: Flexible width, flexible height (Small panel pattern)
     Given a focused SceneObject with flexible sizing and small content
@@ -166,6 +241,27 @@ Feature: Scene
     And both are focused in a 1000px viewport
     Then the fixed object should be 400px
     And the flexible object should fill the remaining 600px
+
+  # --- Gaps ---
+
+  # Gaps are configurable at two levels: between columns (scene-level)
+  # and between objects within a column (column-level). Gaps can have
+  # a min/max range and stretch based on available space.
+
+  Scenario: Configurable gap between focused columns
+    Given a Scene with a column gap configured
+    Then focused columns should have that gap between them
+    And the gap should stretch based on available space within its min/max range
+
+  Scenario: Configurable gap between objects in a column
+    Given a SceneColumn with a gap configured between objects
+    Then focused objects within the column should have that gap between them
+    And the gap should stretch based on available space within its min/max range
+
+  Scenario: Default gap is zero
+    Given no gap configured at either level
+    Then focused columns should be adjacent with no gap
+    And objects within a column should be adjacent with no gap
 
   # --- Padding ---
 
@@ -196,7 +292,7 @@ Feature: Scene
 
   Scenario: Reduced motion disables all spring animations
     Given the user prefers reduced motion
-    When any animation would occur (focus change, layout reflow, column swap)
+    When any animation would occur (initial mount, focus change, layout reflow, column swap)
     Then all transitions should be instant
     And no intermediate animation frames should be visible
 
@@ -220,7 +316,7 @@ Feature: Scene
   # --- Accessibility ---
 
   Scenario: Unfocused objects are inert for assistive technology
-    Given unfocused SceneObjects outside the viewport
+    Given unfocused SceneObjects
     Then they should be marked as inert
     So screen readers do not announce content the user cannot see
 

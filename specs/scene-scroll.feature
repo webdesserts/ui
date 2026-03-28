@@ -1,12 +1,75 @@
 Feature: Scene Scroll
-  When focused content exceeds the available viewport space, the
-  Scene provides native scrolling. One scrollbar covers the entire
-  focused area per axis. Scroll bounds are clamped to the focused
-  content. Consumers can add internal scrollbars to individual
-  SceneObjects for independent scroll behavior.
+  Horizontal and vertical scroll have different mental models.
+
+  Horizontal scroll moves the camera across a static scene. The
+  entire scene slides left and right — all columns, focused and
+  unfocused, move together. The user is panning a viewport over
+  the full scene layout.
+
+  Vertical scroll moves the column itself through the scene. The
+  camera stays still while the column's content is pushed up or
+  down. Each focused column scrolls independently based on its
+  own content height. Non-overflowing focused columns stay
+  centered; unfocused columns stay frozen.
+
+  Scrollbars are styled thin with a transparent track. Each
+  focused column is visible as a whole as it slides through the
+  viewport during scroll — content is clipped at the viewport
+  boundary, not at individual column boundaries. This means
+  decorative elements such as shadows and glows on focused content
+  are not cut off at the column edge.
 
   Background:
     Given the Scene is inside a container with defined width and height
+
+  # --- Scroll Models ---
+
+  Scenario: Horizontal scroll moves the camera across the scene
+    Given multiple focused columns whose combined width exceeds the viewport
+    When the user scrolls horizontally
+    Then the entire scene slides — all columns move together
+    And the scroll range covers the total focused width minus the viewport width
+
+  Scenario: Vertical scroll moves the column through the scene
+    Given two focused columns where only one overflows the viewport height
+    When the user scrolls vertically over the overflowing column
+    Then that column's content is pushed upward through the scene
+    And the camera stays still
+    And the non-overflowing column stays centered vertically
+
+  Scenario: Non-overflowing focused columns stay centered during vertical scroll
+    Given a tall focused column and a short focused column side by side
+    When the user scrolls vertically to see more of the tall column
+    Then the short column should remain vertically centered in the viewport
+    And it should not be displaced by the scroll
+    Because only the overflowing column moves; the short column's centering is independent
+
+  Scenario: Unfocused columns stay frozen during vertical scroll
+    Given focused columns that are vertically scrollable
+    And unfocused columns in the scene
+    When the user scrolls vertically
+    Then unfocused columns should not move vertically
+    Because vertical scroll moves individual columns, not the scene
+    Note: unfocused columns DO move during horizontal scroll (camera movement)
+
+  # --- Scroll Interaction ---
+
+  Scenario: Vertical scroll targets the column under the cursor
+    Given two focused columns that both overflow the viewport height
+    When the user scrolls vertically with the cursor over the right column
+    Then only the right column should scroll
+    And the left column should stay at its current vertical position
+
+  Scenario: Diagonal trackpad gesture scrolls both axes simultaneously
+    Given a scene that overflows horizontally
+    And a focused column that overflows vertically
+    When the user performs a diagonal trackpad gesture
+    Then the scene should pan horizontally and the column should scroll vertically at the same time
+
+  Scenario: Horizontal panning preserves vertical scroll positions
+    Given two focused columns each scrolled to different vertical positions
+    When the user scrolls the scene horizontally
+    Then each column should maintain its vertical scroll position
 
   # --- Scrollbar Visibility ---
 
@@ -14,19 +77,22 @@ Feature: Scene Scroll
     Given all focused content fits within the viewport
     Then no scrollbar should be visible
 
-  Scenario: Vertical scrollbar only
-    Given focused content is taller than the viewport but fits the width
-    Then a vertical scrollbar should appear on the right edge
-    And no horizontal scrollbar should appear
+  Scenario: Vertical scrollbar when a focused column overflows height
+    Given at least one focused column is taller than the viewport
+    Then a vertical scrollbar should appear at the right edge of that column
 
-  Scenario: Horizontal scrollbar only
-    Given focused content is wider than the viewport but fits the height
-    Then a horizontal scrollbar should appear on the bottom edge
-    And no vertical scrollbar should appear
+  Scenario: Each overflowing column gets its own vertical scrollbar
+    Given two focused columns that both overflow the viewport height
+    Then each column should have its own vertical scrollbar at its right edge
+    And scrolling one column should not affect the other
 
-  Scenario: Both scrollbars
+  Scenario: Horizontal scrollbar when focused columns exceed viewport width
+    Given the total width of focused columns exceeds the viewport
+    Then a horizontal scrollbar should appear at the scene's bottom edge
+
+  Scenario: Both scrollbars when content overflows both axes
     Given focused content exceeds the viewport in both dimensions
-    Then both vertical and horizontal scrollbars should appear
+    Then horizontal and vertical scrollbars should both be present
 
   Scenario: Scrollbar disappears on focus change to smaller content
     Given a vertical scrollbar is visible
@@ -35,16 +101,25 @@ Feature: Scene Scroll
 
   # --- Scroll Bounds ---
 
-  Scenario: Vertical scroll range matches focused bounds
-    Given focused content is taller than the viewport
-    Then scrolling to the top should show the top edge of the topmost focused object
-    And scrolling to the bottom should show the bottom edge of the bottommost
-    And further scrolling should not be possible
+  Scenario: Each column's vertical scroll range covers only its focused content
+    Given two focused columns where the left is 2000px tall and the right is 800px tall
+    And the viewport is 600px tall
+    Then the left column's vertical scroll range should be 2000px − 600px
+    And the right column's vertical scroll range should be 800px − 600px
+    And each column scrolls independently
 
-  Scenario: Horizontal scroll range matches focused bounds
-    Given focused content is wider than the viewport
-    Then scrolling left should show the left edge of the leftmost focused object
-    And scrolling right should show the right edge of the rightmost
+  Scenario: Unfocused objects in a column do not extend the scroll range
+    Given a column with a focused article that is 2000px tall
+    And an unfocused panel in the same column that is 500px tall
+    And the viewport is 600px tall
+    Then the column's vertical scroll range should be 2000px − 600px
+    And the unfocused panel is visible in the scene but is not reachable by scrolling
+
+  Scenario: Horizontal scroll range matches overflow
+    Given focused columns whose total width is 2400px
+    And the viewport is 1200px wide
+    Then the horizontal scroll range should be 2400px − 1200px
+    And scrolling right should reveal the right edge of the rightmost focused column
 
   Scenario: Scroll bounds include padding
     Given padding of 16px and focused content taller than the viewport
@@ -56,37 +131,68 @@ Feature: Scene Scroll
     Then the content should be treated as overflowing
     And the appropriate scrollbar should appear
 
-  # --- Scroll Reset ---
+  # --- Scroll Position ---
 
-  Scenario: Focus change resets scroll to top-left
-    Given the user has scrolled partway through focused content
-    When focus changes to a different object
-    Then the scroll should reset to the top-left of the new content
+  Scenario: Vertical scroll position restores when a column is refocused
+    Given a focused column that was previously scrolled halfway down
+    When the user focuses a different column and then returns focus to the first
+    Then the column should attempt to restore its previous scroll position
+    But if the focused object within the column is not visible at that position
+    Then the column should adjust to show the focused object
+    And if the column has drastically resized since last focused
+    Then scrolling to the top of the focused content is the fallback
+
+  Scenario: Horizontal scroll position resets when focus layout changes
+    Given the user has scrolled the scene horizontally
+    When focus changes to a different set of columns
+    Then horizontal scroll should reset to show the left edge of the new focused layout
+
+  Scenario: Vertical scroll resets when a column first becomes focused
+    Given an unfocused column with no prior scroll position
+    When it becomes focused
+    Then its vertical scroll should start at the top
+
+  Scenario: Vertical swap restores per-object scroll position
+    Given Object A was previously scrolled halfway and Object B was at the top
+    When focus swaps from Object A to Object B within the same column
+    Then the column should show Object B at its previous scroll position
+    Because once content is pushed to a position in the scene, it stays there
+
+  Scenario: Keyboard scroll targets the column with keyboard focus
+    Given two focused columns that both overflow the viewport height
+    And keyboard focus is inside the right column
+    When the user presses Page Down
+    Then the right column should scroll down
+    And the left column should not move
 
   Scenario: Focus change during active scroll
     Given the user is actively scrolling
     When focus changes
-    Then scrolling should stop and reset to the new target
+    Then scrolling should stop and the new target's scroll state should apply
 
   # --- Alignment & Centering ---
+
+  # Each axis is handled independently. Centering on an axis only applies
+  # when the content fits that axis. Overflow on an axis means the content
+  # aligns to the start edge (top or left).
 
   Scenario: Content fits both axes — centered
     Given focused content is smaller than the viewport in both dimensions
     Then the content should be centered horizontally and vertically
 
-  Scenario: Overflows vertically only — centered horizontally, top-aligned
-    Given focused content fits the width but overflows the height
-    Then the content should be centered horizontally
-    And the top edge of the content should be at the top of the viewport
+  Scenario: Focused column overflows vertically — starts at top, centered horizontally
+    Given a focused column is taller than the viewport but its width fits
+    Then the column should initially show its top edge at the top of the viewport
+    And the column should be centered horizontally
 
-  Scenario: Overflows horizontally only — left-aligned, centered vertically
-    Given focused content overflows the width but fits the height
-    Then the left edge of the content should be at the left of the viewport
-    And the content should be centered vertically
+  Scenario: Focused columns overflow horizontally — left-aligned, centered vertically
+    Given focused columns together exceed the viewport width but their height fits
+    Then the left edge of the leftmost column should align to the left of the viewport
+    And each column should be centered vertically
 
   Scenario: Overflows both axes — top-left corner visible
     Given focused content overflows both dimensions
-    Then the top-left corner of the content should be at the top-left of the viewport
+    Then the top-left corner of the focused content should be at the top-left of the viewport
 
   Scenario: Alignment updates on viewport resize — fit to overflow
     Given focused content is centered because it fits
@@ -100,19 +206,13 @@ Feature: Scene Scroll
     Then the content should become centered
     And the scrollbar should disappear
 
-  # --- Unfocused Objects During Scroll ---
+  # --- Rendering Quality ---
 
-  Scenario: Unfocused objects stay pinned during vertical scroll
-    Given focused content is vertically scrollable
-    And unfocused objects are visible in the background
-    When the user scrolls vertically
-    Then the unfocused objects should not move
-
-  Scenario: Unfocused objects stay pinned during horizontal scroll
-    Given focused content is horizontally scrollable
-    And unfocused objects are visible in the background
-    When the user scrolls horizontally
-    Then the unfocused objects should not move
+  Scenario: Focused content renders crisply during and after scroll
+    Given a focused column containing text and UI elements
+    When the column is scrolled or comes to rest after scrolling
+    Then text and UI elements in the focused column should appear sharp and clear
+    And there should be no visual blurring or degradation of rendering quality
 
   # --- Viewport Resize ---
 
@@ -125,6 +225,8 @@ Feature: Scene Scroll
   # --- Consumer Scroll Override ---
 
   Scenario: Consumer adds internal scroll to a SceneObject
-    Given a focused SceneObject with overflow-y: auto and height of 100%
+    Given a focused SceneObject with internal scrolling and a height of 100%
     Then the SceneObject should scroll its content internally
-    And no Scene-level vertical scrollbar should appear
+    And no column-level vertical scrollbar should appear for that column
+    Note: when a SceneObject handles its own internal scrolling, the column
+    itself does not overflow, so no column-level scrollbar is needed
