@@ -77,13 +77,15 @@ Feature: Scene Scroll
     Given all focused content fits within the viewport
     Then no scrollbar should be visible
 
-  Scenario: Vertical scrollbar when a focused column overflows height
-    Given at least one focused column is taller than the viewport
-    Then a vertical scrollbar should appear at the right edge of that column
+  Scenario: Vertical scrollbar when a single focused column overflows height
+    Given one focused column that is taller than the viewport
+    Then a vertical scrollbar should appear at the right edge of the Camera
+    And the scroll area should be the entire Camera viewport
 
   Scenario: Each overflowing column gets its own vertical scrollbar
     Given two focused columns that both overflow the viewport height
-    Then each column should have its own vertical scrollbar at its right edge
+    Then the rightmost column's scrollbar should appear at the right edge of the Camera
+    And other columns' scrollbars should appear between adjacent focused columns
     And scrolling one column should not affect the other
 
   Scenario: Horizontal scrollbar when focused columns exceed viewport width
