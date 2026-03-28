@@ -796,3 +796,130 @@ describe("SceneColumn vertical swap", () => {
     expect(window.getComputedStyle(col2).position).toBe("relative");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2: Multi-focus stacking within a column
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn multi-focus stacking", () => {
+  test("two focused objects in same column are both visible and in flow", async () => {
+    // When multiple objects in a column are focused, all should be position:
+    // relative (in flow) so they stack vertically.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    // Both focused objects are in normal flow
+    expect(window.getComputedStyle(objA).position).toBe("relative");
+    expect(window.getComputedStyle(objB).position).toBe("relative");
+  });
+
+  test("two focused objects stack vertically — B appears below A", async () => {
+    // The two focused objects should appear in DOM order, with B below A.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    const rectA = objA.getBoundingClientRect();
+    const rectB = objB.getBoundingClientRect();
+
+    // B should appear below A in the rendered output
+    expect(rectB.top).toBeGreaterThan(rectA.top);
+    expect(rectA.height).toBeGreaterThan(0);
+    expect(rectB.height).toBeGreaterThan(0);
+  });
+
+  test("unfocusing one object from a multi-focus column removes it from flow", async () => {
+    // Start with two focused objects, then unfocus one. The unfocused one
+    // should become position: absolute (out of flow).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    expect(window.getComputedStyle(objA).position).toBe("absolute");
+    expect(window.getComputedStyle(objB).position).toBe("relative");
+  });
+
+  test("multi-focus column top offset is zero — shows from the top", async () => {
+    // With multiple focused objects, the column content wrapper should not
+    // apply a negative top offset (show from the top, let objects stack naturally).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement | null;
+
+    // With multiple focused objects, top should be 0 (no slide offset)
+    const top = contentWrapper ? parseFloat(contentWrapper.style.top || "0") : 0;
+    expect(top).toBe(0);
+  });
+});
