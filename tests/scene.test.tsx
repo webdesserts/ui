@@ -1,6 +1,7 @@
-import { describe, test, expect, vi, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
+import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { TestWrapper } from "./test-wrapper";
 import { waitForAnimationFrame } from "./utils/animation";
 
@@ -3067,14 +3068,28 @@ describe("Scene spring physics", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene reduced motion", () => {
+  beforeEach(() => {
+    // Reset motion's internal reduced-motion listener state before each test
+    // so initPrefersReducedMotion() runs fresh and reads our mocked matchMedia.
+    hasReducedMotionListener.current = false;
+    prefersReducedMotion.current = null;
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+    // Restore motion's listener state to uninitialized for subsequent tests.
+    hasReducedMotionListener.current = false;
+    prefersReducedMotion.current = null;
   });
 
   function mockReducedMotion(): () => void {
     const spy = vi.spyOn(window, "matchMedia").mockImplementation(
       (query: string) => ({
-        matches: query === "(prefers-reduced-motion: reduce)",
+        // Match both the full query and the bare query used by motion's internal
+        // initPrefersReducedMotion() to detect reduced motion preference.
+        matches:
+          query === "(prefers-reduced-motion: reduce)" ||
+          query === "(prefers-reduced-motion)",
         media: query,
         onchange: null,
         addListener: vi.fn(),
@@ -3154,5 +3169,74 @@ describe("Scene reduced motion", () => {
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
     expect(scene.hasAttribute("data-reduced-motion")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9c/9d: useCamera hook
+// ---------------------------------------------------------------------------
+
+import { useCamera } from "../src";
+
+/** Test component that exposes CameraState values as data attributes. */
+function CameraReader() {
+  const camera = useCamera();
+  return (
+    <div
+      data-testid="camera-reader"
+      data-bounds-width={camera.bounds.width}
+      data-bounds-height={camera.bounds.height}
+      data-transitioning={String(camera.transitioning)}
+    />
+  );
+}
+
+describe("useCamera", () => {
+  test("useCamera reports viewport bounds width and height", async () => {
+    // bounds should reflect the scene viewport element dimensions.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <CameraReader />
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+    const width = parseFloat(reader.getAttribute("data-bounds-width") ?? "0");
+    const height = parseFloat(reader.getAttribute("data-bounds-height") ?? "0");
+
+    // The viewport fills the TestWrapper fullPage container, so dimensions
+    // should be non-zero. We can't assert exact pixels, but must be > 0.
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
+  });
+
+  test("useCamera reports transitioning=false when no animation is in flight", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <CameraReader />
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+    // After initial render with duration=0, no animation should be in flight.
+    expect(reader.getAttribute("data-transitioning")).toBe("false");
   });
 });
