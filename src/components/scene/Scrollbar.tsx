@@ -110,6 +110,7 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
         onPointerDown={handleThumbPointerDown}
         onPointerMove={handleThumbPointerMove}
         onPointerUp={handleThumbPointerUp}
+        onPointerCancel={handleThumbPointerUp}
         style={{
           position: "absolute",
           right: 0,

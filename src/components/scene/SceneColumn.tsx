@@ -149,7 +149,7 @@ export interface SceneColumnProps {
 export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration } = useSceneConfig();
+  const { duration, stiffness, damping } = useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const position = columnPositions.get(name) ?? null;
@@ -242,6 +242,18 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     const handler = (e: KeyboardEvent) => {
       // Only handle when this column has focused content to scroll.
       if (maxScrollRef.current <= 0) return;
+
+      // Don't intercept keys when focus is in an editable element.
+      const target = e.target as HTMLElement;
+      const tagName = target.tagName;
+      if (
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        tagName === "SELECT" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
 
       let delta = 0;
       const pageSize = viewportHeightRef.current;
@@ -406,8 +418,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     naturalHeights.current.set(objName, height);
   }, []);
 
-  // duration=0 → instant transitions for tests; undefined → spring physics.
-  const transition = duration === 0 ? { duration: 0 } : { type: "spring" as const };
+  // duration=0 → instant transitions for tests; otherwise use configured spring.
+  const transition =
+    duration === 0
+      ? { duration: 0 }
+      : { type: "spring" as const, stiffness, damping };
 
   // The combined vertical offset applied to the content wrapper:
   // - topOffset: vertical swap offset (bring focused object into view)
