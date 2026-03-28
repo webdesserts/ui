@@ -7,6 +7,7 @@ import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
+import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { motion, useReducedMotion } from "motion/react";
 
 /**
@@ -693,6 +694,11 @@ export function Scene({
   // SceneViewport whenever the viewport element is measured.
   const [viewportBounds, setViewportBounds] = useState({ top: 0, left: 0, width: 0, height: 0 });
 
+  // Mutable map of saved scroll offsets per column name. SceneColumn saves its
+  // scroll offset when losing focus and restores it when regaining focus.
+  // Using useRef ensures the Map identity is stable — no re-renders on updates.
+  const scrollOffsetStore = useRef<Map<string, number>>(new Map()).current;
+
   // Compute position classifications for all columns so SceneColumn can
   // animate unfocused columns offscreen or into a depth deck.
   const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
@@ -728,6 +734,7 @@ export function Scene({
           transitioning,
         }}
       >
+        <ScrollOffsetStoreContext.Provider value={scrollOffsetStore}>
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
             <SceneViewport
@@ -748,6 +755,7 @@ export function Scene({
             </SceneViewport>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
+        </ScrollOffsetStoreContext.Provider>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>
   );

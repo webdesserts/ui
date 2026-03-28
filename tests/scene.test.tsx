@@ -3870,3 +3870,352 @@ describe("SceneColumn within-column depth deck", () => {
     expect(rectB.top).toBeGreaterThan(rectC.top - 30);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix 1: Scroll position restore on refocus
+// ---------------------------------------------------------------------------
+
+describe("Scene scroll position restore", () => {
+  test("scroll position restores when column is refocused", async () => {
+    // Scenario: scroll a column to offset 100, unfocus it, refocus it.
+    // The column should restore to offset 100.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll down to 100px
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 100,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+
+    // Unfocus the column — a second column takes focus
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Refocus the original column
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused={false}>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Scroll position should be restored to 100px
+    const topAfterRefocus = parseFloat(contentWrapper.style.top || "0");
+    expect(topAfterRefocus).toBe(-100);
+  });
+
+  test("scroll resets to 0 when column first becomes focused (no saved position)", async () => {
+    // A column that has never been focused should start at scroll offset 0.
+    // This is a regression guard — no saved scroll position means start at top.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Now focus "col" for the first time — no saved scroll, should be 0
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused={false}>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column='col']") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+  });
+
+  test("drastically resized column falls back to top (scroll offset 0)", async () => {
+    // If the content height changes drastically (>50%) between unfocus and refocus,
+    // the saved scroll position is invalid — fall back to top (offset 0).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll down to 300px
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-300);
+
+    // Unfocus (switch to col2)
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              {/* Drastically resized: from 1200 to 300 (75% reduction, > 50%) */}
+              <div data-testid="content" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Refocus with dramatically shrunken content
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused={false}>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Saved position was 300, but content is now 300px (fits in 800px viewport).
+    // maxScroll is 0, so scroll should be at 0 (clamped by existing logic).
+    const topAfterRefocus = parseFloat(contentWrapper.style.top || "0");
+    expect(topAfterRefocus).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 2: Padding in scroll bounds
+// ---------------------------------------------------------------------------
+
+describe("Scene padding in scroll bounds", () => {
+  test("scroll bounds include padding — padding reduces effective viewport height", async () => {
+    // Scene with padding=16px: maxScroll = contentHeight - (viewportHeight - 32).
+    // Without padding: 1200 - 800 = 400. With padding=16: 1200 - (800 - 32) = 432.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={16}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    // With padding=16px top+bottom, viewport effective height = 800 - 32 = 768.
+    // maxScroll = 1200 - 768 = 432. Without padding it would be 400.
+    expect(maxScroll).toBeGreaterThan(400);
+  });
+
+  test("padding can push content into overflow — content fits without padding but overflows with it", async () => {
+    // A 780px content in an 800px viewport fits without padding.
+    // With padding=16px (32px total), effective viewport = 768px, so content overflows.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={16}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* 780px content fits in 800px viewport, but overflows with 32px padding */}
+              <div data-testid="content" style={{ width: 400, height: 780 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // With padding factored in, the content now overflows → scrollbar should appear.
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 3: Scrollbar ARIA attributes
+// ---------------------------------------------------------------------------
+
+describe("Scrollbar ARIA", () => {
+  test("scrollbar thumb has role=scrollbar", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).not.toBeNull();
+
+    // The thumb inside the scrollbar track should have role="scrollbar"
+    const thumb = scrollbar?.querySelector("[role='scrollbar']");
+    expect(thumb).not.toBeNull();
+  });
+
+  test("scrollbar thumb has aria-valuenow, aria-valuemin, aria-valuemax", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement | null;
+    expect(thumb).not.toBeNull();
+
+    // ARIA attributes for screen reader accessibility
+    expect(thumb?.getAttribute("aria-valuemin")).toBe("0");
+    expect(thumb?.getAttribute("aria-valuemax")).not.toBeNull();
+    expect(parseFloat(thumb?.getAttribute("aria-valuemax") ?? "")).toBeGreaterThan(0);
+    expect(thumb?.getAttribute("aria-valuenow")).toBe("0"); // starts at top
+    expect(thumb?.getAttribute("aria-orientation")).toBe("vertical");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 4: Consumer scroll override — SceneObject with internal scroll
+// ---------------------------------------------------------------------------
+
+describe("Scene consumer scroll override", () => {
+  test("SceneObject with internal scroll and fixed height — no column scrollbar appears", async () => {
+    // When a SceneObject constrains its own height (e.g. fixed 400px) and uses
+    // overflow-y: auto for internal scrolling, the column content wrapper stays
+    // within the 800px viewport. No column-level scrollbar should appear.
+    //
+    // This simulates the consumer scroll override pattern: the SceneObject manages
+    // its own scroll, so the column content does not overflow the viewport.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                {/* Tall internal content — scrolled by the div, not the column */}
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // The SceneObject constrains to 400px. Column content (400px) fits in the
+    // 800px viewport — no column-level scrollbar should appear.
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).toBeNull();
+  });
+});

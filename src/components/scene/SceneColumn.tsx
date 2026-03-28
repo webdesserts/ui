@@ -15,6 +15,7 @@ import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
+import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -226,9 +227,10 @@ export interface SceneColumnProps {
 export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration, stiffness, damping } = useSceneConfig();
+  const { duration, stiffness, damping, padding } = useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
+  const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
   const position = columnPositions.get(name) ?? null;
   const stackTargetLeft = useContext(DepthDeckContext);
   const stackDepths = useContext(StackDepthContext);
@@ -267,9 +269,14 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const [scrollOffset, setScrollOffset] = useState(0);
   const scrollOffsetRef = useRef(0);
 
+  // Effective viewport height accounts for Scene padding applied to the stage.
+  // Padding reduces the usable height, so the scroll range grows accordingly.
+  const effectiveViewportHeight = viewportHeight - padding * 2;
   const maxScroll = Math.max(
     0,
-    columnFocused && viewportHeight > 0 ? contentHeight - viewportHeight : 0,
+    columnFocused && effectiveViewportHeight > 0
+      ? contentHeight - effectiveViewportHeight
+      : 0,
   );
   const maxScrollRef = useRef(maxScroll);
   maxScrollRef.current = maxScroll;
@@ -418,6 +425,23 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     isMountingRef.current = false;
   }, []);
 
+  // Tracks the content height at the time the column last lost focus. Used to
+  // detect drastic resizes between unfocus and refocus — if the content has
+  // changed by more than 50%, the saved scroll position is discarded.
+  const savedContentHeight = useRef<number>(0);
+
+  // Save scroll offset and content height when the column transitions to unfocused.
+  // Using useLayoutEffect ensures this runs before the useEffect clamping logic —
+  // clamping (tied to maxScroll) would zero the ref before we could save it.
+  useLayoutEffect(() => {
+    if (!columnFocused && wasEverFocused.current) {
+      scrollOffsetStore.set(name, scrollOffsetRef.current);
+      savedContentHeight.current =
+        contentWrapperRef.current?.getBoundingClientRect().height ?? 0;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnFocused]);
+
   // Track column focus state: set up a ResizeObserver for ongoing size changes
   // while focused, freeze the last size on focus loss, and clear on re-focus.
   useEffect(() => {
@@ -425,6 +449,28 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       wasEverFocused.current = true;
       // Re-focusing — clear the frozen size so the column returns to flex flow.
       setFrozenSize(null);
+
+      // Restore the previously saved scroll position for this column, unless
+      // the content has drastically resized since last focused (>50% change).
+      // A drastic resize makes the saved position meaningless — fall back to top.
+      const savedOffset = scrollOffsetStore.get(name);
+      if (savedOffset !== undefined && savedOffset > 0) {
+        const currentHeight = contentWrapperRef.current?.getBoundingClientRect().height ?? 0;
+        const prevHeight = savedContentHeight.current;
+        const isDrasticResize =
+          prevHeight > 0 &&
+          currentHeight > 0 &&
+          Math.abs(currentHeight - prevHeight) / prevHeight > 0.5;
+
+        if (!isDrasticResize) {
+          scrollOffsetRef.current = savedOffset;
+          setScrollOffset(savedOffset);
+        } else {
+          // Content changed too much — start from top.
+          scrollOffsetRef.current = 0;
+          setScrollOffset(0);
+        }
+      }
 
       const el = colRef.current;
       if (!el) return;
@@ -442,14 +488,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       observer.observe(el);
       return () => observer.disconnect();
     } else if (wasEverFocused.current) {
-      // Column just lost focus — freeze at the last captured dimensions.
-      // lastObservedSize is kept current by the useLayoutEffect above, so this
-      // should always have a reliable value.
-      //
-      // Only freeze when transitioning from focused to unfocused. A column that
-      // was never focused doesn't need a frozen size — it sizes to its content.
+      // Freeze at the last captured dimensions so the column doesn't collapse.
       setFrozenSize({ ...lastObservedSize.current });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
 
   // Measure the content wrapper height synchronously after each render so that
