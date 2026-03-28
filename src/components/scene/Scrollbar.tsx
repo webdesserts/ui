@@ -107,6 +107,11 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
       }}
     >
       <div
+        role="scrollbar"
+        aria-orientation="vertical"
+        aria-valuemin={0}
+        aria-valuemax={maxScroll}
+        aria-valuenow={scrollOffset}
         onPointerDown={handleThumbPointerDown}
         onPointerMove={handleThumbPointerMove}
         onPointerUp={handleThumbPointerUp}
