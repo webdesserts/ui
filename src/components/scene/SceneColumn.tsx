@@ -23,6 +23,22 @@ import type { FrozenSize } from "./types";
 // natural heights to the parent column.
 // ---------------------------------------------------------------------------
 
+/**
+ * Depth info for an unfocused SceneObject that is sandwiched between two
+ * focused siblings within the same column. These objects receive depth-deck
+ * visual treatment (opacity, greyscale, scale) and are positioned to peek
+ * above the lower focused sibling rather than being hidden.
+ */
+export interface WithinColumnDepthInfo {
+  /** Depth index: 1 = adjacent to the lower focused sibling, increasing outward. */
+  depth: number;
+  /**
+   * Content-wrapper-relative top position (px) of the lower focused sibling.
+   * The SceneObject uses this to position itself peeking above that sibling.
+   */
+  anchorTop: number;
+}
+
 interface ColumnRegistration {
   /** Register a SceneObject's outer element. Returns an unregister function. */
   register: (name: string, el: HTMLElement) => () => void;
@@ -40,6 +56,11 @@ interface ColumnRegistration {
    * column sizes to its content — necessary for perspective-depth width comparison.
    */
   isInDepthDeck: boolean;
+  /**
+   * Depth info for unfocused SceneObjects sandwiched between two focused
+   * siblings. Objects not in this map receive normal (hidden) treatment.
+   */
+  withinColumnDepths: Map<string, WithinColumnDepthInfo>;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
@@ -109,6 +130,62 @@ function computeTopOffset(
     offset += naturalHeights.get(name) ?? 0;
   }
   return offset;
+}
+
+/**
+ * Identifies unfocused SceneObjects that are sandwiched between two focused
+ * siblings in DOM order and computes depth info for each. These objects will
+ * peek out above the lower focused sibling rather than being hidden.
+ *
+ * Depth index counts from the lower focused sibling outward: the unfocused
+ * object immediately above the lower focused object is depth-1, the next one
+ * is depth-2, and so on.
+ *
+ * Returns a Map from object name → `{ depth, anchorTop }` for every between-
+ * unfocused object. Objects that are not sandwiched are absent from the map.
+ */
+function computeWithinColumnDepths(
+  objectStates: Array<{ name: string; focused: boolean }>,
+  naturalHeights: Map<string, number>,
+): Map<string, WithinColumnDepthInfo> {
+  const result = new Map<string, WithinColumnDepthInfo>();
+  const n = objectStates.length;
+
+  // For each unfocused object, check whether there is a focused object both
+  // before it and after it in DOM order.
+  for (let i = 0; i < n; i++) {
+    if (objectStates[i]!.focused) continue;
+
+    const hasFocusedBefore = objectStates.slice(0, i).some((o) => o.focused);
+    const focusedAfterIndex = objectStates.slice(i + 1).findIndex((o) => o.focused);
+    if (!hasFocusedBefore || focusedAfterIndex === -1) continue;
+
+    // This object is between two focused objects. Find the lower focused sibling
+    // (the first focused object after this one in DOM order).
+    const lowerFocusedIndex = i + 1 + focusedAfterIndex;
+
+    // Depth: how many unfocused between-objects are between this one and the
+    // lower focused sibling? Objects closer to the lower focused sibling have
+    // lower depth indices.
+    let depth = 1;
+    for (let j = i + 1; j < lowerFocusedIndex; j++) {
+      if (!objectStates[j]!.focused) depth++;
+    }
+    // The object immediately above lowerFocused is depth-1, so re-count from
+    // the other direction: depth = number of between-unfocused objects from
+    // this object to the lower focused sibling (exclusive), + 1.
+    depth = lowerFocusedIndex - i;
+
+    // anchorTop = cumulative height of all objects before the lower focused sibling.
+    let anchorTop = 0;
+    for (let j = 0; j < lowerFocusedIndex; j++) {
+      anchorTop += naturalHeights.get(objectStates[j]!.name) ?? 0;
+    }
+
+    result.set(objectStates[i]!.name, { depth, anchorTop });
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +388,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // render's useLayoutEffect. This is accurate for focus swaps (object content
   // doesn't change when only focus changes) and avoids a two-render cycle.
   const topOffset = computeTopOffset(objectStates, naturalHeights.current);
+
+  // Compute depth info for unfocused objects sandwiched between focused siblings.
+  // Used to give them peekable depth-card treatment instead of hiding them.
+  const withinColumnDepths = computeWithinColumnDepths(objectStates, naturalHeights.current);
 
   // While the column is focused, snapshot its current dimensions synchronously
   // after each render (useLayoutEffect fires before the browser paints). This
@@ -520,7 +601,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     // Outer unfocused columns also need their SceneObjects in flow so the column
     // has natural dimensions (otherwise position: absolute children yield a
     // zero-width column that overlaps with adjacent focused columns).
-    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: !columnFocused }}>
+    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: !columnFocused, withinColumnDepths }}>
       <motion.div
         ref={colRef}
         {...(usesLayout ? { layout: true } : {})}

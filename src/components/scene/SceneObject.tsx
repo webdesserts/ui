@@ -79,6 +79,14 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
     focusable?.focus();
   }, [focused]);
 
+  // Within-column depth deck: this object is sandwiched between two focused
+  // siblings. Instead of hiding it, we show it peeking above the lower focused
+  // sibling with depth-card visual treatment.
+  const withinDepthInfo = column?.withinColumnDepths.get(name);
+
+  // How far each depth level peeks above the lower focused sibling (in px).
+  const PEEK_PX = 12;
+
   // Within a focused column, unfocused objects are removed from flow so they
   // don't push down the focused object. They are also hidden so they don't
   // render on top of the focused object (topOffset may be 0 if the object was
@@ -88,14 +96,29 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   // (isInDepthDeck = true) so the column sizes to its content — necessary for
   // outer columns to have natural width and for depth-deck perspective sizing.
   //
+  // Exception: unfocused objects between two focused siblings get depth-card
+  // treatment — position: absolute but visible, peeking above the lower focused.
+  //
   // When there is no parent column context (standalone usage), fall back to
   // default (static) positioning.
+  const depthOpacity = withinDepthInfo ? Math.max(0, 1 - withinDepthInfo.depth * 0.2) : undefined;
+  const depthGreyscale = withinDepthInfo ? withinDepthInfo.depth * 0.25 : 0;
+
   const inColumnStyle: React.CSSProperties | undefined = column
     ? focused
       ? { position: "relative" }
-      : column.isInDepthDeck
-        ? { position: "relative" }
-        : { position: "absolute", visibility: "hidden" }
+      : withinDepthInfo
+        ? {
+            position: "absolute",
+            // Peek above the lower focused sibling: anchorTop moves us to that
+            // sibling's top, then we subtract a per-depth peek offset upward.
+            top: withinDepthInfo.anchorTop - PEEK_PX * withinDepthInfo.depth,
+            opacity: depthOpacity,
+            filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
+          }
+        : column.isInDepthDeck
+          ? { position: "relative" }
+          : { position: "absolute", visibility: "hidden" }
     : undefined;
 
   return (
@@ -103,6 +126,7 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
       ref={outerRef}
       data-scene-id={name}
       data-focused={String(focused)}
+      {...(withinDepthInfo ? { "data-within-column-depth": String(withinDepthInfo.depth) } : {})}
       style={{ ...inColumnStyle, ...style }}
       onClick={!focused ? onActivate : undefined}
     >

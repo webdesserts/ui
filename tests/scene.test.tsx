@@ -3730,3 +3730,143 @@ describe("useCamera", () => {
     expect(reader.getAttribute("data-transitioning")).toBe("false");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Within-column depth deck (unfocused between focused objects)
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn within-column depth deck", () => {
+  test("unfocused object between two focused objects has depth treatment", async () => {
+    // A (focused), B (unfocused), C (focused) — B should have reduced opacity
+    // and be visible (not visibility: hidden) because it peeks as a depth card.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    // B is between two focused objects — it should have depth treatment (data attribute)
+    expect(objB.getAttribute("data-within-column-depth")).toBe("1");
+
+    // B should be visible (not visibility: hidden — it peeks as a depth card)
+    expect(window.getComputedStyle(objB).visibility).not.toBe("hidden");
+
+    // B should have reduced opacity (depth treatment)
+    const opacity = parseFloat(window.getComputedStyle(objB).opacity);
+    expect(opacity).toBeLessThan(1);
+  });
+
+  test("multiple unfocused between focused: increasing depth", async () => {
+    // A (focused), B (unfocused), C (unfocused), D (focused)
+    // B is depth-2 (further from D), C is depth-1 (adjacent to D)
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+            <SceneObject name="obj-d" focused>
+              <div data-testid="content-d" style={{ width: 300, height: 200 }}>D</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+
+    // C is depth-1 (adjacent to lower focused D), B is depth-2
+    expect(objC.getAttribute("data-within-column-depth")).toBe("1");
+    expect(objB.getAttribute("data-within-column-depth")).toBe("2");
+
+    // C (depth-1) has higher opacity than B (depth-2) — less treatment = more visible
+    const opacityB = parseFloat(window.getComputedStyle(objB).opacity);
+    const opacityC = parseFloat(window.getComputedStyle(objC).opacity);
+    expect(opacityC).toBeGreaterThan(opacityB);
+  });
+
+  test("unfocused at end of column (not between focused) has no depth treatment", async () => {
+    // A (focused), B (unfocused) — B is NOT between two focused objects
+    // so it should have the normal hidden treatment (visibility: hidden)
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    // B is not between two focused objects — no depth attribute
+    expect(objB.getAttribute("data-within-column-depth")).toBeNull();
+
+    // B should be hidden (normal unfocused behavior)
+    expect(window.getComputedStyle(objB).visibility).toBe("hidden");
+  });
+
+  test("within-column depth object is positioned near the lower focused sibling", async () => {
+    // A (focused, 200px tall), B (unfocused), C (focused, 200px tall)
+    // B should be positioned near C (peeks above C's top edge)
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+
+    // B should be positioned (absolute) peeking above C — B's top is slightly
+    // above C's top edge (within one PEEK_PX per depth level).
+    const rectB = objB.getBoundingClientRect();
+    const rectC = objC.getBoundingClientRect();
+
+    // B.top is above C.top — it peeks above the lower focused sibling
+    expect(rectB.top).toBeLessThan(rectC.top);
+
+    // B.top is close to C.top — within 30px above (PEEK_PX=12 per depth level, depth=1)
+    expect(rectB.top).toBeGreaterThan(rectC.top - 30);
+  });
+});

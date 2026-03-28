@@ -341,3 +341,78 @@ describe("Scene depth deck", () => {
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Within-column depth deck visual test
+// ---------------------------------------------------------------------------
+
+describe("Scene within-column depth deck", () => {
+  it("scene-within-column-depth-deck", async () => {
+    // A (focused), B (unfocused, between), C (focused) — B should peek above C
+    // with depth-card visual treatment (reduced opacity + greyscale).
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="content">
+            <SceneObject name="obj-a" focused>
+              <div
+                style={{
+                  width: 400,
+                  height: 200,
+                  background: "rgba(99,102,241,0.3)",
+                  border: "1px solid rgba(99,102,241,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Object A (focused)
+              </div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div
+                style={{
+                  width: 400,
+                  height: 200,
+                  background: "rgba(244,114,182,0.3)",
+                  border: "1px solid rgba(244,114,182,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Object B (between — depth-1)
+              </div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused>
+              <div
+                style={{
+                  width: 400,
+                  height: 200,
+                  background: "rgba(52,211,153,0.3)",
+                  border: "1px solid rgba(52,211,153,0.6)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Object C (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
+  });
+});
