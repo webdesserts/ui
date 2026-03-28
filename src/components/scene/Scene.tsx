@@ -141,6 +141,15 @@ interface DebugObjectEntry {
   focused: boolean;
 }
 
+/** Position classification and depth for an unfocused column. */
+interface DebugColumnStackEntry {
+  name: string;
+  /** "outer-left" | "in-between" | "outer-right" */
+  classification: string;
+  /** Stacking depth index (only meaningful for in-between columns). */
+  depth: number;
+}
+
 /**
  * Wraps a bare SceneObject child in an implicit SceneColumn using the
  * SceneObject's name as the column name. SceneColumn children pass through
@@ -210,10 +219,14 @@ interface DebugColumnScroll {
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
 function SceneDebugOverlay({
   objects,
+  columnStacks,
   viewportRef,
+  stageRef,
 }: {
   objects: DebugObjectEntry[];
+  columnStacks: DebugColumnStackEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
+  stageRef: React.RefObject<HTMLDivElement | null>;
 }) {
   // Read current scroll state from column DOM attributes. This is debug-only
   // so reading from the DOM directly is acceptable.
@@ -242,6 +255,23 @@ function SceneDebugOverlay({
   const scrollLeft = viewport?.scrollLeft ?? 0;
   const scrollWidth = viewport?.scrollWidth ?? 0;
   const clientWidth = viewport?.clientWidth ?? 0;
+
+  // Detect offsetParent issues: a column's offsetParent should be the stage div
+  // (which has position: relative). If it's anything else — whether an element
+  // inside the stage or completely outside it — a positioned ancestor is
+  // intercepting layout calculations.
+  const stage = stageRef.current;
+  const offsetParentWarnings: string[] = [];
+  if (stage && viewport) {
+    const columns = viewport.querySelectorAll<HTMLElement>("[data-column]");
+    columns.forEach((col) => {
+      const op = col.offsetParent;
+      if (op && op !== stage) {
+        const name = col.getAttribute("data-column") ?? "?";
+        offsetParentWarnings.push(name);
+      }
+    });
+  }
 
   return (
     <div
@@ -273,6 +303,37 @@ function SceneDebugOverlay({
         </div>
       ))}
 
+      {offsetParentWarnings.length > 0 && (
+        <>
+          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4, color: "#f87171" }}>
+            ⚠ offsetParent warning
+          </div>
+          {offsetParentWarnings.map((name) => (
+            <div key={name} style={{ color: "#f87171" }}>
+              {name}: positioned ancestor breaks bounds
+            </div>
+          ))}
+        </>
+      )}
+
+      {columnStacks.length > 0 && (
+        <>
+          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+            Column stacking
+          </div>
+          {columnStacks.map((col) => (
+            <div key={col.name}>
+              <span style={{ color: "#c4b5fd" }}>{col.name}</span>
+              {": "}
+              <span style={{ color: "#94a3b8" }}>{col.classification}</span>
+              {col.classification === "in-between" && (
+                <span style={{ color: "#94a3b8" }}>{" depth "}{col.depth}</span>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
       {columnScrollStates.length > 0 && (
         <>
           <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
@@ -287,7 +348,7 @@ function SceneDebugOverlay({
               <span>{Math.round(col.scrollOffset)}</span>
               {" / "}
               <span>{Math.round(col.contentHeight - col.viewportHeight)}</span>
-              {col.scrollable ? " 📜" : " ✓"}
+              {col.scrollable ? " (scrollable)" : " (fits)"}
             </div>
           ))}
         </>
@@ -308,6 +369,7 @@ function SceneDebugOverlay({
 function SceneViewport({
   children,
   debugObjects,
+  debugColumnStacks,
   focusKey,
   reducedMotion,
   onTransitionStart,
@@ -316,6 +378,8 @@ function SceneViewport({
 }: {
   children: React.ReactNode;
   debugObjects: DebugObjectEntry[] | null;
+  /** Unfocused column stacking info for the debug overlay. */
+  debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Changes whenever the focused column layout changes, triggering a scroll reset. */
   focusKey: string;
   /** Whether prefers-reduced-motion is active. */
@@ -518,7 +582,12 @@ function SceneViewport({
               scene.querySelector('[data-debug-overlay]'). position:fixed
               ensures it doesn't participate in flex layout. */}
           {debug && debugObjects && (
-            <SceneDebugOverlay objects={debugObjects} viewportRef={viewportRef} />
+            <SceneDebugOverlay
+              objects={debugObjects}
+              columnStacks={debugColumnStacks ?? []}
+              viewportRef={viewportRef}
+              stageRef={stageRef}
+            />
           )}
         </motion.div>
       </DepthDeckContext.Provider>
@@ -581,6 +650,25 @@ export function Scene({
   const columnPositions = computeColumnPositions(columnStates);
   const stackDepths = computeStackDepths(columnStates);
 
+  // Build debug column stacking info from position and depth maps.
+  const debugColumnStacks: DebugColumnStackEntry[] | null = debug
+    ? columnStates
+        .filter((col) => !col.focused)
+        .map((col) => {
+          const position = columnPositions.get(col.name);
+          const depth = stackDepths.get(col.name) ?? 0;
+          const classification =
+            position === "outer-left"
+              ? "outer-left"
+              : position === "outer-right"
+                ? "outer-right"
+                : position === "in-between"
+                  ? "in-between"
+                  : "unfocused";
+          return { name: col.name, classification, depth };
+        })
+    : null;
+
   return (
     <SceneConfigContext.Provider
       value={{ stiffness: 300, damping: 30, padding, columnGap, duration: effectiveDuration, debug }}
@@ -595,6 +683,7 @@ export function Scene({
           <StackDepthContext.Provider value={stackDepths}>
             <SceneViewport
               debugObjects={debugObjects}
+              debugColumnStacks={debugColumnStacks}
               focusKey={focusKey}
               reducedMotion={prefersReducedMotion}
               onTransitionStart={() => setTransitioning(true)}
