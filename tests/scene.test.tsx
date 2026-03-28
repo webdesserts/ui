@@ -616,6 +616,184 @@ describe("Scene debug mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 10a: Debug — remaining overlay features
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — stacking depth", () => {
+  test("overlay shows position classification for unfocused columns", async () => {
+    // Three columns: left focused, middle unfocused (in-between), right focused.
+    // The overlay should indicate the middle column's classification.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div data-testid="left-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle">
+            <SceneObject name="middle-obj" focused={false}>
+              <div data-testid="middle-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div data-testid="right-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // Overlay should list the middle column with its classification and depth.
+    expect(overlay?.textContent).toContain("middle");
+    expect(overlay?.textContent).toContain("in-between");
+  });
+
+  test("overlay shows depth index for in-between columns", async () => {
+    // Three columns focused on left and right: middle is depth 1 (adjacent to right focused).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div data-testid="left-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="mid1">
+            <SceneObject name="mid1-obj" focused={false}>
+              <div data-testid="mid1-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="mid2">
+            <SceneObject name="mid2-obj" focused={false}>
+              <div data-testid="mid2-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div data-testid="right-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // Both in-between columns should appear with depth info.
+    expect(overlay?.textContent).toContain("mid1");
+    expect(overlay?.textContent).toContain("mid2");
+    // The overlay should mention at least one depth number.
+    expect(overlay?.textContent).toMatch(/depth\s*[12]/i);
+  });
+
+  test("overlay shows outer-left and outer-right classification", async () => {
+    // Three columns: middle focused, left and right unfocused.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="outer-left-col">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="mid-col">
+            <SceneObject name="mid-obj" focused>
+              <div data-testid="mid-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="outer-right-col">
+            <SceneObject name="right-obj" focused={false}>
+              <div data-testid="right-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain("outer-left");
+    expect(overlay?.textContent).toContain("outer-right");
+  });
+});
+
+describe("Scene debug — offsetParent warning", () => {
+  test("overlay warns when a SceneObject has a positioned ancestor between it and the scene", async () => {
+    // Wrapping a SceneObject in a positioned div breaks relative positioning
+    // (the column's offsetParent becomes the wrapper, not the scene stage).
+    // The debug overlay should detect and warn about this.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          {/* Positioned wrapper breaks offsetParent chain */}
+          <div data-testid="positioned-wrapper" style={{ position: "relative" }}>
+            <SceneColumn name="col">
+              <SceneObject name="wrapped-obj" focused>
+                <div data-testid="content" style={{ width: 200, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </div>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    // The overlay should show a warning about the offsetParent issue.
+    expect(overlay?.textContent).toMatch(/warn|offsetParent|positioned ancestor/i);
+  });
+});
+
+describe("Scene debug — toggle", () => {
+  test("enabling debug adds overlay; disabling removes all debug DOM", async () => {
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element();
+
+    // Debug on: overlay should be present
+    expect(scene.querySelector("[data-debug-overlay]")).not.toBeNull();
+
+    // Disable debug
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Debug off: overlay removed and no debug outlines
+    expect(scene.querySelector("[data-debug-overlay]")).toBeNull();
+    const style = window.getComputedStyle(scene);
+    // Outline should be gone or transparent when debug is off.
+    const outline = style.outline + style.outlineColor;
+    expect(outline).not.toMatch(/cyan|rgb\(0,\s*255,\s*255\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 2: Vertical swap within a column
 // ---------------------------------------------------------------------------
 
