@@ -582,8 +582,10 @@ describe("Scene debug mode", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     const style = window.getComputedStyle(scene);
-    // Debug mode adds a cyan outline to the viewport
-    expect(style.outline).toContain("cyan");
+    // Debug mode adds a cyan outline to the viewport.
+    // Browsers may resolve "cyan" to rgb(0, 255, 255) in computed style.
+    const outline = style.outline + style.outlineColor;
+    expect(outline).toMatch(/cyan|rgb\(0,\s*255,\s*255\)/);
   });
 
   test("debug enabled — overlay panel lists object names and focus state", async () => {
