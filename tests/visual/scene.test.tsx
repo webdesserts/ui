@@ -127,7 +127,7 @@ describe("Scene flex layout", () => {
                   fontFamily: "monospace",
                 }}
               >
-                Unfocused (Hidden)
+                Unfocused (Visible)
               </div>
             </SceneObject>
           </SceneColumn>
