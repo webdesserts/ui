@@ -1,8 +1,9 @@
-import React, { isValidElement } from "react";
+import React, { isValidElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
+import { ViewportContext } from "./ViewportContext";
 import { motion } from "motion/react";
 
 export interface SceneProps {
@@ -123,12 +124,45 @@ function SceneViewport({
   debugObjects: DebugObjectEntry[] | null;
 }) {
   const { debug } = useSceneConfig();
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+
+  // Measure viewport dimensions synchronously on first render so columns have
+  // valid values immediately (useLayoutEffect fires before paint, before
+  // ResizeObserver callbacks). ResizeObserver keeps the values current for
+  // dynamic viewport resizes.
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setViewportSize((prev) =>
+      prev.width === width && prev.height === height ? prev : { width, height },
+    );
+  });
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        setViewportSize((prev) =>
+          prev.width === width && prev.height === height ? prev : { width, height },
+        );
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <>
+    <ViewportContext.Provider value={viewportSize}>
       {/* layoutScroll tells motion to account for scroll offset when measuring
           FLIP positions inside this overflow-hidden container. */}
       <motion.div
+        ref={viewportRef}
         layoutScroll
         data-testid="scene"
         style={{
@@ -141,13 +175,34 @@ function SceneViewport({
           outline: debug ? "2px solid cyan" : undefined,
         }}
       >
-        {children}
+        {/* Stage: the flex row of focused columns. width: fit-content allows the
+            stage to shrink to content width. margin-inline: auto centers the
+            stage within the viewport when it's narrower. When it overflows (or
+            all columns are flexible and fill the stage), margins collapse to 0
+            and content left-aligns naturally.
+
+            Flexible (flex: 1 1 0) columns grow to fill the stage width, which
+            is their own intrinsic content size — they share that width equally.
+            Columns with explicit minimum widths (e.g. minWidth: 300px) determine
+            the stage's width directly. */}
+        <div
+          data-stage
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "stretch",
+            width: "fit-content",
+            marginInline: "auto",
+          }}
+        >
+          {children}
+        </div>
         {/* Overlay is inside the scene div so tests can find it via
             scene.querySelector('[data-debug-overlay]'). position:fixed
             ensures it doesn't participate in flex layout. */}
         {debug && debugObjects && <SceneDebugOverlay objects={debugObjects} />}
       </motion.div>
-    </>
+    </ViewportContext.Provider>
   );
 }
 

@@ -11,6 +11,7 @@ import React, {
 import { motion } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
+import { ViewportContext } from "./ViewportContext";
 import type { FrozenSize } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,7 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
   const { duration } = useSceneConfig();
+  const { height: viewportHeight } = useContext(ViewportContext);
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -153,6 +155,11 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
   // Tracks the latest size observed via ResizeObserver while focused.
   const lastObservedSize = useRef<FrozenSize>({ width: 0, height: 0 });
   const colRef = useRef<HTMLDivElement | null>(null);
+
+  // Focused content height tracked via ResizeObserver on the content wrapper.
+  // Used to compute vertical centering margin-top.
+  const [contentHeight, setContentHeight] = useState(0);
+  const contentWrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Compute the top offset during render using heights captured in the previous
   // render's useLayoutEffect. This is accurate for focus swaps (object content
@@ -201,6 +208,40 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
       setFrozenSize({ ...lastObservedSize.current });
     }
   }, [columnFocused]);
+
+  // Measure the content wrapper height synchronously after each render so that
+  // the initial value is available immediately (useLayoutEffect fires before
+  // the browser paints, before ResizeObserver callbacks). ResizeObserver keeps
+  // it current for dynamic content changes.
+  useLayoutEffect(() => {
+    if (!columnFocused || !contentWrapperRef.current) return;
+    const { height } = contentWrapperRef.current.getBoundingClientRect();
+    setContentHeight(height);
+  });
+
+  // Track focused content height for ongoing dynamic resizes.
+  // Only active when the column is focused — unfocused columns don't need centering.
+  useEffect(() => {
+    const el = contentWrapperRef.current;
+    if (!el || !columnFocused) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setContentHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [columnFocused]);
+
+  // Vertical centering: center the focused content within the viewport when it
+  // fits. When content overflows (contentHeight > viewportHeight), margin is 0
+  // and content aligns to the top.
+  const marginTop =
+    viewportHeight > 0 && contentHeight > 0 && columnFocused
+      ? Math.max(0, (viewportHeight - contentHeight) / 2)
+      : 0;
 
   // Registration and height-reporting callbacks provided to child SceneObjects.
   const register = useCallback((objName: string, el: HTMLElement) => {
@@ -260,12 +301,15 @@ export function SceneColumn({ name, children }: SceneColumnProps) {
         transition={transition}
         style={columnFocused ? focusedStyle : unfocusedStyle}
       >
-        {/* Content wrapper: spring-animated top offset for vertical swap. */}
+        {/* Content wrapper: spring-animated top offset for vertical swap.
+            margin-top centers focused content vertically when it fits the
+            viewport. When content overflows, marginTop is 0 (top-aligned). */}
         <motion.div
+          ref={contentWrapperRef}
           data-column-content
           animate={{ top: -topOffset }}
           transition={transition}
-          style={{ position: "relative", top: -topOffset }}
+          style={{ position: "relative", top: -topOffset, marginTop }}
         >
           {children}
         </motion.div>

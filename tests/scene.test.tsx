@@ -323,18 +323,21 @@ describe("SceneColumn flex layout", () => {
     expect(style2.position).toBe("absolute");
   });
 
-  test("two flexible focused columns share viewport width roughly equally", async () => {
+  test("two flexible focused columns share available width roughly equally", async () => {
+    // Flexible columns (flex: 1 1 0) divide available space equally. They need
+    // intrinsic content widths to participate in the layout; empty divs have
+    // zero width. In practice all focused columns have content.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col1">
             <SceneObject name="obj1" focused>
-              <div data-testid="content1" />
+              <div data-testid="content1" style={{ minWidth: 100, height: 150 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
             <SceneObject name="obj2" focused>
-              <div data-testid="content2" />
+              <div data-testid="content2" style={{ minWidth: 100, height: 150 }} />
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -347,7 +350,7 @@ describe("SceneColumn flex layout", () => {
     const width1 = col1.getBoundingClientRect().width;
     const width2 = col2.getBoundingClientRect().width;
 
-    // Each column should occupy roughly half the viewport (within 10%)
+    // Each column should occupy roughly half the available width (within 10%)
     expect(Math.abs(width1 - width2)).toBeLessThan(width1 * 0.1);
     expect(width1).toBeGreaterThan(0);
   });
@@ -929,16 +932,21 @@ describe("SceneColumn multi-focus stacking", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene centering", () => {
-  test("small content is centered horizontally — stage has margin-inline: auto", async () => {
-    // Content that is smaller than the viewport should be centered horizontally
-    // via margin-inline: auto on the stage (flex container with width: fit-content).
+  test("fixed-width column is centered horizontally — stage has margin-inline: auto", async () => {
+    // A column with a fixed minimum width smaller than the viewport is centered
+    // horizontally. The stage (width: fit-content + margin-inline: auto) shrinks
+    // to the column's natural width and auto margins center it in the viewport.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
+          {/* Column with a 300px min-width — smaller than the 1280px viewport,
+              so the stage will be 300px wide and centered. */}
           <SceneColumn name="col">
             <SceneObject name="panel" focused>
-              {/* Small content: 200px wide in a 1280px viewport */}
-              <div data-testid="content" style={{ width: 200, height: 100 }} />
+              <div
+                data-testid="content"
+                style={{ minWidth: 300, height: 100 }}
+              />
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -951,15 +959,12 @@ describe("Scene centering", () => {
     expect(stage).not.toBeNull();
 
     const stageStyle = window.getComputedStyle(stage!);
-    // margin-inline: auto should result in equal left/right auto margins,
-    // which centers the stage when it's narrower than the viewport.
-    // In computed style, "auto" margins are resolved to px values — both should be > 0
-    // when the content is smaller than the viewport.
+    // margin-inline: auto centering: left and right margins should be > 0
+    // and roughly equal when stage is narrower than the 1280px viewport.
     const marginLeft = parseFloat(stageStyle.marginLeft);
     const marginRight = parseFloat(stageStyle.marginRight);
     expect(marginLeft).toBeGreaterThan(0);
     expect(marginRight).toBeGreaterThan(0);
-    // The margins should be roughly equal (centered)
     expect(Math.abs(marginLeft - marginRight)).toBeLessThan(2);
   });
 
@@ -1051,15 +1056,17 @@ describe("Scene centering", () => {
     expect(marginTop).toBe(0);
   });
 
-  test("small content — top-left is centered in viewport", async () => {
+  test("small content — both axes centered in viewport", async () => {
     // When content fits both axes, it should be visually centered in the viewport.
     // Check that the content's bounding rect is roughly centered within 1280x800.
+    // Uses minWidth to define the column's intrinsic width (required for horizontal
+    // centering via margin-inline: auto on the fit-content stage).
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
             <SceneObject name="panel" focused>
-              <div data-testid="content" style={{ width: 200, height: 100 }} />
+              <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
         </Scene>
