@@ -518,10 +518,15 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             margin-top centers focused content vertically when it fits the
             viewport. When content overflows, marginTop is 0 (top-aligned).
             display: flex + flex-direction: column lets gap apply between
-            focused objects in multi-focus stacking. */}
+            focused objects in multi-focus stacking.
+            role="region" + tabindex=0 + aria-label mark this as a navigable
+            scrollable landmark for screen reader and keyboard users. */}
         <motion.div
           ref={contentWrapperRef}
           data-column-content
+          role="region"
+          aria-label={`${name} content, scrollable`}
+          tabIndex={0}
           animate={{ top: combinedTop }}
           transition={transition}
           style={{
