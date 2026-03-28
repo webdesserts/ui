@@ -2914,3 +2914,69 @@ describe("SceneObject keyboard focus management", () => {
     )).resolves.not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 8e: Scroll accessibility — focused column content wrapper
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn scroll accessibility", () => {
+  test("focused column content wrapper has role=region", async () => {
+    // Focused column content wrappers that may overflow vertically should be
+    // marked as landmark regions so screen reader users can navigate to them.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ height: 200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper).not.toBeNull();
+    expect(contentWrapper.getAttribute("role")).toBe("region");
+  });
+
+  test("focused column content wrapper has tabindex=0", async () => {
+    // tabindex=0 allows keyboard users to focus the scrollable region directly
+    // and use keyboard shortcuts to scroll it.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ height: 200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("focused column content wrapper has aria-label based on column name", async () => {
+    // aria-label identifies the region to screen reader users.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ height: 200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper.getAttribute("aria-label")).toBe("nav content, scrollable");
+  });
+});
