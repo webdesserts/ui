@@ -4036,9 +4036,9 @@ describe("SceneColumn within-column depth deck", () => {
     expect(window.getComputedStyle(objB).visibility).toBe("hidden");
   });
 
-  test("within-column depth object is positioned near the lower focused sibling", async () => {
+  test("within-column depth object is anchored at the lower focused sibling with translateZ depth", async () => {
     // A (focused, 200px tall), B (unfocused), C (focused, 200px tall)
-    // B should be positioned near C (peeks above C's top edge)
+    // B is anchored at C's top position and uses translateZ for 3D depth.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -4058,18 +4058,15 @@ describe("SceneColumn within-column depth deck", () => {
     );
 
     const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
 
-    // B should be positioned (absolute) peeking above C — B's top is slightly
-    // above C's top edge (within one PEEK_PX per depth level).
-    const rectB = objB.getBoundingClientRect();
-    const rectC = objC.getBoundingClientRect();
+    // B uses translateZ for depth — the inline transform should include translateZ.
+    // Depth-1 objects are pushed back 100px in Z space.
+    expect(objB.style.transform).toContain("translateZ(-100px)");
 
-    // B.top is above C.top — it peeks above the lower focused sibling
-    expect(rectB.top).toBeLessThan(rectC.top);
-
-    // B.top is close to C.top — within 30px above (PEEK_PX=12 per depth level, depth=1)
-    expect(rectB.top).toBeGreaterThan(rectC.top - 30);
+    // B is anchored at C's top (anchorTop = height of A = 200px). The `top`
+    // style property should be set to the anchorTop value.
+    expect(objB.style.position).toBe("absolute");
+    expect(parseInt(objB.style.top)).toBeCloseTo(200, -1);
   });
 });
 

@@ -80,12 +80,9 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   }, [focused]);
 
   // Within-column depth deck: this object is sandwiched between two focused
-  // siblings. Instead of hiding it, we show it peeking above the lower focused
+  // siblings. Instead of hiding it, we show it stacked behind the lower focused
   // sibling with depth-card visual treatment.
   const withinDepthInfo = column?.withinColumnDepths.get(name);
-
-  // How far each depth level peeks above the lower focused sibling (in px).
-  const PEEK_PX = 12;
 
   // Within a focused column, unfocused objects are removed from flow so they
   // don't push down the focused object. They are also hidden so they don't
@@ -97,7 +94,8 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   // outer columns to have natural width and for depth-deck perspective sizing.
   //
   // Exception: unfocused objects between two focused siblings get depth-card
-  // treatment — position: absolute but visible, peeking above the lower focused.
+  // treatment — position: absolute, translateZ projects them back in 3D space
+  // within the column content wrapper's perspective context.
   //
   // When there is no parent column context (standalone usage), fall back to
   // default (static) positioning.
@@ -106,13 +104,17 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
 
   const inColumnStyle: React.CSSProperties | undefined = column
     ? focused
-      ? { position: "relative" }
+      ? { position: "relative", transform: "translateZ(0)" }
       : withinDepthInfo
         ? {
             position: "absolute",
-            // Peek above the lower focused sibling: anchorTop moves us to that
-            // sibling's top, then we subtract a per-depth peek offset upward.
-            top: withinDepthInfo.anchorTop - PEEK_PX * withinDepthInfo.depth,
+            // Anchor near the lower focused sibling. Perspective projection
+            // handles the visual depth — no manual peek offset needed.
+            top: withinDepthInfo.anchorTop,
+            // translateZ pushes this object back in 3D space. The column
+            // content wrapper's perspective (800px) projects it smaller:
+            // depth-1 → 800/900 ≈ 0.89×, depth-2 → 800/1000 = 0.80×.
+            transform: `translateZ(${-(withinDepthInfo.depth * 100)}px)`,
             opacity: depthOpacity,
             filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
           }
