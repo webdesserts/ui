@@ -609,3 +609,190 @@ describe("Scene debug mode", () => {
     expect(overlay?.textContent).toContain("focused");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2: Vertical swap within a column
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn vertical swap", () => {
+  test("vertical swap — focus moves from first to second object", async () => {
+    // Start with first object focused, then swap to second.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    expect(objA.getAttribute("data-focused")).toBe("true");
+    expect(objB.getAttribute("data-focused")).toBe("false");
+
+    // Swap focus to B
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    expect(objA.getAttribute("data-focused")).toBe("false");
+    expect(objB.getAttribute("data-focused")).toBe("true");
+  });
+
+  test("after swap, only the newly focused object is in flow", async () => {
+    // After a vertical swap, the focused object should have position: relative
+    // and the unfocused object should have position: absolute (out of flow).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+
+    // Focused object is in flow
+    expect(window.getComputedStyle(objB).position).toBe("relative");
+    // Unfocused sibling within the column is out of flow
+    expect(window.getComputedStyle(objA).position).toBe("absolute");
+  });
+
+  test("swap direction follows DOM order — ascending: second object appears below", async () => {
+    // Object B is below object A in DOM order. When B gains focus, the column
+    // content slides up (negative top offset) to show B.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement | null;
+
+    // With A focused (first object), top offset should be 0 or near 0
+    const topBefore = contentWrapper ? parseFloat(contentWrapper.style.top || "0") : 0;
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // With B focused (second object), the column content should have scrolled
+    // to show B — meaning the top offset is negative (content slid up).
+    const topAfter = contentWrapper ? parseFloat(contentWrapper.style.top || "0") : 0;
+    expect(topAfter).toBeLessThan(topBefore);
+  });
+
+  test("sibling columns are unaffected by vertical swap", async () => {
+    // A vertical swap within col1 should not change col2's focused state.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col2 = getByTestId("content-c").element().closest("[data-column]") as HTMLElement;
+    const initialFocused = col2.getAttribute("data-column-focused");
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // col2 should remain focused and unaffected
+    expect(col2.getAttribute("data-column-focused")).toBe(initialFocused);
+    expect(col2.getAttribute("data-column-focused")).toBe("true");
+    expect(window.getComputedStyle(col2).position).toBe("relative");
+  });
+});
