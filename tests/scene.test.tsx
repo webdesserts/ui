@@ -2750,3 +2750,97 @@ describe("Scene navigation animation", () => {
     expect(navRect.left).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 8a: Click-to-focus
+// ---------------------------------------------------------------------------
+
+describe("SceneObject click-to-focus", () => {
+  test("clicking unfocused SceneObject fires onActivate", async () => {
+    let activated = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    outer.click();
+    expect(activated).toBe(true);
+  });
+
+  test("clicking focused SceneObject does NOT fire onActivate", async () => {
+    let activateCount = 0;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused onActivate={() => { activateCount++; }}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    outer.click();
+    // onActivate should NOT fire when the object is already focused.
+    expect(activateCount).toBe(0);
+  });
+
+  test("clicking inside unfocused SceneObject content does NOT fire child onClick (inert blocks it)", async () => {
+    // The inner content wrapper is inert when unfocused, so click events on
+    // descendant elements should not reach child onClick handlers.
+    let childClicked = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <button data-testid="child-btn" onClick={() => { childClicked = true; }}>
+                click me
+              </button>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Dispatch a click directly on the button — but the inert wrapper prevents it from being interactive.
+    const btn = getByTestId("child-btn").element() as HTMLElement;
+    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    // The click should not have reached the handler because the element is inert.
+    expect(childClicked).toBe(false);
+  });
+
+  test("SceneObject outer wrapper is clickable even when unfocused", async () => {
+    // The outer wrapper must NOT be inert — only the inner content wrapper is.
+    // This is what enables click-to-focus: the outer div receives click events
+    // even though the content inside is inert.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    // The outer wrapper itself should not have the inert attribute.
+    expect(outer.hasAttribute("inert")).toBe(false);
+    // The inner wrapper (parent of content) should have inert.
+    const innerWrapper = getByTestId("content").element().parentElement;
+    expect(innerWrapper?.hasAttribute("inert")).toBe(true);
+  });
+});
