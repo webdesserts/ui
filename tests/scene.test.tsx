@@ -4,6 +4,21 @@ import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the computed style of the column wrapper ([data-column]) containing
+ *  the element located by data-testid. */
+async function getColumnStyle(
+  getByTestId: ReturnType<typeof render> extends Promise<infer R> ? R["getByTestId"] : never,
+  testId: string,
+): Promise<CSSStyleDeclaration> {
+  const content = getByTestId(testId).element() as HTMLElement;
+  const column = content.closest("[data-column]") as HTMLElement;
+  return window.getComputedStyle(column);
+}
+
+// ---------------------------------------------------------------------------
 // SceneObject
 // ---------------------------------------------------------------------------
 
@@ -210,5 +225,130 @@ describe("Scene auto-wrapping", () => {
       el = el.parentElement;
     }
     expect(columnCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1: Focused flex layout
+// ---------------------------------------------------------------------------
+
+describe("SceneColumn flex layout", () => {
+  test("focused column has flex: 0 1 auto and position: relative", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const style = await getColumnStyle(getByTestId, "content");
+    expect(style.position).toBe("relative");
+    // flex shorthand resolves to "0 1 auto" or individual properties
+    expect(style.flexGrow).toBe("0");
+    expect(style.flexShrink).toBe("1");
+    expect(style.flexBasis).toBe("auto");
+  });
+
+  test("unfocused column (never focused) has position: absolute and opacity: 0", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const style = await getColumnStyle(getByTestId, "content");
+    expect(style.position).toBe("absolute");
+    expect(style.opacity).toBe("0");
+  });
+
+  test("two focused columns both participate in flex row", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const style1 = await getColumnStyle(getByTestId, "content1");
+    const style2 = await getColumnStyle(getByTestId, "content2");
+
+    // Both columns should be in normal flow (position: relative)
+    expect(style1.position).toBe("relative");
+    expect(style2.position).toBe("relative");
+  });
+
+  test("mixed focused/unfocused — focused is relative, unfocused is absolute", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused={false}>
+              <div data-testid="content2" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const style1 = await getColumnStyle(getByTestId, "content1");
+    const style2 = await getColumnStyle(getByTestId, "content2");
+
+    expect(style1.position).toBe("relative");
+    expect(style2.position).toBe("absolute");
+  });
+
+  test("two flexible focused columns share viewport width roughly equally", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+
+    const width1 = col1.getBoundingClientRect().width;
+    const width2 = col2.getBoundingClientRect().width;
+
+    // Each column should occupy roughly half the viewport (within 10%)
+    expect(Math.abs(width1 - width2)).toBeLessThan(width1 * 0.1);
+    expect(width1).toBeGreaterThan(0);
   });
 });
