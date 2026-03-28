@@ -126,6 +126,42 @@ describe("SceneColumn", () => {
     expect(column).not.toBeNull();
     expect(column?.getAttribute("data-column")).toBe("nav");
   });
+
+  test("column with focused child has data-column-focused=true", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <Scene>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const column = content.closest("[data-column]");
+    expect(column?.getAttribute("data-column-focused")).toBe("true");
+  });
+
+  test("column with no focused children has data-column-focused=false", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <Scene>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const column = content.closest("[data-column]");
+    expect(column?.getAttribute("data-column-focused")).toBe("false");
+  });
 });
 
 // ---------------------------------------------------------------------------
