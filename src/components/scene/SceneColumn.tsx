@@ -13,6 +13,8 @@ import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
+import { DepthDeckContext } from "./DepthDeckContext";
+import { StackDepthContext } from "./StackDepthContext";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -32,6 +34,12 @@ interface ColumnRegistration {
    * heights from potentially-zero absolute heights.
    */
   reportHeight: (name: string, height: number) => void;
+  /**
+   * Whether the parent column is in the depth deck (in-between, unfocused).
+   * When true, unfocused SceneObjects stay in flow (position: relative) so the
+   * column sizes to its content — necessary for perspective-depth width comparison.
+   */
+  isInDepthDeck: boolean;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
@@ -145,6 +153,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const position = columnPositions.get(name) ?? null;
+  const stackTargetLeft = useContext(DepthDeckContext);
+  const stackDepths = useContext(StackDepthContext);
+  const stackDepth = stackDepths.get(name) ?? 0;
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -424,7 +435,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // viewport width (from ViewportContext) to guarantee the column clears the
   // visible area regardless of its current DOM position.
   //
-  // Using `viewportWidth` (rather than exact column bounds) is intentional:
+  // In-between columns target the left edge of the rightmost focused column
+  // (stackTargetLeft) so they appear to stack behind it in the depth deck.
+  //
+  // Using `viewportWidth` (rather than exact column bounds) for outer columns
+  // is intentional:
   // - Outer-left: `-viewportWidth` always moves the right edge past x=0.
   // - Outer-right: `viewportWidth` always moves the left edge past the right edge.
   // When all columns are unfocused, x stays at 0 (camera stays still).
@@ -433,7 +448,19 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       ? -viewportWidth
       : position === "outer-right"
         ? viewportWidth
-        : 0;
+        : position === "in-between"
+          ? stackTargetLeft
+          : 0;
+
+  // Depth deck visual values for in-between columns. Deeper columns are pushed
+  // further back in Z (perspective makes them appear smaller), have lower
+  // opacity, and lower z-index.
+  const isInBetween = position === "in-between" && stackDepth > 0;
+  // Negative Z value (translateZ) pushes the column back in 3D space;
+  // perspective projection on the stage makes deeper columns appear smaller.
+  const depthZ = isInBetween ? -stackDepth * 80 : 0;
+  const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : columnFocused ? 1 : 0;
+  const depthZIndex = isInBetween ? 100 - stackDepth : undefined;
 
   // Outer columns use animate-only (no layout FLIP). Focused columns use layout
   // FLIP so they animate smoothly in and out of the flex row.
@@ -442,19 +469,23 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const isScrollable = columnFocused && maxScroll > 0;
 
   return (
-    <ColumnContext.Provider value={{ register, reportHeight }}>
+    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: isInBetween }}>
       <motion.div
         ref={colRef}
         {...(usesLayout ? { layout: true } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
         data-column-position={position ?? undefined}
+        data-stack-depth={isInBetween ? String(stackDepth) : undefined}
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
         data-content-height={columnFocused ? String(contentHeight) : undefined}
-        animate={{ opacity: columnFocused ? 1 : 0, x: outerX }}
+        animate={{ opacity: depthOpacity, x: outerX, z: depthZ }}
         transition={transition}
-        style={columnFocused ? focusedStyle : unfocusedStyle}
+        style={{
+          ...(columnFocused ? focusedStyle : unfocusedStyle),
+          ...(depthZIndex !== undefined ? { zIndex: depthZIndex } : {}),
+        }}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.
             margin-top centers focused content vertically when it fits the

@@ -51,10 +51,16 @@ export function SceneObject({ name, focused, children }: SceneObjectProps) {
   // affect the column's natural content height. Focused objects stay in flow.
   // When there is no parent column context (standalone usage), fall back to
   // default (static) positioning.
+  //
+  // Exception: when the parent column is in the depth deck (in-between,
+  // unfocused as a whole), unfocused SceneObjects stay in flow so the column
+  // sizes to its content — required for perspective-depth width comparison.
   const inColumnStyle: React.CSSProperties | undefined = column
     ? focused
       ? { position: "relative" }
-      : { position: "absolute", opacity: 0 }
+      : column.isInDepthDeck
+        ? { position: "relative" }
+        : { position: "absolute", opacity: 0 }
     : undefined;
 
   return (

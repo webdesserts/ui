@@ -2255,7 +2255,7 @@ describe("Scene depth deck stacking", () => {
     expect(rect1.width).toBeLessThan(rect2.width);
   });
 
-  test.skip("depth-1 has higher opacity than depth-2", async () => {
+  test("depth-1 has higher opacity than depth-2", async () => {
     // Phase 6e: opacity animation timing not yet verified — test is TDD.
     // Shallower stacked columns should be more opaque than deeper ones.
     const { getByTestId } = await render(

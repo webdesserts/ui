@@ -3,8 +3,10 @@ import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
-import { ViewportContext } from "./ViewportContext";
+import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
+import { DepthDeckContext } from "./DepthDeckContext";
+import { StackDepthContext } from "./StackDepthContext";
 import { motion } from "motion/react";
 
 /**
@@ -84,6 +86,38 @@ export function computeColumnPositions(
   });
 
   return positions;
+}
+
+/**
+ * Computes the depth index for each in-between column. Depth 1 is adjacent to
+ * the rightmost focused column, depth 2 is the next one further left, etc.
+ * Columns that are not in-between get depth 0 (unused sentinel value).
+ */
+export function computeStackDepths(
+  columns: Array<{ name: string; focused: boolean }>,
+): Map<string, number> {
+  const depths = new Map<string, number>();
+  const focusedIndices = columns
+    .map((c, i) => ({ i, focused: c.focused }))
+    .filter((x) => x.focused)
+    .map((x) => x.i);
+
+  if (focusedIndices.length === 0) return depths;
+
+  const rightmostFocused = focusedIndices[focusedIndices.length - 1]!;
+
+  // Walk backwards from the rightmost focused column — each in-between column
+  // gets increasing depth (1 = adjacent to right, 2 = next further, etc.).
+  let depth = 1;
+  for (let i = rightmostFocused - 1; i >= 0; i--) {
+    const col = columns[i]!;
+    if (!col.focused) {
+      depths.set(col.name, depth);
+      depth++;
+    }
+  }
+
+  return depths;
 }
 
 export interface SceneProps {
@@ -283,7 +317,11 @@ function SceneViewport({
 }) {
   const { debug, columnGap, padding } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+  // stackTargetLeft: left edge of the rightmost focused column relative to the
+  // stage. Starts at 0 and is updated after each layout measurement.
+  const [stackTargetLeft, setStackTargetLeft] = useState(0);
 
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
@@ -331,6 +369,27 @@ function SceneViewport({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 
+  // Measure the rightmost focused column's left edge relative to the stage
+  // after each render so in-between columns can align to it. Runs on every
+  // render (like the viewport size measurement) so it stays current.
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const focusedCols = Array.from(
+      stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
+    );
+    if (focusedCols.length === 0) return;
+
+    const rightmostFocused = focusedCols[focusedCols.length - 1]!;
+    const stageRect = stage.getBoundingClientRect();
+    const colRect = rightmostFocused.getBoundingClientRect();
+
+    // left edge of the rightmost focused column, relative to the stage.
+    const newTargetLeft = colRect.left - stageRect.left;
+    setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
+  });
+
   // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
   // event. deltaX is left to the native horizontal scroll on the viewport.
   // Registered as non-passive so preventDefault() is allowed.
@@ -374,61 +433,73 @@ function SceneViewport({
 
   return (
     <ViewportContext.Provider value={viewportSize}>
-      {/* layoutScroll tells motion to account for scroll offset when measuring
-          FLIP positions inside this overflow-x: auto container.
-          overflow-x: auto enables horizontal scrolling when focused columns
-          exceed the viewport width. overflow-y: hidden prevents vertical
-          scroll at this level — each column handles vertical scroll independently
-          (Phase 5). */}
-      <motion.div
-        ref={viewportRef}
-        layoutScroll
-        data-testid="scene"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "stretch",
-          width: "100%",
-          height: "100%",
-          overflowX: "auto",
-          overflowY: "hidden",
-          outline: debug ? "2px solid cyan" : undefined,
-          // Thin scrollbar with transparent track so it doesn't eat into content space.
-          scrollbarWidth: "thin",
-          scrollbarColor: "rgba(128,128,128,0.4) transparent",
-        } as React.CSSProperties}
-      >
-        {/* Stage: the flex row of focused columns. width: fit-content allows the
-            stage to shrink to content width. margin-inline: auto centers the
-            stage within the viewport when it's narrower. When it overflows (or
-            all columns are flexible and fill the stage), margins collapse to 0
-            and content left-aligns naturally.
-
-            Flexible (flex: 1 1 0) columns grow to fill the stage width, which
-            is their own intrinsic content size — they share that width equally.
-            Columns with explicit minimum widths (e.g. minWidth: 300px) determine
-            the stage's width directly. */}
-        <div
-          data-stage
+      <DepthDeckContext.Provider value={stackTargetLeft}>
+        {/* layoutScroll tells motion to account for scroll offset when measuring
+            FLIP positions inside this overflow-x: auto container.
+            overflow-x: auto enables horizontal scrolling when focused columns
+            exceed the viewport width. overflow-y: hidden prevents vertical
+            scroll at this level — each column handles vertical scroll independently
+            (Phase 5). */}
+        <motion.div
+          ref={viewportRef}
+          layoutScroll
+          data-testid="scene"
           style={{
             display: "flex",
             flexDirection: "row",
             alignItems: "stretch",
-            width: "fit-content",
-            marginInline: "auto",
-            gap: columnGap || undefined,
-            padding: padding || undefined,
-          }}
+            width: "100%",
+            height: "100%",
+            overflowX: "auto",
+            overflowY: "hidden",
+            outline: debug ? "2px solid cyan" : undefined,
+            // Thin scrollbar with transparent track so it doesn't eat into content space.
+            scrollbarWidth: "thin",
+            scrollbarColor: "rgba(128,128,128,0.4) transparent",
+          } as React.CSSProperties}
         >
-          {children}
-        </div>
-        {/* Overlay is inside the scene div so tests can find it via
-            scene.querySelector('[data-debug-overlay]'). position:fixed
-            ensures it doesn't participate in flex layout. */}
-        {debug && debugObjects && (
-          <SceneDebugOverlay objects={debugObjects} viewportRef={viewportRef} />
-        )}
-      </motion.div>
+          {/* Stage: the flex row of focused columns. width: fit-content allows the
+              stage to shrink to content width. margin-inline: auto centers the
+              stage within the viewport when it's narrower. When it overflows (or
+              all columns are flexible and fill the stage), margins collapse to 0
+              and content left-aligns naturally.
+
+              Flexible (flex: 1 1 0) columns grow to fill the stage width, which
+              is their own intrinsic content size — they share that width equally.
+              Columns with explicit minimum widths (e.g. minWidth: 300px) determine
+              the stage's width directly.
+
+              perspective + transform-style: preserve-3d create the 3D stacking
+              context for in-between unfocused columns (depth deck). Perspective
+              origin is set dynamically near the right focused column so pushed-back
+              columns appear to recede toward it. position: relative establishes
+              the containing block for absolutely-positioned in-between columns. */}
+          <div
+            ref={stageRef}
+            data-stage
+            style={{
+              position: "relative",
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "stretch",
+              width: "fit-content",
+              marginInline: "auto",
+              gap: columnGap || undefined,
+              padding: padding || undefined,
+              perspective: "1000px",
+              transformStyle: "preserve-3d",
+            }}
+          >
+            {children}
+          </div>
+          {/* Overlay is inside the scene div so tests can find it via
+              scene.querySelector('[data-debug-overlay]'). position:fixed
+              ensures it doesn't participate in flex layout. */}
+          {debug && debugObjects && (
+            <SceneDebugOverlay objects={debugObjects} viewportRef={viewportRef} />
+          )}
+        </motion.div>
+      </DepthDeckContext.Provider>
     </ViewportContext.Provider>
   );
 }
@@ -474,6 +545,7 @@ export function Scene({
   // animate unfocused columns offscreen or into a depth deck.
   const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
   const columnPositions = computeColumnPositions(columnStates);
+  const stackDepths = computeStackDepths(columnStates);
 
   return (
     <SceneConfigContext.Provider
@@ -486,9 +558,11 @@ export function Scene({
         }}
       >
         <ColumnPositionContext.Provider value={columnPositions}>
-          <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
-            {wrappedChildren}
-          </SceneViewport>
+          <StackDepthContext.Provider value={stackDepths}>
+            <SceneViewport debugObjects={debugObjects} focusKey={focusKey}>
+              {wrappedChildren}
+            </SceneViewport>
+          </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>
