@@ -13,6 +13,11 @@ export interface SceneObjectProps {
    * transition. Not called when the object is already focused.
    */
   onActivate?: () => void;
+  /**
+   * Inline styles applied to the outer wrapper div. Useful for setting
+   * explicit dimensions (width, height, minWidth) on the object.
+   */
+  style?: React.CSSProperties;
 }
 
 /**
@@ -29,7 +34,7 @@ export interface SceneObjectProps {
  *   <ArticlePanel />
  * </SceneObject>
  */
-export function SceneObject({ name, focused, children, onActivate }: SceneObjectProps) {
+export function SceneObject({ name, focused, children, onActivate, style }: SceneObjectProps) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const column = useContext(ColumnContext);
 
@@ -95,7 +100,7 @@ export function SceneObject({ name, focused, children, onActivate }: SceneObject
       ref={outerRef}
       data-scene-id={name}
       data-focused={String(focused)}
-      style={inColumnStyle}
+      style={{ ...inColumnStyle, ...style }}
       onClick={!focused ? onActivate : undefined}
     >
       {/* Inner wrapper: inert when unfocused to disable all descendant interaction.
