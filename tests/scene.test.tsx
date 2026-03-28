@@ -2132,7 +2132,7 @@ describe("Scene depth deck stacking", () => {
     expect(middleCol.getAttribute("data-column-position")).toBe("in-between");
   });
 
-  test.skip("in-between column stacks under right focused column (positioned near right)", async () => {
+  test("in-between column stacks under right focused column (positioned near right)", async () => {
     // Phase 6e: x-animation to stackTargetLeft not yet verified — test is TDD.
     // An in-between unfocused column should appear in roughly the same
     // horizontal area as the right focused column — stacked behind it.
@@ -2206,7 +2206,7 @@ describe("Scene depth deck stacking", () => {
     expect(middleRect.width).toBeLessThan(300);
   });
 
-  test.skip("multiple in-between columns: deeper columns appear further back", async () => {
+  test("multiple in-between columns: deeper columns appear further back", async () => {
     // Phase 6e: depth deck CSS scaling not yet implemented — test is TDD.
     // Four columns: left and right focused, two in between unfocused.
     // The column closer to the right focused column should have depth-1,

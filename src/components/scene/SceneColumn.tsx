@@ -313,10 +313,16 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     }
   });
 
+  // Whether this column has ever been focused. Only columns that were
+  // previously focused need a frozen size — never-focused columns size to
+  // their content naturally (position: absolute, no explicit dimensions).
+  const wasEverFocused = useRef(columnFocused);
+
   // Track column focus state: set up a ResizeObserver for ongoing size changes
   // while focused, freeze the last size on focus loss, and clear on re-focus.
   useEffect(() => {
     if (columnFocused) {
+      wasEverFocused.current = true;
       // Re-focusing — clear the frozen size so the column returns to flex flow.
       setFrozenSize(null);
 
@@ -335,10 +341,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       });
       observer.observe(el);
       return () => observer.disconnect();
-    } else {
+    } else if (wasEverFocused.current) {
       // Column just lost focus — freeze at the last captured dimensions.
       // lastObservedSize is kept current by the useLayoutEffect above, so this
       // should always have a reliable value.
+      //
+      // Only freeze when transitioning from focused to unfocused. A column that
+      // was never focused doesn't need a frozen size — it sizes to its content.
       setFrozenSize({ ...lastObservedSize.current });
     }
   }, [columnFocused]);
@@ -452,13 +461,14 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           ? stackTargetLeft
           : 0;
 
-  // Depth deck visual values for in-between columns. Deeper columns are pushed
-  // further back in Z (perspective makes them appear smaller), have lower
-  // opacity, and lower z-index.
+  // Depth deck visual values for in-between columns. Deeper columns appear
+  // smaller (via scale), more transparent, and stacked lower (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
-  // Negative Z value (translateZ) pushes the column back in 3D space;
-  // perspective projection on the stage makes deeper columns appear smaller.
-  const depthZ = isInBetween ? -stackDepth * 80 : 0;
+  // Scale shrinks each deeper column by 10% per depth level, creating the
+  // visual impression of receding layers. Scale is used instead of translateZ
+  // so getBoundingClientRect() returns the actual displayed (scaled) dimensions,
+  // which lets tests and layout logic compare apparent sizes across depths.
+  const depthScale = isInBetween ? Math.max(0.1, 1 - stackDepth * 0.1) : 1;
   const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : columnFocused ? 1 : 0;
   const depthZIndex = isInBetween ? 100 - stackDepth : undefined;
 
@@ -480,7 +490,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
         data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
         data-content-height={columnFocused ? String(contentHeight) : undefined}
-        animate={{ opacity: depthOpacity, x: outerX, z: depthZ }}
+        animate={{ opacity: depthOpacity, x: outerX, scale: depthScale }}
         transition={transition}
         style={{
           ...(columnFocused ? focusedStyle : unfocusedStyle),
