@@ -746,20 +746,20 @@ function SceneViewport({
             // container-type: size lets consumers use cqw/cqh units to size
             // columns relative to the Camera viewport dimensions.
             containerType: "size",
+            // Perspective + preserve-3d establish the 3D stacking context for
+            // depth deck columns. Placing this on the viewport (rather than the
+            // stage) means the perspective origin is expressed relative to the
+            // visible window, so depth projection stays stable as the stage pans.
+            perspective: "800px",
+            transformStyle: "preserve-3d",
+            perspectiveOrigin,
           } as React.CSSProperties}
         >
           {/* Stage: absolutely positioned within the viewport. `left` pans the
               scene so the focused region stays horizontally centered. No CSS
               transforms are used for panning — direct `left` positioning
               preserves text rendering quality (no subpixel transform artifacts).
-
-              perspective + transform-style: preserve-3d establish the 3D stacking
-              context for depth deck columns. Focused columns sit at translateZ(0)
-              (identity — no visual change), while in-between unfocused columns
-              receive negative translateZ values so they project smaller and shift
-              toward the perspective-origin, creating a natural receding effect.
-              z-index is not used inside preserve-3d — 3D z-ordering is determined
-              entirely by translateZ values. */}
+              3D context lives on the viewport div above, not here. */}
           <motion.div
             ref={stageRef}
             data-stage
@@ -781,9 +781,10 @@ function SceneViewport({
               alignItems: "stretch",
               gap: columnGap || undefined,
               padding: padding || undefined,
-              perspective: "800px",
+              // preserve-3d propagates the viewport's 3D context through to
+              // column children. Without this, translateZ on columns has no
+              // visible perspective effect — elements render flat.
               transformStyle: "preserve-3d",
-              perspectiveOrigin,
               // Debug: magenta outline on the stage to distinguish it from the
               // cyan viewport outline. Purely cosmetic — no layout effect.
               outline: debug ? "2px solid magenta" : undefined,
