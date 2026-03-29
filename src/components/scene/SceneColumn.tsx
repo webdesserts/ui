@@ -689,12 +689,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           role="region"
           aria-label={`${name} content${isScrollable ? ", scrollable" : ""}`}
           tabIndex={0}
-          animate={{ top: combinedTop }}
+          animate={{ top: combinedTop, marginTop }}
           transition={transition}
           style={{
             position: "relative",
-            top: combinedTop,
-            marginTop,
+            // Only set top and marginTop in style for instant mode (duration=0).
+            // For real animations, animate springs from previous values.
+            ...(duration === 0 ? { top: combinedTop, marginTop } : {}),
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
