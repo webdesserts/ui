@@ -121,8 +121,11 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
         : {
             position: "relative",
             // Unfocused objects not in the depth deck still get pushed back
-            // 1 z-level to visually distinguish them from focused content.
+            // 1 z-level and receive depth-1 visual treatment to distinguish
+            // them from focused content.
             transform: "translateZ(-100px)",
+            opacity: 0.8,
+            filter: "grayscale(0.25)",
           }
     : undefined;
 
