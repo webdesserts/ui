@@ -702,13 +702,6 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
-            // Establish a 3D context for within-column depth objects. The
-            // perspective-origin anchors to the bottom-center (near the lower
-            // focused sibling) so translateZ projects depth objects visually
-            // upward rather than toward the center of the wrapper.
-            perspective: "800px",
-            perspectiveOrigin: "50% 100%",
-            transformStyle: "preserve-3d",
           }}
         >
           {children}
