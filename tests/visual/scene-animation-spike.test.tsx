@@ -191,10 +191,10 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
     );
     await waitForAnimationFrame();
 
-    // Switch to unfocused — spring animation begins.
+    // Switch to unfocused — slow-mo spring animation begins (~800ms to settle).
     await rerender(
       <TestWrapper fullPage>
-        <Scene>
+        <Scene slowMo>
           <SceneColumn name="content">
             <SceneObject name="panel" focused={false}>
               <div
@@ -219,13 +219,13 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
       </TestWrapper>,
     );
 
-    // Wait ~100ms — column should be mid-slide at this point.
-    await wait(100);
+    // Wait 250ms — ~30% through the slow-mo spring, clearly mid-slide.
+    await wait(250);
 
-    // High tolerance because timed-wait captures are inherently non-deterministic.
+    // Tighter tolerance because slower springs produce less jitter between frames.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "spike-focus-to-unfocus-mid-spring-wait",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.1 },
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
     );
   });
 });
@@ -350,10 +350,10 @@ describe("spike: camera pan mid-capture", () => {
     );
     await waitForAnimationFrame();
 
-    // Unfocus Nav with default spring physics — stage left springs rightward.
+    // Unfocus Nav with slow-mo spring physics — stage left springs rightward (~800ms to settle).
     await rerender(
       <TestWrapper fullPage>
-        <Scene>
+        <Scene slowMo>
           <SceneColumn name="nav">
             <SceneObject name="nav-panel" focused={false}>
               <div
@@ -398,15 +398,17 @@ describe("spike: camera pan mid-capture", () => {
       </TestWrapper>,
     );
 
-    // Wait ~100ms — the stage (Camera) should be mid-pan. Also exposes the
-    // Article clipping bug: content may be clipped on the left/top/bottom during
-    // the pan because preserve-3d + translateZ creates an implicit stacking
+    // Wait 250ms — ~30% through the slow-mo spring, clearly mid-pan. Also exposes
+    // the Article clipping bug: content may be clipped on the left/top/bottom
+    // during the pan because preserve-3d + translateZ creates an implicit stacking
     // context that clips overflow.
-    await wait(100);
+    await wait(250);
 
+    // Looser tolerance than WAAPI tests — rAF-based `left` spring still has
+    // some frame-timing variance even with slow-mo springs.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "spike-camera-pan-mid-spring",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.1 },
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.05 },
     );
   });
 });
@@ -566,10 +568,10 @@ describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
     );
     await waitForAnimationFrame();
 
-    // Focus the column — FLIP animation begins.
+    // Focus the column — slow-mo FLIP animation begins (~800ms to settle).
     await rerender(
       <TestWrapper fullPage>
-        <Scene>
+        <Scene slowMo>
           <SceneColumn name="content">
             <SceneObject name="panel" focused>
               <div
@@ -594,12 +596,13 @@ describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
       </TestWrapper>,
     );
 
-    await wait(100);
+    // Wait 250ms — ~30% through the slow-mo spring, clearly mid-FLIP.
+    await wait(250);
 
-    // High tolerance because timed-wait captures are inherently non-deterministic.
+    // Tighter tolerance because slower springs produce less jitter between frames.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "spike-layout-flip-mid-spring-wait",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.1 },
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
     );
   });
 });

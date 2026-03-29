@@ -17,6 +17,8 @@ export interface SceneConfig {
   duration: number | undefined;
   /** Enable debug overlays and outlines. */
   debug: boolean;
+  /** Slow-motion springs for animation snapshot testing. Same spring physics, much lazier parameters. */
+  slowMo: boolean;
 }
 
 const defaultConfig: SceneConfig = {
@@ -26,6 +28,7 @@ const defaultConfig: SceneConfig = {
   columnGap: 0,
   duration: undefined,
   debug: false,
+  slowMo: false,
 };
 
 export const SceneConfigContext = createContext<SceneConfig>(defaultConfig);

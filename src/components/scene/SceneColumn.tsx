@@ -219,7 +219,7 @@ export interface SceneColumnProps {
 export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration, stiffness, damping, padding } = useSceneConfig();
+  const { duration, stiffness, damping, padding, slowMo } = useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
@@ -543,10 +543,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   }, []);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
+  // slowMo → lazier spring parameters for animation snapshot testing.
   const transition =
     duration === 0
       ? { duration: 0 }
-      : { type: "spring" as const, stiffness, damping };
+      : slowMo
+        ? { type: "spring" as const, stiffness: 30, damping: 8 }
+        : { type: "spring" as const, stiffness, damping };
 
   // The combined vertical offset applied to the content wrapper:
   // - topOffset: vertical swap offset (bring focused object into view)

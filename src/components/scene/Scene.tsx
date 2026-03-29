@@ -134,6 +134,8 @@ export interface SceneProps {
   columnGap?: number;
   /** Padding (in px) around the stage content. Defaults to 0. */
   padding?: number;
+  /** Slow-motion springs for animation snapshot testing. Same spring physics, much lazier parameters. */
+  slowMo?: boolean;
 }
 
 /** A snapshot of a SceneObject's state for the debug overlay. */
@@ -523,7 +525,7 @@ function SceneViewport({
   /** Called whenever the viewport dimensions change. */
   onViewportSizeChange: (size: ViewportDimensions) => void;
 }) {
-  const { debug, columnGap, padding, duration, stiffness, damping } = useSceneConfig();
+  const { debug, columnGap, padding, duration, stiffness, damping, slowMo } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
@@ -719,7 +721,9 @@ function SceneViewport({
   const transition =
     duration === 0
       ? { duration: 0 }
-      : { type: "spring" as const, stiffness, damping };
+      : slowMo
+        ? { type: "spring" as const, stiffness: 30, damping: 8 }
+        : { type: "spring" as const, stiffness, damping };
 
   return (
     <ViewportContext.Provider value={viewportSize}>
@@ -843,6 +847,7 @@ export function Scene({
   debug = false,
   columnGap = 0,
   padding = 0,
+  slowMo = false,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
@@ -891,7 +896,7 @@ export function Scene({
 
   return (
     <SceneConfigContext.Provider
-      value={{ stiffness: 300, damping: 30, padding, columnGap, duration: effectiveDuration, debug }}
+      value={{ stiffness: 300, damping: 30, padding, columnGap, duration: effectiveDuration, debug, slowMo }}
     >
       <CameraContext.Provider
         value={{
