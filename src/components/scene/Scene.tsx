@@ -770,7 +770,11 @@ function SceneViewport({
             style={{
               position: "absolute",
               top: 0,
-              left: stageLeft,
+              // Only set left in style for instant mode (duration=0, tests).
+              // For real animations, animate={{ left }} springs from previous
+              // position. Setting both style.left AND animate.left causes an
+              // instant jump (style applies synchronously, defeating the spring).
+              ...(duration === 0 ? { left: stageLeft } : {}),
               height: "100%",
               display: "flex",
               flexDirection: "row",
