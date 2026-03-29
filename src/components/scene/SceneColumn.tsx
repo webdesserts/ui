@@ -495,27 +495,24 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // the initial value is available immediately (useLayoutEffect fires before
   // the browser paints, before ResizeObserver callbacks). ResizeObserver keeps
   // it current for dynamic content changes.
+  // Compute focused content height from the sum of focused objects' natural
+  // heights (not the content wrapper's total height, which includes unfocused
+  // objects in flow). This ensures scroll range only covers focused content.
   useLayoutEffect(() => {
-    if (!columnFocused || !contentWrapperRef.current) return;
-    const { height } = contentWrapperRef.current.getBoundingClientRect();
-    setContentHeight(height);
-  });
-
-  // Track focused content height for ongoing dynamic resizes.
-  // Only active when the column is focused — unfocused columns don't need centering.
-  useEffect(() => {
-    const el = contentWrapperRef.current;
-    if (!el || !columnFocused) return;
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        setContentHeight(entry.contentRect.height);
+    if (!columnFocused) return;
+    let focusedHeight = 0;
+    for (const obj of objectStates) {
+      if (obj.focused) {
+        focusedHeight += naturalHeights.current.get(obj.name) ?? 0;
       }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [columnFocused]);
+    }
+    // Account for gap between focused objects
+    const focusedCount = objectStates.filter(o => o.focused).length;
+    if (focusedCount > 1 && objectGap) {
+      focusedHeight += (focusedCount - 1) * (typeof objectGap === 'number' ? objectGap : 0);
+    }
+    setContentHeight(focusedHeight);
+  });
 
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0

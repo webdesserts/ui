@@ -1092,8 +1092,8 @@ describe("SceneColumn vertical swap", () => {
 
     // Focused object is in flow
     expect(window.getComputedStyle(objB).position).toBe("relative");
-    // Unfocused sibling within the column is out of flow
-    expect(window.getComputedStyle(objA).position).toBe("absolute");
+    // Unfocused sibling stays in flow (visible in the scene, just inert)
+    expect(window.getComputedStyle(objA).position).toBe("relative");
   });
 
   test("swap direction follows DOM order — ascending: second object appears below", async () => {
@@ -1256,9 +1256,9 @@ describe("SceneColumn multi-focus stacking", () => {
     expect(rectB.height).toBeGreaterThan(0);
   });
 
-  test("unfocusing one object from a multi-focus column removes it from flow", async () => {
+  test("unfocusing one object from a multi-focus column keeps it in flow", async () => {
     // Start with two focused objects, then unfocus one. The unfocused one
-    // should become position: absolute (out of flow).
+    // stays position: relative (visible in the scene, just inert).
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1292,7 +1292,7 @@ describe("SceneColumn multi-focus stacking", () => {
     const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
     const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
 
-    expect(window.getComputedStyle(objA).position).toBe("absolute");
+    expect(window.getComputedStyle(objA).position).toBe("relative");
     expect(window.getComputedStyle(objB).position).toBe("relative");
   });
 
@@ -4032,8 +4032,9 @@ describe("SceneColumn within-column depth deck", () => {
     // B is not between two focused objects — no depth attribute
     expect(objB.getAttribute("data-within-column-depth")).toBeNull();
 
-    // B should be hidden (normal unfocused behavior)
-    expect(window.getComputedStyle(objB).visibility).toBe("hidden");
+    // B stays visible and in flow (position: relative), just inert
+    expect(window.getComputedStyle(objB).position).toBe("relative");
+    expect(window.getComputedStyle(objB).visibility).not.toBe("hidden");
   });
 
   test("within-column depth object is anchored at the lower focused sibling with translateZ depth", async () => {

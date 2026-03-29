@@ -118,9 +118,12 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
             opacity: depthOpacity,
             filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
           }
-        : column.isInDepthDeck
-          ? { position: "relative" }
-          : { position: "absolute", visibility: "hidden" }
+        : {
+            position: "relative",
+            // Unfocused objects not in the depth deck still get pushed back
+            // 1 z-level to visually distinguish them from focused content.
+            transform: "translateZ(-100px)",
+          }
     : undefined;
 
   return (
