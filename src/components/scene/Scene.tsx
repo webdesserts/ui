@@ -130,12 +130,18 @@ export interface SceneProps {
   duration?: number;
   /** Enable debug overlays. */
   debug?: boolean;
-  /** Gap (in px) between focused columns in the stage flex row. Defaults to 0. */
+  /** Gap (in px) between focused columns in the stage flex row. Defaults to 8. */
   columnGap?: number;
   /** Padding (in px) around the stage content. Defaults to 0. */
   padding?: number;
   /** Slow-motion springs for animation snapshot testing. Same spring physics, much lazier parameters. */
   slowMo?: boolean;
+  /** Spring stiffness for position/size animations. Defaults to 300. */
+  stiffness?: number;
+  /** Spring damping for position/size animations. Defaults to 30. */
+  damping?: number;
+  /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to 800. */
+  perspective?: number;
 }
 
 /** A snapshot of a SceneObject's state for the debug overlay. */
@@ -525,7 +531,7 @@ function SceneViewport({
   /** Called whenever the viewport dimensions change. */
   onViewportSizeChange: (size: ViewportDimensions) => void;
 }) {
-  const { debug, columnGap, padding, duration, stiffness, damping, slowMo } = useSceneConfig();
+  const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
@@ -541,11 +547,6 @@ function SceneViewport({
   // stackTargetLeft: left edge of the rightmost focused column relative to the
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
-  // perspectiveOrigin: CSS perspective-origin for the stage's 3D context.
-  // Set to the center of the rightmost focused column so in-between columns
-  // (pushed back via translateZ) project naturally toward that focal point,
-  // creating a "receding behind the right column" depth effect.
-  const [perspectiveOrigin, setPerspectiveOrigin] = useState("50% 50%");
 
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
@@ -666,15 +667,6 @@ function SceneViewport({
     // they peek leftward from behind the rightmost focused column.
     const newTargetLeft = colRect.left - stageRect.left;
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
-
-    // Perspective origin follows the center of the rightmost focused column so
-    // that in-between columns (pushed back via translateZ) project naturally
-    // toward this focal point. Projection at translateZ(0) is identity, so
-    // focused columns are never affected by perspective-origin changes.
-    const colCenterX = colRect.left - stageRect.left + colRect.width / 2;
-    const colCenterY = colRect.top - stageRect.top + colRect.height / 2;
-    const newOrigin = `${colCenterX}px ${colCenterY}px`;
-    setPerspectiveOrigin((prev) => (prev === newOrigin ? prev : newOrigin));
   });
 
   // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
@@ -754,9 +746,10 @@ function SceneViewport({
             // depth deck columns. Placing this on the viewport (rather than the
             // stage) means the perspective origin is expressed relative to the
             // visible window, so depth projection stays stable as the stage pans.
-            perspective: "800px",
+            // CSS defaults perspective-origin to "50% 50%" (center), which works
+            // well for our use case without dynamic tracking.
+            perspective: `${perspective}px`,
             transformStyle: "preserve-3d",
-            perspectiveOrigin,
           } as React.CSSProperties}
         >
           {/* Stage: absolutely positioned within the viewport. `left` pans the
@@ -845,9 +838,12 @@ export function Scene({
   children,
   duration,
   debug = false,
-  columnGap = 0,
+  columnGap = 8,
   padding = 0,
   slowMo = false,
+  stiffness = 300,
+  damping = 30,
+  perspective = 800,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
@@ -896,7 +892,7 @@ export function Scene({
 
   return (
     <SceneConfigContext.Provider
-      value={{ stiffness: 300, damping: 30, padding, columnGap, duration: effectiveDuration, debug, slowMo }}
+      value={{ stiffness, damping, perspective, padding, columnGap, duration: effectiveDuration, debug, slowMo }}
     >
       <CameraContext.Provider
         value={{

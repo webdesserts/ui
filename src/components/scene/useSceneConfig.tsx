@@ -6,6 +6,8 @@ export interface SceneConfig {
   stiffness: number;
   /** Spring damping for position/size animations. */
   damping: number;
+  /** CSS perspective distance (in px) for depth deck 3D effect. */
+  perspective: number;
   /** Padding (in px) around the stage content. */
   padding: number;
   /** Gap (in px) between focused columns in the stage flex row. */
@@ -24,8 +26,9 @@ export interface SceneConfig {
 const defaultConfig: SceneConfig = {
   stiffness: 300,
   damping: 30,
+  perspective: 800,
   padding: 0,
-  columnGap: 0,
+  columnGap: 8,
   duration: undefined,
   debug: false,
   slowMo: false,

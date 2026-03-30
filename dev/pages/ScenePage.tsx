@@ -57,7 +57,7 @@ function Panel({
 // 3 columns: Nav (narrow), Article (wide), Sidebar (narrow)
 // ---------------------------------------------------------------------------
 
-function BasicFocusDemo() {
+function BasicFocusDemo({ tuning }: { tuning: SceneTuning }) {
   const [navFocused, setNavFocused] = useState(true);
   const [articleFocused, setArticleFocused] = useState(true);
   const [sidebarFocused, setSidebarFocused] = useState(true);
@@ -80,7 +80,7 @@ function BasicFocusDemo() {
         </>
       }
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="nav">
           <SceneObject
             name="nav-panel"
@@ -137,7 +137,7 @@ function BasicFocusDemo() {
 // 2 columns using container query units relative to Camera viewport
 // ---------------------------------------------------------------------------
 
-function CqwSizingDemo() {
+function CqwSizingDemo({ tuning }: { tuning: SceneTuning }) {
   const [leftFocused, setLeftFocused] = useState(true);
   const [rightFocused, setRightFocused] = useState(true);
 
@@ -156,7 +156,7 @@ function CqwSizingDemo() {
         </>
       }
     >
-      <Scene duration={300} padding={16} columnGap={0}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="nav-cqw">
           <SceneObject
             name="nav-cqw-panel"
@@ -200,7 +200,7 @@ function CqwSizingDemo() {
 
 type ArticleTarget = "article-1" | "article-2";
 
-function VerticalSwapDemo() {
+function VerticalSwapDemo({ tuning }: { tuning: SceneTuning }) {
   const [active, setActive] = useState<ArticleTarget>("article-1");
 
   return (
@@ -217,7 +217,7 @@ function VerticalSwapDemo() {
         </>
       }
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="content">
           <SceneObject
             name="article-1"
@@ -257,7 +257,7 @@ function VerticalSwapDemo() {
 // In-between columns stack as depth deck with scale, opacity, greyscale
 // ---------------------------------------------------------------------------
 
-function DepthDeckDemo() {
+function DepthDeckDemo({ tuning }: { tuning: SceneTuning }) {
   const [leftFocused, setLeftFocused] = useState(true);
   const [middleAFocused, setMiddleAFocused] = useState(false);
   const [middleBFocused, setMiddleBFocused] = useState(false);
@@ -284,7 +284,7 @@ function DepthDeckDemo() {
         </>
       }
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="left">
           <SceneObject
             name="left-obj"
@@ -356,13 +356,13 @@ function DepthDeckDemo() {
 // 1 column with tall content (much taller than viewport)
 // ---------------------------------------------------------------------------
 
-function VerticalScrollDemo() {
+function VerticalScrollDemo({ tuning }: { tuning: SceneTuning }) {
   return (
     <DemoSection
       title="Vertical scroll"
       description="Content taller than the viewport. Scroll with trackpad/mouse wheel or keyboard (Arrow, Page, Home, End). Custom scrollbar appears at right edge."
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="col">
           <SceneObject name="tall-content" focused style={{ width: 480 }}>
             <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
@@ -389,13 +389,13 @@ function VerticalScrollDemo() {
 // 3 focused columns with explicit wide content that overflows the viewport
 // ---------------------------------------------------------------------------
 
-function HorizontalScrollDemo() {
+function HorizontalScrollDemo({ tuning }: { tuning: SceneTuning }) {
   return (
     <DemoSection
       title="Horizontal scroll"
       description="Three focused columns with wide content that overflows the viewport. Scroll horizontally — the Camera pans across the scene. Native scrollbar appears at bottom."
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         {(["col-a", "col-b", "col-c"] as const).map((name, i) => {
           const colors = [
             "bg-[lch(30_10_280)]",
@@ -427,7 +427,7 @@ function HorizontalScrollDemo() {
 // Focused objects stack vertically; unfocused between them get depth treatment
 // ---------------------------------------------------------------------------
 
-function MultiFocusDemo() {
+function MultiFocusDemo({ tuning }: { tuning: SceneTuning }) {
   const [topFocused, setTopFocused] = useState(true);
   const [middleFocused, setMiddleFocused] = useState(false);
   const [bottomFocused, setBottomFocused] = useState(true);
@@ -450,7 +450,7 @@ function MultiFocusDemo() {
         </>
       }
     >
-      <Scene duration={300} padding={16} columnGap={8}>
+      <Scene duration={300} {...tuning}>
         <SceneColumn name="stack-col" objectGap={8}>
           <SceneObject
             name="stack-top"
@@ -503,7 +503,7 @@ function MultiFocusDemo() {
 // Toggle debug overlays on a 3-column layout
 // ---------------------------------------------------------------------------
 
-function DebugModeDemo() {
+function DebugModeDemo({ tuning }: { tuning: SceneTuning }) {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [navFocused, setNavFocused] = useState(true);
   const [activeArticle, setActiveArticle] = useState<ArticleTarget>("article-1");
@@ -537,7 +537,7 @@ function DebugModeDemo() {
         </>
       }
     >
-      <Scene duration={300} debug={debugEnabled} padding={16} columnGap={8}>
+      <Scene duration={300} debug={debugEnabled} {...tuning}>
         <SceneColumn name="nav">
           <SceneObject
             name="nav-panel"
@@ -630,10 +630,92 @@ function DemoSection({
 }
 
 // ---------------------------------------------------------------------------
+// Tuning panel — sliders for Scene physics and layout props
+// ---------------------------------------------------------------------------
+
+export interface SceneTuning {
+  stiffness: number;
+  damping: number;
+  perspective: number;
+  columnGap: number;
+  padding: number;
+}
+
+const defaultTuning: SceneTuning = {
+  stiffness: 300,
+  damping: 30,
+  perspective: 800,
+  columnGap: 8,
+  padding: 0,
+};
+
+function TuningPanel({
+  tuning,
+  onChange,
+}: {
+  tuning: SceneTuning;
+  onChange: (next: SceneTuning) => void;
+}) {
+  const sliders: Array<{
+    key: keyof SceneTuning;
+    label: string;
+    min: number;
+    max: number;
+    step: number;
+  }> = [
+    { key: "stiffness", label: "Stiffness", min: 10, max: 500, step: 10 },
+    { key: "damping", label: "Damping", min: 1, max: 50, step: 1 },
+    { key: "perspective", label: "Perspective", min: 200, max: 2000, step: 50 },
+    { key: "columnGap", label: "Column Gap", min: 0, max: 64, step: 4 },
+    { key: "padding", label: "Padding", min: 0, max: 48, step: 4 },
+  ];
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 16,
+        right: 16,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.75)",
+        color: "#e2e8f0",
+        fontFamily: "monospace",
+        fontSize: 11,
+        padding: "10px 12px",
+        borderRadius: 6,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        minWidth: 200,
+      }}
+    >
+      <div style={{ fontWeight: "bold", marginBottom: 2, fontSize: 12 }}>Scene Tuning</div>
+      {sliders.map(({ key, label, min, max, step }) => (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 72, flexShrink: 0, color: "#94a3b8" }}>{label}</span>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={tuning[key]}
+            onChange={(e) => onChange({ ...tuning, [key]: Number(e.target.value) })}
+            style={{ flex: 1 }}
+          />
+          <span style={{ width: 36, textAlign: "right" }}>{tuning[key]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export function ScenePage() {
+  const [tuning, setTuning] = useState<SceneTuning>(defaultTuning);
+
   return (
     <div className="flex flex-col p-8 gap-10 max-w-6xl mx-auto">
       <header>
@@ -644,14 +726,16 @@ export function ScenePage() {
         </p>
       </header>
 
-      <BasicFocusDemo />
-      <CqwSizingDemo />
-      <VerticalSwapDemo />
-      <DepthDeckDemo />
-      <VerticalScrollDemo />
-      <HorizontalScrollDemo />
-      <MultiFocusDemo />
-      <DebugModeDemo />
+      <BasicFocusDemo tuning={tuning} />
+      <CqwSizingDemo tuning={tuning} />
+      <VerticalSwapDemo tuning={tuning} />
+      <DepthDeckDemo tuning={tuning} />
+      <VerticalScrollDemo tuning={tuning} />
+      <HorizontalScrollDemo tuning={tuning} />
+      <MultiFocusDemo tuning={tuning} />
+      <DebugModeDemo tuning={tuning} />
+
+      <TuningPanel tuning={tuning} onChange={setTuning} />
     </div>
   );
 }

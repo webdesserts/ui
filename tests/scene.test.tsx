@@ -1653,7 +1653,7 @@ describe("Scene gaps and padding", () => {
     expect(gap).toBe(24);
   });
 
-  test("default gap is zero — no space between columns or objects", async () => {
+  test("default column gap is 8px — columns have 8px space between them", async () => {
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1676,7 +1676,7 @@ describe("Scene gaps and padding", () => {
 
     const right1 = col1.getBoundingClientRect().right;
     const left2 = col2.getBoundingClientRect().left;
-    expect(left2 - right1).toBe(0);
+    expect(left2 - right1).toBe(8);
   });
 
   test("padding adds space around focused columns in the stage", async () => {
