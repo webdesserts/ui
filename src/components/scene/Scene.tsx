@@ -1,4 +1,4 @@
-import React, { isValidElement, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { createContext, isValidElement, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE } from "./useSceneConfig";
@@ -8,6 +8,7 @@ import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionCont
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
+import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { motion, useReducedMotion } from "motion/react";
 
 /**
@@ -238,62 +239,137 @@ interface DebugObjectBounds {
  * Absolutely-positioned overlay elements that draw colored outlines around each
  * SceneObject. Rendered inside the viewport so positions are relative to it.
  * `pointer-events: none` ensures these overlays never interfere with interaction.
+ *
+ * Outline positions are updated in two ways:
+ * 1. `useLayoutEffect` fires on every React render for initial/settled layout.
+ * 2. A `requestAnimationFrame` loop runs while `animatingRef.current > 0`,
+ *    measuring positions every frame and mutating outline div styles directly
+ *    (no setState) so Motion animations are tracked without triggering re-renders.
  */
 function SceneObjectOutlines({
   objects,
   viewportRef,
+  animatingRef,
 }: {
   objects: DebugObjectEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
+  /** Counter incremented on animation start, decremented on end. rAF loop
+   *  runs while this is > 0. Owned by SceneViewport. */
+  animatingRef: React.RefObject<number>;
 }) {
-  const [outlines, setOutlines] = useState<DebugObjectBounds[]>([]);
+  // Outline div refs, keyed by object name. Direct DOM mutation during rAF.
+  const outlineRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Track which object names we've rendered outlines for. Used to detect when
+  // the objects list changes and we need to re-render the outlines.
+  const [renderedNames, setRenderedNames] = useState<string[]>([]);
 
-  // Measure each SceneObject's bounding rect relative to the viewport after
-  // every render. Runs as useLayoutEffect to reflect current layout.
-  // Compares values before calling setState to avoid infinite re-render loops.
+  // When the objects list changes (objects added/removed), re-render the
+  // outline divs by updating renderedNames. This is the only React state
+  // update — position/size changes go through direct DOM mutation.
   useLayoutEffect(() => {
+    const names = objects.map((o) => o.name);
+    setRenderedNames((prev) => {
+      const same =
+        prev.length === names.length && prev.every((n, i) => n === names[i]);
+      return same ? prev : names;
+    });
+  }, [objects]);
+
+  // Shared measurement helper: measure each object and mutate its outline div.
+  const measureAndUpdate = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-
     const vpRect = viewport.getBoundingClientRect();
-    const measured: DebugObjectBounds[] = [];
 
     for (const obj of objects) {
       const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      measured.push({
-        name: obj.name,
-        width: rect.width,
-        height: rect.height,
-        x: rect.left - vpRect.left,
-        y: rect.top - vpRect.top,
-      });
-    }
+      const outlineDiv = outlineRefs.current.get(obj.name);
+      if (!el || !outlineDiv) continue;
 
-    setOutlines((prev) => {
-      // Avoid re-render if nothing changed — stable identity check via serialized key.
-      const key = (arr: DebugObjectBounds[]) =>
-        arr.map((o) => `${o.name}:${o.width}:${o.height}:${o.x}:${o.y}`).join(",");
-      return key(prev) === key(measured) ? prev : measured;
-    });
+      const rect = el.getBoundingClientRect();
+      outlineDiv.style.left = `${rect.left - vpRect.left}px`;
+      outlineDiv.style.top = `${rect.top - vpRect.top}px`;
+      outlineDiv.style.width = `${rect.width}px`;
+      outlineDiv.style.height = `${rect.height}px`;
+    }
+  }, [objects, viewportRef]);
+
+  // Measure on every React render (catches layout changes, focus state changes).
+  useLayoutEffect(() => {
+    measureAndUpdate();
   });
+
+  // rAF loop: run while animations are in flight to track motion between renders.
+  const rafIdRef = useRef<number | null>(null);
+
+  const startRaf = useCallback(() => {
+    if (rafIdRef.current !== null) return; // already running
+    const loop = () => {
+      measureAndUpdate();
+      if (animatingRef.current > 0) {
+        rafIdRef.current = requestAnimationFrame(loop);
+      } else {
+        // One final measurement after animations settle.
+        measureAndUpdate();
+        rafIdRef.current = null;
+      }
+    };
+    rafIdRef.current = requestAnimationFrame(loop);
+  }, [measureAndUpdate, animatingRef]);
+
+  // Expose startRaf so SceneViewport can trigger it when animations start.
+  // Store it on a stable ref so SceneViewport can call it without re-renders.
+  const startRafRef = useRef(startRaf);
+  useLayoutEffect(() => {
+    startRafRef.current = startRaf;
+  }, [startRaf]);
+
+  // Clean up the rAF loop when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
+
+  // Expose startRafRef to the parent via a side-channel ref. SceneViewport
+  // passes an outlineStartRafRef that we populate here.
+  const startRafCallbackRef = useContext(OutlineRafCallbackContext);
+  useLayoutEffect(() => {
+    if (startRafCallbackRef) {
+      startRafCallbackRef.current = () => startRafRef.current();
+    }
+    return () => {
+      if (startRafCallbackRef) {
+        startRafCallbackRef.current = null;
+      }
+    };
+  }, [startRafCallbackRef]);
 
   return (
     <>
-      {outlines.map((obj) => {
-        const focused = objects.find((o) => o.name === obj.name)?.focused ?? false;
+      {renderedNames.map((name) => {
+        const focused = objects.find((o) => o.name === name)?.focused ?? false;
         const borderColor = focused ? "green" : "gray";
         return (
           <div
-            key={obj.name}
-            data-debug-object-outline={obj.name}
+            key={name}
+            ref={(el) => {
+              if (el) {
+                outlineRefs.current.set(name, el);
+              } else {
+                outlineRefs.current.delete(name);
+              }
+            }}
+            data-debug-object-outline={name}
             style={{
               position: "absolute",
-              left: obj.x,
-              top: obj.y,
-              width: obj.width,
-              height: obj.height,
+              left: 0,
+              top: 0,
+              width: 0,
+              height: 0,
               border: `1px solid ${borderColor}`,
               pointerEvents: "none",
               boxSizing: "border-box",
@@ -314,7 +390,7 @@ function SceneObjectOutlines({
                 pointerEvents: "none",
               }}
             >
-              {obj.name}
+              {name}
             </span>
           </div>
         );
@@ -322,6 +398,12 @@ function SceneObjectOutlines({
     </>
   );
 }
+
+/**
+ * Side-channel context that lets SceneObjectOutlines hand its `startRaf`
+ * function up to SceneViewport without prop drilling through debug conditionals.
+ */
+const OutlineRafCallbackContext = createContext<React.MutableRefObject<(() => void) | null> | null>(null);
 
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
 function SceneDebugOverlay({
@@ -535,6 +617,30 @@ function SceneViewport({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+
+  // Counter tracking how many Motion animations are currently in flight.
+  // The debug outline rAF loop runs while this is > 0. Using a ref (not state)
+  // so increment/decrement don't trigger React re-renders.
+  const animatingRef = useRef(0);
+
+  // Side-channel ref populated by SceneObjectOutlines with its startRaf function.
+  // Calling this kicks off the rAF loop when an animation starts.
+  const outlineStartRafRef = useRef<(() => void) | null>(null);
+
+  // Stable animation callbacks provided to the stage and (via context) to
+  // SceneColumns. Only active in debug mode — callbacks are a no-op when
+  // the context value is null.
+  const animationCallbacks: AnimationCallbacks | null = debug
+    ? {
+        onStart: () => {
+          animatingRef.current += 1;
+          outlineStartRafRef.current?.();
+        },
+        onEnd: () => {
+          animatingRef.current = Math.max(0, animatingRef.current - 1);
+        },
+      }
+    : null;
   // stageLeft: the CSS `left` value of the absolutely-positioned stage div.
   // Adjusted each render to keep the focused region horizontally centered in
   // the viewport. When focused content overflows the viewport, stageLeft is
@@ -718,6 +824,7 @@ function SceneViewport({
         : { type: "spring" as const, stiffness, damping };
 
   return (
+    <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
       <DepthDeckContext.Provider value={stackTargetLeft}>
         {/* Viewport: the clipping window. position:relative establishes the
@@ -764,6 +871,8 @@ function SceneViewport({
             transition={transition}
             onLayoutAnimationStart={onTransitionStart}
             onLayoutAnimationComplete={onTransitionComplete}
+            onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
+            onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
             style={{
               position: "absolute",
               top: 0,
@@ -793,10 +902,13 @@ function SceneViewport({
               SceneObject. Rendered outside the stage so positions are relative
               to the viewport, not the panning stage. */}
           {debug && debugObjects && (
-            <SceneObjectOutlines
-              objects={debugObjects}
-              viewportRef={viewportRef}
-            />
+            <OutlineRafCallbackContext.Provider value={outlineStartRafRef}>
+              <SceneObjectOutlines
+                objects={debugObjects}
+                viewportRef={viewportRef}
+                animatingRef={animatingRef}
+              />
+            </OutlineRafCallbackContext.Provider>
           )}
           {/* Overlay is inside the scene div so tests can find it via
               scene.querySelector('[data-debug-overlay]'). position:fixed
@@ -812,6 +924,7 @@ function SceneViewport({
         </div>
       </DepthDeckContext.Provider>
     </ViewportContext.Provider>
+    </AnimationCallbackContext.Provider>
   );
 }
 

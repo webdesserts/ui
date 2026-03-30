@@ -16,6 +16,7 @@ import { ColumnPositionContext } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
+import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -551,6 +552,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         ? { type: "spring" as const, stiffness: 30, damping: 8 }
         : { type: "spring" as const, stiffness, damping };
 
+  // Debug outline tracking: notify the animation counter in SceneViewport when
+  // this column's motion animations start or end. The rAF loop in
+  // SceneObjectOutlines runs while the counter is > 0. Only active in debug
+  // mode — context is null otherwise so callbacks are never called.
+  const animCallbacks = useAnimationCallbacks();
+
   // The combined vertical offset applied to the content wrapper:
   // - topOffset: vertical swap offset (bring focused object into view)
   // - scrollOffset: JS scroll state (driven by wheel events)
@@ -672,6 +679,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           z: depthZ,
         }}
         transition={transition}
+        onAnimationStart={animCallbacks?.onStart}
+        onAnimationComplete={animCallbacks?.onEnd}
+        onLayoutAnimationStart={animCallbacks?.onStart}
+        onLayoutAnimationComplete={animCallbacks?.onEnd}
         style={{
           ...columnStyle,
           opacity: depthOpacity,
@@ -694,6 +705,8 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           tabIndex={0}
           animate={{ top: combinedTop, marginTop }}
           transition={transition}
+          onAnimationStart={animCallbacks?.onStart}
+          onAnimationComplete={animCallbacks?.onEnd}
           style={{
             position: "relative",
             // Only set top and marginTop in style for instant mode (duration=0).
