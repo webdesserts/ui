@@ -1676,7 +1676,7 @@ describe("Scene gaps and padding", () => {
 
     const right1 = col1.getBoundingClientRect().right;
     const left2 = col2.getBoundingClientRect().left;
-    expect(left2 - right1).toBe(8);
+    expect(left2 - right1).toBe(16);
   });
 
   test("padding adds space around focused columns in the stage", async () => {

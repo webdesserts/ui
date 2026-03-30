@@ -1,5 +1,10 @@
 import { createContext, useContext } from "react";
 
+export const DEFAULT_STIFFNESS = 230;
+export const DEFAULT_DAMPING = 45;
+export const DEFAULT_COLUMN_GAP = 16;
+export const DEFAULT_PERSPECTIVE = 800;
+
 /** Shared configuration for the Scene system. */
 export interface SceneConfig {
   /** Spring stiffness for position/size animations. */
@@ -24,11 +29,11 @@ export interface SceneConfig {
 }
 
 const defaultConfig: SceneConfig = {
-  stiffness: 300,
-  damping: 30,
-  perspective: 800,
+  stiffness: DEFAULT_STIFFNESS,
+  damping: DEFAULT_DAMPING,
+  perspective: DEFAULT_PERSPECTIVE,
   padding: 0,
-  columnGap: 8,
+  columnGap: DEFAULT_COLUMN_GAP,
   duration: undefined,
   debug: false,
   slowMo: false,

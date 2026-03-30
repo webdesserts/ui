@@ -1,7 +1,7 @@
 import React, { isValidElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
-import { SceneConfigContext, useSceneConfig } from "./useSceneConfig";
+import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
@@ -136,11 +136,11 @@ export interface SceneProps {
   padding?: number;
   /** Slow-motion springs for animation snapshot testing. Same spring physics, much lazier parameters. */
   slowMo?: boolean;
-  /** Spring stiffness for position/size animations. Defaults to 300. */
+  /** Spring stiffness for position/size animations. Defaults to DEFAULT_STIFFNESS (230). */
   stiffness?: number;
-  /** Spring damping for position/size animations. Defaults to 30. */
+  /** Spring damping for position/size animations. Defaults to DEFAULT_DAMPING (45). */
   damping?: number;
-  /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to 800. */
+  /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to DEFAULT_PERSPECTIVE (800). */
   perspective?: number;
 }
 
@@ -838,12 +838,12 @@ export function Scene({
   children,
   duration,
   debug = false,
-  columnGap = 8,
+  columnGap = DEFAULT_COLUMN_GAP,
   padding = 0,
   slowMo = false,
-  stiffness = 300,
-  damping = 30,
-  perspective = 800,
+  stiffness = DEFAULT_STIFFNESS,
+  damping = DEFAULT_DAMPING,
+  perspective = DEFAULT_PERSPECTIVE,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
