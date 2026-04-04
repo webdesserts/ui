@@ -1,5 +1,5 @@
 /**
- * Animation mid-frame capture spike tests.
+ * Animation mid-frame capture tests.
  *
  * These tests validate that we can reliably capture mid-spring frames during
  * Scene transitions. Each test probes a different animation path:
@@ -38,15 +38,15 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Spike 1: Focus → unfocus (WAAPI opacity + transform)
+// 1: Focus → unfocus (WAAPI opacity + transform)
 //
 // When a column becomes unfocused it slides offscreen and fades. These
 // transitions use WAAPI (opacity and transform are accelerated values in
 // motion/react), so freezeAnimationsAt() can pause them at a precise frame.
 // ---------------------------------------------------------------------------
 
-describe("spike: mid-animation capture (focus → unfocus)", () => {
-  it("spike-focus-to-unfocus-settled-start", async () => {
+describe("mid-animation capture (focus → unfocus)", () => {
+  it("focus-to-unfocus-settled-start", async () => {
     // Baseline: fully focused column — start state with duration=0.
     document.documentElement.style.colorScheme = "dark";
     const { container } = await render(
@@ -79,7 +79,7 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
     await expect.element(page.elementLocator(container)).toMatchScreenshot();
   });
 
-  it("spike-focus-to-unfocus-frozen-at-50pct", async () => {
+  it("focus-to-unfocus-frozen-at-50pct", async () => {
     // Start focused (with duration=0 so the initial render is instant), then
     // trigger the spring by removing duration — the unfocus uses default springs.
     // Freeze WAAPI animations at 50% to capture a deterministic mid-frame.
@@ -151,14 +151,14 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
     const frozen = freezeAnimationsAt(container as HTMLElement, 0.5, { subtree: true });
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "spike-focus-to-unfocus-frozen-at-50pct",
+      "focus-to-unfocus-frozen-at-50pct",
       { ...animationScreenshotOptions, maxDiffPixelRatio: 0.005 },
     );
 
     unfreezeAnimations(frozen);
   });
 
-  it("spike-focus-to-unfocus-mid-spring-wait", async () => {
+  it("focus-to-unfocus-mid-spring-wait", async () => {
     // Alternative: timed wait to catch the spring mid-flight.
     // This is less deterministic than freezeAnimationsAt() because rAF-based
     // animations (like `left`) vary slightly between runs under CPU load.
@@ -224,14 +224,14 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
 
     // Tighter tolerance because slower springs produce less jitter between frames.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "spike-focus-to-unfocus-mid-spring-wait",
+      "focus-to-unfocus-mid-spring-wait",
       { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// Spike 2: Camera pan mid-capture
+// 2: Camera pan mid-capture
 //
 // Two columns focused, then Nav unfocuses — Camera spring-pans to recenter on
 // Article only. The stage `left` property is animated via rAF (not WAAPI),
@@ -242,8 +242,8 @@ describe("spike: mid-animation capture (focus → unfocus)", () => {
 // fixes for that clipping bug.
 // ---------------------------------------------------------------------------
 
-describe("spike: camera pan mid-capture", () => {
-  it("spike-camera-pan-settled-both-focused", async () => {
+describe("camera pan mid-capture", () => {
+  it("camera-pan-settled-both-focused", async () => {
     // Baseline: both Nav and Article focused — stage centered on both.
     document.documentElement.style.colorScheme = "dark";
     const { container } = await render(
@@ -296,7 +296,7 @@ describe("spike: camera pan mid-capture", () => {
     await expect.element(page.elementLocator(container)).toMatchScreenshot();
   });
 
-  it("spike-camera-pan-mid-spring", async () => {
+  it("camera-pan-mid-spring", async () => {
     // Start with both focused (duration=0 for instant initial layout), then
     // unfocus Nav using default spring so the Camera pans to recenter Article.
     // The `left` spring on the stage is rAF-based — wait() is the only capture
@@ -407,14 +407,14 @@ describe("spike: camera pan mid-capture", () => {
     // Looser tolerance than WAAPI tests — rAF-based `left` spring still has
     // some frame-timing variance even with slow-mo springs.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "spike-camera-pan-mid-spring",
+      "camera-pan-mid-spring",
       { ...animationScreenshotOptions, maxDiffPixelRatio: 0.05 },
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// Spike 3: Layout FLIP mid-capture (unfocused → focused)
+// 3: Layout FLIP mid-capture (unfocused → focused)
 //
 // A column starts unfocused (out of flex flow, frozen dimensions), then gets
 // focused (enters flex flow with motion's layout FLIP). motion's layout
@@ -422,8 +422,8 @@ describe("spike: camera pan mid-capture", () => {
 // a precise frame for a deterministic screenshot.
 // ---------------------------------------------------------------------------
 
-describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
-  it("spike-layout-flip-settled-unfocused", async () => {
+describe("layout FLIP mid-capture (unfocused → focused)", () => {
+  it("layout-flip-settled-unfocused", async () => {
     // Baseline: the column is unfocused — out of flex flow, frozen size.
     document.documentElement.style.colorScheme = "dark";
     const { container } = await render(
@@ -456,7 +456,7 @@ describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
     await expect.element(page.elementLocator(container)).toMatchScreenshot();
   });
 
-  it("spike-layout-flip-frozen-at-50pct", async () => {
+  it("layout-flip-frozen-at-50pct", async () => {
     // Start unfocused (duration=0), then focus with default spring. motion's
     // layout FLIP uses WAAPI for the positional correction, so we can freeze
     // it at 50% for a deterministic mid-FLIP screenshot.
@@ -528,14 +528,14 @@ describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
     const frozen = freezeAnimationsAt(container as HTMLElement, 0.5, { subtree: true });
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "spike-layout-flip-frozen-at-50pct",
+      "layout-flip-frozen-at-50pct",
       { ...animationScreenshotOptions, maxDiffPixelRatio: 0.005 },
     );
 
     unfreezeAnimations(frozen);
   });
 
-  it("spike-layout-flip-mid-spring-wait", async () => {
+  it("layout-flip-mid-spring-wait", async () => {
     // Alternative timed-wait approach for comparison. Captures the FLIP
     // animation at ~100ms using only wait() — useful to see how the rAF-based
     // portion of the transition (e.g. spring overshoot) looks at that moment.
@@ -601,7 +601,7 @@ describe("spike: layout FLIP mid-capture (unfocused → focused)", () => {
 
     // Tighter tolerance because slower springs produce less jitter between frames.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "spike-layout-flip-mid-spring-wait",
+      "layout-flip-mid-spring-wait",
       { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
     );
   });

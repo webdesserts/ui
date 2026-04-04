@@ -1,5 +1,5 @@
 /**
- * Spike: CSS perspective on a flex container
+ * CSS perspective platform assumptions that Scene depends on.
  *
  * Validates whether CSS perspective on a flex stage container is compatible
  * with:
@@ -7,7 +7,8 @@
  * 2. position:absolute children with translateZ
  * 3. motion layout FLIP animations inside a perspective container
  *
- * Results feed the Phase 6e stacking implementation decision.
+ * These are platform invariants — if any of them regress in a browser update,
+ * Scene's depth deck behavior will silently break.
  */
 
 import { describe, test, expect } from "vitest";
@@ -21,7 +22,7 @@ import { waitForAnimationFrame } from "./utils/animation";
 // Q1: Does perspective on a flex parent affect flex child layout?
 // ---------------------------------------------------------------------------
 
-describe("CSS perspective spike: flex child layout", () => {
+describe("CSS perspective: flex child layout", () => {
   test("perspective on flex container does NOT shift flex children layout", async () => {
     // A flex container with two children. We add perspective mid-render via
     // rerender and check that the children's layout hasn't changed.
@@ -76,7 +77,7 @@ describe("CSS perspective spike: flex child layout", () => {
 // Q2: position:absolute + translateZ inside perspective container
 // ---------------------------------------------------------------------------
 
-describe("CSS perspective spike: translateZ on absolute children", () => {
+describe("CSS perspective: translateZ on absolute children", () => {
   test("translateZ(-200px) shrinks an absolute child visually (perspective projection)", async () => {
     // An absolute child with translateZ applied inside a perspective container
     // should appear smaller due to perspective projection.
@@ -198,7 +199,7 @@ describe("CSS perspective spike: translateZ on absolute children", () => {
 // Q3: motion layout FLIP inside perspective container
 // ---------------------------------------------------------------------------
 
-describe("CSS perspective spike: motion layout FLIP in perspective container", () => {
+describe("CSS perspective: motion layout FLIP in perspective container", () => {
   test("motion layout FLIP works correctly inside a perspective container", async () => {
     // A motion.div with layout={true} inside a perspective container.
     // After a layout change, motion should correctly FLIP-animate from old
