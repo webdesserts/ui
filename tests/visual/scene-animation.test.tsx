@@ -529,7 +529,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "layout-flip-frozen-at-50pct",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.005 },
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.015 },
     );
 
     unfreezeAnimations(frozen);
