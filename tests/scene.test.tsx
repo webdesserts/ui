@@ -1997,6 +1997,10 @@ describe("Scene vertical scroll", () => {
     );
 
     // Wait for React state update and motion to apply the new top value.
+    // Two rAF ticks: one for React commit, one for motion's style write.
+    // duration=0 commits immediately in theory, but motion v12 sometimes
+    // delays the inline-style write to the following frame.
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     // After scroll: top should be -100 (content moved up)
