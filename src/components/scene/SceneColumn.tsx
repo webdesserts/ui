@@ -18,7 +18,7 @@ import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
-import { computeDepthTreatment } from "./depth";
+import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -574,7 +574,6 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const focusedStyle: React.CSSProperties = {
     position: "relative",
     flex: "0 1 auto",
-    opacity: 1,
   };
 
   // Unfocused in-between columns exit flex flow and stack as a depth deck,
@@ -644,10 +643,6 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       ? (viewportHeight - colHeight) / 2
       : 0;
 
-  // Outer columns use animate-only (no layout FLIP). Focused columns use layout
-  // FLIP so they animate smoothly in and out of the flex row.
-  const usesLayout = columnFocused;
-
   // A column that mounts for the first time already focused should enter from
   // the right (depth-forward navigation). motion will animate from this initial
   // position to the flex layout position via the layout FLIP mechanism.
@@ -670,9 +665,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     // has natural dimensions (otherwise position: absolute children yield a
     // zero-width column that overlaps with adjacent focused columns).
     <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: !columnFocused, withinColumnDepths }}>
+      {/* Invariant: animatable properties (opacity, transform, filter) must only be
+          set via animate={}, never inline style. Inline style wins at React commit
+          time and silently shadows the spring. See depth.ts for the no-shadow rule. */}
       <motion.div
         ref={colRef}
-        {...(usesLayout ? { layout: true } : {})}
+        layout
         {...(mountInitial ? { initial: mountInitial } : firstPaintRef.current ? { initial: false } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
@@ -683,21 +681,23 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         data-content-height={columnFocused ? String(contentHeight) : undefined}
         animate={{
           opacity: depthOpacity,
+          // Invariant: depth-deck position lives entirely in transform space (x, y,
+          // z). Motion's layout FLIP cannot see it. This is why 'layout' must
+          // compose with these via animate transforms, never by re-measuring layout
+          // boxes.
           x: animateX,
           y: inBetweenY,
           z: depthZ,
+          // Always emit a valid filter string — motion cannot interpolate between
+          // undefined and a filter string, which caused the unfocus pop (bug 2b).
+          filter: formatGrayscale(depthGreyscale),
         }}
         transition={transition}
         onAnimationStart={animCallbacks?.onStart}
         onAnimationComplete={animCallbacks?.onEnd}
         onLayoutAnimationStart={animCallbacks?.onStart}
         onLayoutAnimationComplete={animCallbacks?.onEnd}
-        style={{
-          ...columnStyle,
-          opacity: depthOpacity,
-          z: depthZ,
-          filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
-        }}
+        style={columnStyle}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.
             margin-top centers focused content vertically when it fits the

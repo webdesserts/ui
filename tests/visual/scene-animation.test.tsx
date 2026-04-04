@@ -852,6 +852,212 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Bug-fix regressions: depth-deck refocus and unfocus-sync
+//
+// These guard against the two bugs fixed in Commit 4:
+//
+// Bug 2a — Refocus from wrong source box: Middle A animated from Right's edge
+//   instead of its visible deck position. Root cause: layout was toggled on/off
+//   per render, so motion's layout FLIP measured a fresh (wrong) source box each
+//   time Middle A focused. Fix: layout is always on, so the source box is
+//   continuously tracked even while unfocused. Mid-spring snapshot should show
+//   Middle A between its deck position and the focused row, not starting from
+//   Right's edge.
+//
+// Bug 2b — Unfocus pop: depth styling (filter, opacity) snapped instantly on
+//   unfocus because filter was written to inline style (undefined → grayscale(N)
+//   with no spring) and opacity/z were silently shadowed by inline style.
+//   Fix: filter, opacity, and z all move to animate={}. Mid-spring snapshot
+//   should show filter partway between grayscale(0) and grayscale(0.25), proving
+//   the spring is running.
+// ---------------------------------------------------------------------------
+
+describe("depth-deck bug-fix regressions", () => {
+  it("refocus-from-depth-deck-mid-spring", async () => {
+    // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
+    // Use duration=0 so the initial render is instant at resting positions.
+    // Then refocus Middle A with slowMo springs, freeze at 30% to capture a
+    // mid-spring frame. The panel should be between its deck transform and the
+    // focused row center — NOT starting from Right's left edge (bug 2a).
+    document.documentElement.style.colorScheme = "dark";
+    const panelStyle: React.CSSProperties = {
+      width: 250,
+      height: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontFamily: "monospace",
+      fontSize: 13,
+    };
+    const { container, rerender } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                Left (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject name="middle-a-obj" focused={false}>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                Middle A (deck)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                Right (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Focus Middle A with slowMo springs — all visual tracks spring together.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene slowMo>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                Left (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject name="middle-a-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                Middle A (refocusing)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                Right (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // One frame so WAAPI animations appear in getAnimations().
+    await waitForAnimationFrame();
+
+    // Freeze at 30% — Middle A should visibly be between its deck position and
+    // the focused row. If bug 2a regressed, it would start from Right's edge.
+    const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
+
+    await expect.element(page.elementLocator(container)).toMatchScreenshot(
+      "refocus-from-depth-deck-mid-spring",
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.02 },
+    );
+
+    unfreezeAnimations(frozen);
+  });
+
+  it("unfocus-sync-mid-spring", async () => {
+    // Setup: Left (focused) + Middle A (focused) + Right (focused).
+    // Use duration=0 for instant initial render, then unfocus Middle A with
+    // slowMo springs. Freeze at 30% and snapshot. Filter should be partway
+    // between grayscale(0) and grayscale(0.25), proving bug 2b is fixed —
+    // if filter still snapped instantly it would already be at grayscale(0.25).
+    document.documentElement.style.colorScheme = "dark";
+    const panelStyle: React.CSSProperties = {
+      width: 250,
+      height: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontFamily: "monospace",
+      fontSize: 13,
+    };
+    const { container, rerender } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                Left (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject name="middle-a-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                Middle A (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                Right (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Unfocus Middle A with slowMo springs — filter, opacity, x, y, z spring
+    // together. Bug 2b: filter used to snap instantly to grayscale(0.25) because
+    // it was on inline style (undefined → value), not animate.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene slowMo>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                Left (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject name="middle-a-obj" focused={false}>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                Middle A (unfocusing)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                Right (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // One frame so WAAPI animations appear in getAnimations().
+    await waitForAnimationFrame();
+
+    // Freeze at 30% — Middle A should show filter between grayscale(0) and
+    // grayscale(0.25), and position between focused row and deck. Both tracks
+    // should be mid-spring, not snapped.
+    const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
+
+    await expect.element(page.elementLocator(container)).toMatchScreenshot(
+      "unfocus-sync-mid-spring",
+      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.02 },
+    );
+
+    unfreezeAnimations(frozen);
+  });
+});
+
 describe("first-paint resting state", () => {
   it("first-paint-focused-column-at-rest", async () => {
     // Render a Scene with a focused column directly — no prior unfocused state,
