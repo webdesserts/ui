@@ -18,6 +18,7 @@ import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
+import { computeDepthTreatment } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -618,14 +619,15 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.
   // Focused columns explicitly sit at translateZ(0) to participate in the 3D
   // stacking context and always render in front of in-between columns.
-  // depthZ must be declared AFTER isInBetween (variable ordering).
-  const depthZ = isInBetween ? -(stackDepth * 100) : 0;
+  // columnDepth must be declared AFTER isInBetween (variable ordering).
+  const columnDepth = isInBetween ? computeDepthTreatment(stackDepth) : { opacity: 1, grayscale: 0, translateZ: 0 };
   // Only in-between columns get depth-scaled opacity. Outer columns are fully
   // opaque — the viewport clips their visibility, not opacity:0.
-  const depthOpacity = isInBetween ? Math.max(0, 1 - stackDepth * 0.2) : 1;
+  const depthOpacity = columnDepth.opacity;
   // Greyscale increases with depth: depth-1 → 25%, depth-2 → 50%, etc.
   // Reinforces the sense of receding into the background.
-  const depthGreyscale = isInBetween ? stackDepth * 0.25 : 0;
+  const depthGreyscale = columnDepth.grayscale;
+  const depthZ = columnDepth.translateZ;
   // z-index is NOT used inside preserve-3d — 3D z-ordering is determined
   // entirely by translateZ values (higher z = closer = rendered in front).
 

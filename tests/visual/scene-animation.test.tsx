@@ -630,6 +630,228 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 // not partially offscreen or at position 0.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 5: Within-column depth deck (SceneObject depth treatment)
+//
+// A focused column with three stacked objects: top and bottom are focused,
+// middle is unfocused and lands in the within-column depth deck. The unfocused
+// middle object should receive depth-1 treatment: grayscale, opacity reduction,
+// and translateZ projection behind the focused siblings.
+//
+// These baselines lock in current SceneObject behavior BEFORE the depth formula
+// refactor in Commit 3. After the refactor, these snapshots must not shift —
+// a diff here means the refactor changed behavior.
+// ---------------------------------------------------------------------------
+
+describe("within-column depth deck (SceneObject depth treatment)", () => {
+  it("within-column-deck-at-rest", async () => {
+    // Three objects in one focused column: top and bottom focused, middle in
+    // the within-column depth deck at depth-1. Snapshots the resting state.
+    // Locks in anchorTop, translateZ, opacity, and grayscale for the middle object.
+    document.documentElement.style.colorScheme = "dark";
+    const { container } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="content">
+            <SceneObject name="top" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(99,102,241,0.5)",
+                  border: "2px solid rgba(99,102,241,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Top (focused)
+              </div>
+            </SceneObject>
+            <SceneObject name="middle" focused={false}>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(239,68,68,0.5)",
+                  border: "2px solid rgba(239,68,68,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Middle (deck)
+              </div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(52,211,153,0.5)",
+                  border: "2px solid rgba(52,211,153,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Bottom (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+    await expect.element(page.elementLocator(container)).toMatchScreenshot();
+  });
+
+  it("within-column-deck-after-focus-toggle", async () => {
+    // Same three-object setup. Start with top + bottom focused (middle in deck),
+    // then focus the middle object — it ejects from the depth deck and joins
+    // the focused flex stack. Snapshots the new resting state.
+    document.documentElement.style.colorScheme = "dark";
+    const { container, rerender } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="content">
+            <SceneObject name="top" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(99,102,241,0.5)",
+                  border: "2px solid rgba(99,102,241,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Top (focused)
+              </div>
+            </SceneObject>
+            <SceneObject name="middle" focused={false}>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(239,68,68,0.5)",
+                  border: "2px solid rgba(239,68,68,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Middle (deck)
+              </div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(52,211,153,0.5)",
+                  border: "2px solid rgba(52,211,153,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Bottom (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Focus the middle object — it ejects from the depth deck.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="content">
+            <SceneObject name="top" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(99,102,241,0.5)",
+                  border: "2px solid rgba(99,102,241,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Top (focused)
+              </div>
+            </SceneObject>
+            <SceneObject name="middle" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(239,68,68,0.5)",
+                  border: "2px solid rgba(239,68,68,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Middle (now focused)
+              </div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div
+                style={{
+                  width: 300,
+                  height: 150,
+                  background: "rgba(52,211,153,0.5)",
+                  border: "2px solid rgba(52,211,153,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                }}
+              >
+                Bottom (focused)
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+    await expect.element(page.elementLocator(container)).toMatchScreenshot();
+  });
+});
+
 describe("first-paint resting state", () => {
   it("first-paint-focused-column-at-rest", async () => {
     // Render a Scene with a focused column directly — no prior unfocused state,

@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
 import { ColumnContext } from "./SceneColumn";
+import { computeDepthTreatment } from "./depth";
 
 export interface SceneObjectProps {
   /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
@@ -99,13 +100,12 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   //
   // When there is no parent column context (standalone usage), fall back to
   // default (static) positioning.
-  const depthOpacity = withinDepthInfo ? Math.max(0, 1 - withinDepthInfo.depth * 0.2) : undefined;
-  const depthGreyscale = withinDepthInfo ? withinDepthInfo.depth * 0.25 : 0;
+  const withinDepth = withinDepthInfo ? computeDepthTreatment(withinDepthInfo.depth) : undefined;
 
   const inColumnStyle: React.CSSProperties | undefined = column
     ? focused
       ? { position: "relative", transform: "translateZ(0)" }
-      : withinDepthInfo
+      : withinDepthInfo && withinDepth
         ? {
             position: "absolute",
             // Anchor near the lower focused sibling. Perspective projection
@@ -114,9 +114,9 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
             // translateZ pushes this object back in 3D space. The column
             // content wrapper's perspective (800px) projects it smaller:
             // depth-1 → 800/900 ≈ 0.89×, depth-2 → 800/1000 = 0.80×.
-            transform: `translateZ(${-(withinDepthInfo.depth * 100)}px)`,
-            opacity: depthOpacity,
-            filter: depthGreyscale > 0 ? `grayscale(${depthGreyscale})` : undefined,
+            transform: `translateZ(${withinDepth.translateZ}px)`,
+            opacity: withinDepth.opacity,
+            filter: withinDepth.grayscale > 0 ? `grayscale(${withinDepth.grayscale})` : undefined,
           }
         : {
             position: "relative",
