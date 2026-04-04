@@ -9,6 +9,7 @@ import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
+import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { motion, useReducedMotion } from "motion/react";
 
 /**
@@ -867,6 +868,7 @@ function SceneViewport({
           <motion.div
             ref={stageRef}
             data-stage
+            initial={false}
             animate={{ left: stageLeft }}
             transition={transition}
             onLayoutAnimationStart={onTransitionStart}
@@ -978,6 +980,15 @@ export function Scene({
   // Using useRef ensures the Map identity is stable — no re-renders on updates.
   const scrollOffsetStore = useRef<Map<string, number>>(new Map()).current;
 
+  // True during Scene's first paint; false from the commit after first paint onward.
+  // Read synchronously during render by SceneColumn to suppress the Phase 7c
+  // slide-in-from-right on first mount (every column looks like it's "late-mounting"
+  // before the initial effect fires — the ref distinguishes them).
+  const firstPaintRef = useRef(true);
+  useEffect(() => {
+    firstPaintRef.current = false;
+  }, []);
+
   // Compute position classifications for all columns so SceneColumn can
   // animate unfocused columns offscreen or into a depth deck.
   const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
@@ -1004,6 +1015,7 @@ export function Scene({
     : null;
 
   return (
+    <SceneFirstPaintContext.Provider value={firstPaintRef}>
     <SceneConfigContext.Provider
       value={{ stiffness, damping, perspective, padding, columnGap, duration: effectiveDuration, debug, slowMo }}
     >
@@ -1037,5 +1049,6 @@ export function Scene({
         </ScrollOffsetStoreContext.Provider>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>
+    </SceneFirstPaintContext.Provider>
   );
 }

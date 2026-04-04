@@ -17,6 +17,7 @@ import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
+import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
 
@@ -228,6 +229,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const stackTargetLeft = useContext(DepthDeckContext);
   const stackDepths = useContext(StackDepthContext);
   const stackDepth = stackDepths.get(name) ?? 0;
+  const firstPaintRef = useContext(SceneFirstPaintContext);
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -648,8 +650,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // the right (depth-forward navigation). motion will animate from this initial
   // position to the flex layout position via the layout FLIP mechanism.
   // When duration=0 (tests), motion skips the initial state immediately.
+  //
+  // Gated on !firstPaintRef.current: during Scene's very first paint every
+  // focused column looks like it's "mounting" because isMountingRef.current
+  // hasn't been cleared yet. The first-paint ref distinguishes a true
+  // mid-session late-mount (slide-in wanted) from first paint (no slide-in).
   const mountInitial =
-    isMountingRef.current && columnFocused && viewportWidth > 0
+    isMountingRef.current && !firstPaintRef.current && columnFocused && viewportWidth > 0
       ? { x: viewportWidth }
       : undefined;
 
@@ -664,7 +671,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       <motion.div
         ref={colRef}
         {...(usesLayout ? { layout: true } : {})}
-        {...(mountInitial ? { initial: mountInitial } : {})}
+        {...(mountInitial ? { initial: mountInitial } : firstPaintRef.current ? { initial: false } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
         data-column-position={position ?? undefined}
@@ -703,6 +710,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           role="region"
           aria-label={`${name} content${isScrollable ? ", scrollable" : ""}`}
           tabIndex={0}
+          initial={false}
           animate={{ top: combinedTop, marginTop }}
           transition={transition}
           onAnimationStart={animCallbacks?.onStart}

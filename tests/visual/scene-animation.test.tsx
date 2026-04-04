@@ -616,3 +616,54 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// 4: First-paint resting state
+//
+// On Scene's first paint, all columns should appear at their resting positions
+// with no slide-in animation. This guards against the initial FLIP jank bug
+// where every focused column on first render got initial={{ x: viewportWidth }}
+// and animated in from the right.
+//
+// Captured with duration=0 so the test is fast, but the resting-state assertion
+// is the same either way — what matters is that the panel is centered at rest,
+// not partially offscreen or at position 0.
+// ---------------------------------------------------------------------------
+
+describe("first-paint resting state", () => {
+  it("first-paint-focused-column-at-rest", async () => {
+    // Render a Scene with a focused column directly — no prior unfocused state,
+    // no rerender. This is exactly the first-paint scenario that was janking.
+    // With initial={false} and SceneFirstPaintContext, the column should appear
+    // at its resting position immediately, not mid-slide from the right.
+    document.documentElement.style.colorScheme = "dark";
+    const { container } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="content">
+            <SceneObject name="panel" focused>
+              <div
+                style={{
+                  width: 400,
+                  height: 300,
+                  background: "rgba(99,102,241,0.5)",
+                  border: "2px solid rgba(99,102,241,0.9)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 16,
+                }}
+              >
+                First Paint Panel
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+    await expect.element(page.elementLocator(container)).toMatchScreenshot();
+  });
+});
