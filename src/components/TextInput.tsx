@@ -40,7 +40,11 @@ const textInputSizes: Record<ButtonSize, string> = {
 const baseClasses = cn(
   interactiveRing,
   interactiveDisabled,
-  "bg-surface-input text-text-primary placeholder:text-text-muted",
+  // Resting placeholder uses text-secondary, not text-muted: muted (purple-45)
+  // on the recessed surface-input (purple-10) is too low-contrast to read in
+  // dark mode. text-secondary (sepia-60) reads clearly while staying dimmer
+  // than entered text (text-primary), so it still reads as a placeholder.
+  "bg-surface-input text-text-primary placeholder:text-text-secondary",
   // Gate the hover fill on :not(:disabled) (like the buttons' not-disabled:hover)
   // so a disabled field stays at rest under the pointer. Focus needs no gate —
   // a disabled input can't be focused.
