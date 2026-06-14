@@ -1,25 +1,19 @@
 import React, { createContext, forwardRef, useContext } from "react";
 import { cn } from "../utils/cn";
+import type { ButtonSize } from "./shared";
+import { interactiveRing, interactiveDisabled } from "./shared";
 
 // ---------------------------------------------------------------------------
 // Shared constants
 // ---------------------------------------------------------------------------
 
 /**
- * Base interactive styles shared by all button types.
- *
- * Hover bg/text is handled by the spread animation (::after fill + color
- * transition via spreadBase). Only border-color hover is set here since
- * spread doesn't affect borders.
+ * Base interactive styles shared by all button types: the pointer cursor, the
+ * accent focus/active ring, and the disabled affordance. Hover bg/text is
+ * handled separately by the spread animation (::after fill via spreadBase) —
+ * only border-color hover is set at each button's call site.
  */
-/**
- * Accent outline ring — identical for focus-visible and active states.
- * The `highlight:` custom variant matches both `:focus-visible` and
- * `:active:not(:disabled)`. Uses outline so it doesn't conflict with
- * box-shadow composition. z-1 prevents clipping by adjacent buttons.
- */
-const interactiveBase =
-  "cursor-pointer outline-none highlight:outline-solid highlight:outline-2 highlight:outline-accent highlight:z-1 disabled:cursor-not-allowed disabled:opacity-50";
+const interactiveBase = cn("cursor-pointer", interactiveRing, interactiveDisabled);
 
 const glassBlur = "backdrop-blur-[var(--glass-blur)]";
 const glassBg = `bg-glass-bg ${glassBlur}`;
@@ -113,11 +107,11 @@ function spreadBarClass(side: BorderSide): string {
 const buttonIconSize = "[&>svg]:!size-4 [&>svg]:shrink-0";
 
 // ---------------------------------------------------------------------------
-// Shared size type
+// Shared size type — re-exported from ./shared so existing `from "./Button"`
+// imports (and the barrel) keep working now that TextInput shares it too.
 // ---------------------------------------------------------------------------
 
-/** Size tier shared across all button types — ensures consistent heights in toolbars and groups. */
-export type ButtonSize = "sm" | "md" | "lg";
+export type { ButtonSize } from "./shared";
 
 // ---------------------------------------------------------------------------
 // ButtonGroupContext — passes size and glass defaults down to child buttons

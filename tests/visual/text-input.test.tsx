@@ -23,6 +23,16 @@ function Frame({ children }: { children: React.ReactNode }) {
   return <div style={{ width: FRAME_WIDTH }}>{children}</div>;
 }
 
+/**
+ * Park the pointer in the container's padding, off the input. Since hover now
+ * mono-inverts the field, a "resting" capture is only the true resting state if
+ * the pointer isn't left hovering the element from a prior test — this makes the
+ * non-interactive snapshots deterministic regardless of test order.
+ */
+async function restPointer(container: Element) {
+  await page.elementLocator(container).hover({ position: { x: 0, y: 0 } });
+}
+
 // ---------------------------------------------------------------------------
 // Resting states — every size, dark + light. Placeholder is shown so the
 // muted placeholder color is captured alongside the bottom-rule affordance.
@@ -38,6 +48,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -50,6 +61,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -62,6 +74,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -74,6 +87,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -86,6 +100,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -98,6 +113,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -110,6 +126,7 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -122,13 +139,68 @@ describe("TextInput resting states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Focus states — the signature mono-inversion (bg → interactive, text →
-// surface). Frozen at progress 1 so the transition has fully settled.
+// Hover states — hover mono-inverts the field (fill to the interactive surface)
+// like a button hover, WITHOUT the accent ring. Locks in two things: the fill
+// happens on hover (not just focus), and accent never appears on hover (the ring
+// is focus-only). Frozen at progress 1 so the fill transition has fully settled.
+// ---------------------------------------------------------------------------
+
+describe("TextInput hover states", () => {
+  it("text-input-md-hover-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Frame>
+          <TextInput placeholder="Placeholder" />
+        </Frame>
+      </TestWrapper>,
+    );
+    const input = screen.getByRole("textbox");
+    const el = input.element() as HTMLElement;
+    const restore = slowTransitions();
+    await input.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+
+  it("text-input-md-hover-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <Frame>
+          <TextInput placeholder="Placeholder" />
+        </Frame>
+      </TestWrapper>,
+    );
+    const input = screen.getByRole("textbox");
+    const el = input.element() as HTMLElement;
+    const restore = slowTransitions();
+    await input.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Focus states — the mono-inversion (bg → interactive, text → surface) plus
+// the shared accent focus ring, mirroring a button's focus-visible (fill +
+// ring). Frozen at progress 1 so the transition has fully settled.
 // ---------------------------------------------------------------------------
 
 describe("TextInput focus states", () => {
@@ -177,8 +249,8 @@ describe("TextInput focus states", () => {
 
 // ---------------------------------------------------------------------------
 // Invalid states — the bottom rule turns danger-colored at rest (every size).
-// On focus the field still inverts like a valid field, with the danger rule
-// persisting through the inversion as the error cue (no competing ring).
+// On focus the field inverts and shows the shared accent ring like a valid
+// field, with the danger rule persisting through the inversion as the error cue.
 // ---------------------------------------------------------------------------
 
 describe("TextInput invalid states", () => {
@@ -191,6 +263,7 @@ describe("TextInput invalid states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -203,6 +276,7 @@ describe("TextInput invalid states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -215,6 +289,7 @@ describe("TextInput invalid states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -227,11 +302,13 @@ describe("TextInput invalid states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
   it("text-input-md-invalid-focus-dark", async () => {
-    // Focus inverts the field; the danger rule persists as the error signal.
+    // Focus inverts the field and shows the accent ring; the danger rule
+    // persists beneath as the error signal.
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(
       <TestWrapper>
@@ -267,6 +344,7 @@ describe("TextInput disabled states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -279,6 +357,7 @@ describe("TextInput disabled states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
@@ -291,6 +370,7 @@ describe("TextInput disabled states", () => {
         </Frame>
       </TestWrapper>,
     );
+    await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 });

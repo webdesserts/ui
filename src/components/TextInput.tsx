@@ -1,6 +1,7 @@
 import { forwardRef } from "react";
 import { cn } from "../utils/cn";
-import type { ButtonSize } from "./Button";
+import { interactiveRing, interactiveDisabled } from "./shared";
+import type { ButtonSize } from "./shared";
 
 // ---------------------------------------------------------------------------
 // TextInput — single-line text field
@@ -8,11 +9,15 @@ import type { ButtonSize } from "./Button";
 // Ported from voice-chat-prototype's input design and reconciled onto the
 // lib's tokens + Button conventions, following the webdesserts state language:
 // the bottom rule IS the interactivity affordance (no box, no drop shadows).
-// State is signaled by that rule and by inversion, never by shadows:
+// State is signaled by the rule, by inversion, and by the shared accent ring —
+// never by shadows. The interaction model mirrors a button exactly: hover fills
+// (mono-inversion), focus-visible adds the accent ring on top. Accent is earned:
+// it appears only via that focus/active ring, never on hover.
 //   - rest    → subtle bottom rule
-//   - hover   → rule brightens to the accent
-//   - focus   → field inverts to the interactive surface (recessed → raised)
-//   - invalid → rule turns danger-colored, overriding accent ("color with intent")
+//   - hover   → field inverts to the interactive surface (fill, no ring)
+//   - focus   → same inversion + the accent ring
+//   - invalid → rule turns danger-colored ("color with intent"); inversion and
+//                ring still apply, with the danger rule persisting through them
 // Heights share Button's size scale so an input and a Button align in a row.
 // ---------------------------------------------------------------------------
 
@@ -24,25 +29,34 @@ const textInputSizes: Record<ButtonSize, string> = {
 };
 
 /**
- * Surface + focus treatment shared by every state. Focus is the universal
- * mono-inversion (interactive surface, inverted text/placeholder) carried over
- * from voice-chat — the same for valid and invalid fields, so an error keeps
- * signalling through its danger rule rather than a competing ring.
+ * Surface + interaction treatment shared by every state: the recessed input
+ * surface, the mono-inversion applied on BOTH hover and focus (fill to the
+ * interactive surface, inverted text/placeholder — mirroring a button's hover
+ * fill), and the shared accent ring added only on focus-visible/active (the
+ * `highlight:` idiom in interactiveRing). The ring is the sole difference
+ * between hover and focus, exactly like a button. Identical for valid and
+ * invalid fields — an error rides on top via its danger rule.
  */
 const baseClasses = cn(
+  interactiveRing,
+  interactiveDisabled,
   "bg-surface-input text-text-primary placeholder:text-text-muted",
+  // Gate the hover fill on :not(:disabled) (like the buttons' not-disabled:hover)
+  // so a disabled field stays at rest under the pointer. Focus needs no gate —
+  // a disabled input can't be focused.
+  "not-disabled:hover:bg-interactive-bg not-disabled:hover:text-surface-base not-disabled:hover:placeholder:text-surface-base",
   "focus:bg-interactive-bg focus:text-surface-base focus:placeholder:text-surface-base",
 );
 
-/** Resting border state — subtle rule that brightens to the accent on hover. */
-const borderRest = "border-rule-subtle hover:border-accent";
+/** Resting border state — a subtle bottom rule (the fill takes over on hover/focus). */
+const borderRest = "border-rule-subtle";
 
 /**
- * Invalid border state — danger-colored rule that stays danger on hover, so an
- * error never reads as accent ("accent is earned"). Layers over `baseClasses`,
- * so an invalid field still inverts on focus with the danger rule persisting.
+ * Invalid border state — danger-colored rule that persists through the hover and
+ * focus inversions as the error cue, so an error never reads as accent. Layers
+ * over `baseClasses`, which still provides the fill and the accent focus ring.
  */
-const borderInvalid = "border-danger hover:border-danger";
+const borderInvalid = "border-danger";
 
 interface TextInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> {
@@ -59,9 +73,8 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(
         ref={ref}
         aria-invalid={invalid || undefined}
         className={cn(
-          "w-full rounded-none border-b border-t-0 border-x-0 outline-none",
+          "w-full rounded-none border-b border-t-0 border-x-0",
           "transition-[color,background-color,border-color] duration-200",
-          "disabled:cursor-not-allowed disabled:opacity-50",
           textInputSizes[size],
           baseClasses,
           invalid ? borderInvalid : borderRest,
