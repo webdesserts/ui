@@ -14,8 +14,9 @@ export function TextInputPage() {
       <header>
         <h1 className="text-3xl font-light">TextInput</h1>
         <p className="text-text-secondary mt-2 text-sm">
-          A single-line text field. A bottom rule brightens to the accent on
-          hover; focus inverts the field to the interactive surface.
+          A single-line text field. A bottom rule is the resting affordance; the
+          field fades to the interactive surface on hover and focus. Keyboard
+          focus (tab) shows an accent ring; clicking does not — try both.
         </p>
       </header>
 

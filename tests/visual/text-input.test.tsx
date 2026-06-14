@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page, userEvent } from "vitest/browser";
+import { page } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import {
   freezeAnimationsAt,
@@ -13,6 +13,7 @@ import { TextInput } from "@/src";
 
 afterEach(() => {
   document.documentElement.style.colorScheme = "";
+  delete document.documentElement.dataset.focusSource;
 });
 
 // A fixed width keeps every snapshot the same size regardless of placeholder
@@ -23,8 +24,13 @@ function Frame({ children }: { children: React.ReactNode }) {
   return <div style={{ width: FRAME_WIDTH }}>{children}</div>;
 }
 
+/** The wrapper element (the box) — the input's parent, where fill/ring live. */
+function wrapperOf(container: Element): HTMLElement {
+  return container.querySelector("input")!.parentElement as HTMLElement;
+}
+
 /**
- * Park the pointer in the container's padding, off the input. Since hover now
+ * Park the pointer in the container's padding, off the field. Since hover
  * mono-inverts the field, a "resting" capture is only the true resting state if
  * the pointer isn't left hovering the element from a prior test — this makes the
  * non-interactive snapshots deterministic regardless of test order.
@@ -33,9 +39,31 @@ async function restPointer(container: Element) {
   await page.elementLocator(container).hover({ position: { x: 0, y: 0 } });
 }
 
+/**
+ * Focus the input and freeze its wrapper's fade at the fully-settled end state,
+ * under an explicit focus modality. `source` controls the keyboard-only ring:
+ * "keyboard" → ring shown, "pointer" → ring suppressed. Programmatic focus +
+ * explicit modality keeps the capture deterministic (no dependence on which real
+ * event happened to focus the field).
+ */
+async function captureFocused(container: Element, source: "keyboard" | "pointer") {
+  const wrapper = wrapperOf(container);
+  const input = container.querySelector("input")!;
+  document.documentElement.dataset.focusSource = source;
+  const restore = slowTransitions();
+  input.focus();
+  await waitForAnimationFrame();
+  const anims = freezeAnimationsAt(wrapper, 1, { subtree: true });
+  restore();
+  await expect
+    .element(page.elementLocator(container))
+    .toMatchScreenshot(animationScreenshotOptions);
+  unfreezeAnimations(anims);
+}
+
 // ---------------------------------------------------------------------------
-// Resting states — every size, dark + light. Placeholder is shown so the
-// muted placeholder color is captured alongside the bottom-rule affordance.
+// Resting states — every size, dark + light. Placeholder is shown so its color
+// is captured alongside the bottom rule (the resting affordance).
 // ---------------------------------------------------------------------------
 
 describe("TextInput resting states", () => {
@@ -145,10 +173,9 @@ describe("TextInput resting states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Hover states — hover mono-inverts the field (fill to the interactive surface)
-// like a button hover, WITHOUT the accent ring. Locks in two things: the fill
-// happens on hover (not just focus), and accent never appears on hover (the ring
-// is focus-only). Frozen at progress 1 so the fill transition has fully settled.
+// Hover states — the field fades to the interactive surface (mono-inversion)
+// and text inverts, WITHOUT the accent ring (the ring is focus-only). Frozen at
+// progress 1 = the fully-filled end state.
 // ---------------------------------------------------------------------------
 
 describe("TextInput hover states", () => {
@@ -161,12 +188,11 @@ describe("TextInput hover states", () => {
         </Frame>
       </TestWrapper>,
     );
-    const input = screen.getByRole("textbox");
-    const el = input.element() as HTMLElement;
+    const wrapper = wrapperOf(screen.container);
     const restore = slowTransitions();
-    await input.hover();
+    await screen.getByRole("textbox").hover();
     await waitForAnimationFrame();
-    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    const anims = freezeAnimationsAt(wrapper, 1, { subtree: true });
     restore();
     await expect
       .element(page.elementLocator(screen.container))
@@ -183,12 +209,11 @@ describe("TextInput hover states", () => {
         </Frame>
       </TestWrapper>,
     );
-    const input = screen.getByRole("textbox");
-    const el = input.element() as HTMLElement;
+    const wrapper = wrapperOf(screen.container);
     const restore = slowTransitions();
-    await input.hover();
+    await screen.getByRole("textbox").hover();
     await waitForAnimationFrame();
-    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    const anims = freezeAnimationsAt(wrapper, 1, { subtree: true });
     restore();
     await expect
       .element(page.elementLocator(screen.container))
@@ -198,13 +223,12 @@ describe("TextInput hover states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Focus states — the mono-inversion (bg → interactive, text → surface) plus
-// the shared accent focus ring, mirroring a button's focus-visible (fill +
-// ring). Frozen at progress 1 so the transition has fully settled.
+// Keyboard focus — the fill PLUS the accent ring (tab-style focus). Mirrors a
+// Button's :focus-visible: fill + ring.
 // ---------------------------------------------------------------------------
 
-describe("TextInput focus states", () => {
-  it("text-input-md-focus-dark", async () => {
+describe("TextInput keyboard focus states", () => {
+  it("text-input-md-focus-keyboard-dark", async () => {
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(
       <TestWrapper>
@@ -213,19 +237,10 @@ describe("TextInput focus states", () => {
         </Frame>
       </TestWrapper>,
     );
-    const el = screen.getByRole("textbox").element() as HTMLElement;
-    const restore = slowTransitions();
-    await userEvent.tab();
-    await waitForAnimationFrame();
-    const anims = freezeAnimationsAt(el, 1, { subtree: true });
-    restore();
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
-    unfreezeAnimations(anims);
+    await captureFocused(screen.container, "keyboard");
   });
 
-  it("text-input-md-focus-light", async () => {
+  it("text-input-md-focus-keyboard-light", async () => {
     document.documentElement.style.colorScheme = "light";
     const screen = await render(
       <TestWrapper>
@@ -234,23 +249,46 @@ describe("TextInput focus states", () => {
         </Frame>
       </TestWrapper>,
     );
-    const el = screen.getByRole("textbox").element() as HTMLElement;
-    const restore = slowTransitions();
-    await userEvent.tab();
-    await waitForAnimationFrame();
-    const anims = freezeAnimationsAt(el, 1, { subtree: true });
-    restore();
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
-    unfreezeAnimations(anims);
+    await captureFocused(screen.container, "keyboard");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Invalid states — the bottom rule turns danger-colored at rest (every size).
-// On focus the field inverts and shows the shared accent ring like a valid
-// field, with the danger rule persisting through the inversion as the error cue.
+// Pointer focus — the SAME fill but NO ring (click-style focus). This is the
+// behavior a bare <input> can't get (the browser forces its focus ring on);
+// the wrapper + focus-modality signal suppress the ring on click.
+// ---------------------------------------------------------------------------
+
+describe("TextInput pointer focus states", () => {
+  it("text-input-md-focus-pointer-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Frame>
+          <TextInput placeholder="Placeholder" />
+        </Frame>
+      </TestWrapper>,
+    );
+    await captureFocused(screen.container, "pointer");
+  });
+
+  it("text-input-md-focus-pointer-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    const screen = await render(
+      <TestWrapper>
+        <Frame>
+          <TextInput placeholder="Placeholder" />
+        </Frame>
+      </TestWrapper>,
+    );
+    await captureFocused(screen.container, "pointer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invalid states — the bottom rule is danger-colored (every size). It persists
+// through the fill on focus (the danger line stays as the error cue while the
+// field fills the neutral interactive surface). Keyboard focus still rings.
 // ---------------------------------------------------------------------------
 
 describe("TextInput invalid states", () => {
@@ -306,9 +344,9 @@ describe("TextInput invalid states", () => {
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
   });
 
-  it("text-input-md-invalid-focus-dark", async () => {
-    // Focus inverts the field and shows the accent ring; the danger rule
-    // persists beneath as the error signal.
+  it("text-input-md-invalid-focus-keyboard-dark", async () => {
+    // The neutral fill comes in but the danger bottom rule persists beneath it,
+    // and keyboard focus still rings.
     document.documentElement.style.colorScheme = "dark";
     const screen = await render(
       <TestWrapper>
@@ -317,21 +355,13 @@ describe("TextInput invalid states", () => {
         </Frame>
       </TestWrapper>,
     );
-    const el = screen.getByRole("textbox").element() as HTMLElement;
-    const restore = slowTransitions();
-    await userEvent.tab();
-    await waitForAnimationFrame();
-    const anims = freezeAnimationsAt(el, 1, { subtree: true });
-    restore();
-    await expect
-      .element(page.elementLocator(screen.container))
-      .toMatchScreenshot(animationScreenshotOptions);
-    unfreezeAnimations(anims);
+    await captureFocused(screen.container, "keyboard");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Disabled states — dark + light, with and without a value.
+// Disabled states — dark + light, with and without a value. The fill is gated
+// to enabled inputs, so a disabled field stays at rest under the pointer.
 // ---------------------------------------------------------------------------
 
 describe("TextInput disabled states", () => {
