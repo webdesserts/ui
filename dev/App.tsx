@@ -5,6 +5,7 @@ import { ButtonLinkPage } from "./pages/ButtonLinkPage";
 import { IconButtonPage } from "./pages/IconButtonPage";
 import { ButtonGroupPage } from "./pages/ButtonGroupPage";
 import { MenuItemPage } from "./pages/MenuItemPage";
+import { TextInputPage } from "./pages/TextInputPage";
 import { GlassPage } from "./pages/GlassPage";
 import { ColorsPage } from "./pages/ColorsPage";
 import { ScenePage } from "./pages/ScenePage";
@@ -17,6 +18,7 @@ const pages = {
   iconbutton: { label: "IconButton", section: "Components", component: IconButtonPage },
   buttongroup: { label: "ButtonGroup", section: "Components", component: ButtonGroupPage },
   menuitem: { label: "MenuItem", section: "Components", component: MenuItemPage },
+  textinput: { label: "TextInput", section: "Components", component: TextInputPage },
   scene: { label: "Scene", section: "Components", component: ScenePage },
   glass: { label: "Glass", section: "Components", component: GlassPage },
   colors: { label: "Colors", section: "Tokens", component: ColorsPage },
