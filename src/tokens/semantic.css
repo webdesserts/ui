@@ -47,3 +47,15 @@
   --radius-sm: 2px;
   --radius-md: 4px;
 }
+
+/* Reusable dot-grid background. Composes with surface utilities:
+   class="dot-grid bg-surface-base" layers dots over the surface color.
+   Uses the --dot-grid-* tokens from the active preset (neapolitan.css). */
+@utility dot-grid {
+  background-image: radial-gradient(
+    circle,
+    var(--dot-grid-color) var(--dot-grid-size),
+    transparent var(--dot-grid-size)
+  );
+  background-size: var(--dot-grid-spacing) var(--dot-grid-spacing);
+}

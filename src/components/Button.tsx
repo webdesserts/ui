@@ -1,7 +1,14 @@
 import React, { createContext, forwardRef, useContext } from "react";
 import { cn } from "../utils/cn";
-import type { ButtonSize } from "./shared";
-import { interactiveRing, interactiveDisabled } from "./shared";
+import type { ButtonSize, BorderSide } from "./shared";
+import {
+  interactiveRing,
+  interactiveDisabled,
+  borderSideClasses,
+  spreadSetupBase,
+  spreadSelfTriggers,
+  spreadBarClasses,
+} from "./shared";
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -10,7 +17,7 @@ import { interactiveRing, interactiveDisabled } from "./shared";
 /**
  * Base interactive styles shared by all button types: the pointer cursor, the
  * accent focus/active ring, and the disabled affordance. Hover bg/text is
- * handled separately by the spread animation (::after fill via spreadBase) —
+ * handled separately by the spread animation (::after fill via spreadBarClass) —
  * only border-color hover is set at each button's call site.
  */
 const interactiveBase = cn("cursor-pointer", interactiveRing, interactiveDisabled);
@@ -19,54 +26,18 @@ const glassBlur = "backdrop-blur-[var(--glass-blur)]";
 const glassBg = `bg-glass-bg ${glassBlur}`;
 const glassDangerBg = `bg-glass-danger-bg ${glassBlur}`;
 
-export type BorderSide = "bottom" | "top" | "right" | "left";
-
-const borderSideClasses = {
-  bottom: { rounding: "rounded-t-sm" },
-  top: { rounding: "rounded-b-sm" },
-  right: { rounding: "rounded-l-sm" },
-  left: { rounding: "rounded-r-sm" },
-} as const;
-
 /** Full-perimeter 1px inset box-shadow border for glass buttons.
  * Uses box-shadow so it doesn't affect element sizing. */
 const glassBorder = "shadow-[inset_0_0_0_1px_var(--color-rule-subtle)]";
 
 // ---------------------------------------------------------------------------
-// Spread animation — pure Tailwind class strings
+// Spread animation — Button-family bar variants
 //
-// Universal hover/focus affordance: a ::after pseudo-element starts as a
-// resting bar and expands to fill the entire element on hover/focus.
-// Asymmetric timing: fast enter (200ms ease-out), slow exit (350ms ease-in-out).
+// The shared ::after fill system (geometry + self-state triggers + per-side bar
+// geometry) lives in ./shared. Below are the Button-family-only variants built
+// on top of it: the full-width bar, the partial centered bar (ButtonLink), and
+// the box-shadow ring (rounded buttons).
 // ---------------------------------------------------------------------------
-
-/** Base classes shared by all bar spread variants. */
-const spreadBase = [
-  "relative z-0 overflow-hidden",
-  "transition-[color,opacity] duration-200",
-  // ::after setup
-  "after:absolute after:-z-1",
-  "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
-  "after:[transition:top_400ms_ease-in-out,left_400ms_ease-in-out,right_400ms_ease-in-out,bottom_400ms_ease-in-out,width_400ms_ease-in-out,height_400ms_ease-in-out,margin_400ms_ease-in-out,background-color_600ms_ease-in]",
-  // Hover — fill + text inversion
-  "not-disabled:hover:text-interactive-text",
-  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
-  "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
-  // Focus-visible — same as hover
-  "not-disabled:focus-visible:text-interactive-text",
-  "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
-  "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:focus-visible:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
-].join(" ");
-
-/** Bar geometry per border side (resting state position). */
-const spreadBarClasses = {
-  bottom: "after:top-[calc(100%-2px)] after:left-0 after:right-0 after:bottom-0 after:w-full after:h-0.5",
-  top: "after:top-0 after:left-0 after:right-0 after:bottom-[calc(100%-2px)] after:w-full after:h-0.5",
-  right: "after:top-0 after:left-[calc(100%-2px)] after:right-0 after:bottom-0 after:w-0.5 after:h-full",
-  left: "after:top-0 after:left-0 after:right-[calc(100%-2px)] after:bottom-0 after:w-0.5 after:h-full",
-} as const;
 
 /**
  * Partial bar resting state for ButtonLink — sits 2px below center.
@@ -97,9 +68,10 @@ const spreadRing = [
   "not-disabled:focus-visible:[transition:box-shadow_250ms,color_200ms,opacity_200ms]",
 ].join(" ");
 
-/** Returns spread bar classes for a given border side. */
+/** Returns spread bar classes for a given border side — the shared geometry +
+ *  self-state triggers + the resting bar position for that side. */
 function spreadBarClass(side: BorderSide): string {
-  return `${spreadBase} ${spreadBarClasses[side]}`;
+  return `${spreadSetupBase} ${spreadSelfTriggers} ${spreadBarClasses[side]}`;
 }
 
 /** Constrain inline SVG icons inside text buttons.
@@ -107,11 +79,11 @@ function spreadBarClass(side: BorderSide): string {
 const buttonIconSize = "[&>svg]:!size-4 [&>svg]:shrink-0";
 
 // ---------------------------------------------------------------------------
-// Shared size type — re-exported from ./shared so existing `from "./Button"`
-// imports (and the barrel) keep working now that TextInput shares it too.
+// Shared types — re-exported from ./shared so existing `from "./Button"`
+// imports (and the barrel) keep working now that TextInput shares them too.
 // ---------------------------------------------------------------------------
 
-export type { ButtonSize } from "./shared";
+export type { ButtonSize, BorderSide } from "./shared";
 
 // ---------------------------------------------------------------------------
 // ButtonGroupContext — passes size and glass defaults down to child buttons
@@ -223,7 +195,8 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
           buttonIconSize,
           interactiveBase,
 
-          spreadBase,
+          spreadSetupBase,
+          spreadSelfTriggers,
           spreadBarPartial,
           "bg-transparent text-text-primary no-underline",
           Tag === "a" && "hover:underline focus-visible:underline",
@@ -522,7 +495,8 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
           "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
           interactiveBase,
 
-          spreadBase,
+          spreadSetupBase,
+          spreadSelfTriggers,
           spreadBarClasses.left,
           selected
             ? "bg-interactive-bg text-interactive-text"

@@ -8,6 +8,78 @@
 /** Size tier shared across interactive components — ensures consistent heights in toolbars, groups, and forms. */
 export type ButtonSize = "sm" | "md" | "lg";
 
+/** Which edge a control's spread bar rests on (and therefore which corners round). */
+export type BorderSide = "bottom" | "top" | "right" | "left";
+
+/** Maps a border side to the rounding of the opposite corners (bottom bar → rounded top). */
+export const borderSideClasses = {
+  bottom: { rounding: "rounded-t-sm" },
+  top: { rounding: "rounded-b-sm" },
+  right: { rounding: "rounded-l-sm" },
+  left: { rounding: "rounded-r-sm" },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Spread animation — shared ::after fill system (Button family + TextInput)
+//
+// A ::after pseudo-element starts as a resting bar on one edge and expands to
+// fill the whole element on hover/focus, sliding the bar up into a full fill.
+// Asymmetric timing: fast enter (~250ms), slow rest/exit (~400ms).
+//
+// The system is split so two different element types can drive the same fill:
+//   - spreadSetupBase   — geometry only (the ::after setup + resting transition).
+//                         Element-agnostic; safe on a Button OR a TextInput wrapper.
+//   - spreadSelfTriggers — Button-family self-state triggers (:hover/:focus-visible
+//                          on the element itself) + the text/opacity transition.
+//   - spreadBarClasses   — resting bar position per side.
+//
+// TextInput is a <div> wrapper around an <input>, so its hover/focus live on the
+// input, not the wrapper — it supplies its own input-state triggers
+// (has-[input:focus], not-has-[input:disabled]:hover) instead of spreadSelfTriggers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Element-agnostic ::after setup: the pseudo-element, its resting color, and the
+ * slow resting/exit transition. Geometry only — no self-state triggers and no
+ * element-level color/opacity transition (that belongs to the element's own
+ * state, see spreadSelfTriggers), so this is safe to drop onto any host element.
+ */
+export const spreadSetupBase = [
+  "relative z-0 overflow-hidden",
+  // ::after setup
+  "after:absolute after:-z-1",
+  "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
+  "after:[transition:top_400ms_ease-in-out,left_400ms_ease-in-out,right_400ms_ease-in-out,bottom_400ms_ease-in-out,width_400ms_ease-in-out,height_400ms_ease-in-out,margin_400ms_ease-in-out,background-color_600ms_ease-in]",
+].join(" ");
+
+/**
+ * Button-family self-state triggers: fill + text inversion on the element's own
+ * :hover / :focus-visible, plus the element-level color/opacity transition. Only
+ * usable when the host element is itself the interactive target (a <button>) —
+ * TextInput's wrapper isn't, so it omits these.
+ */
+export const spreadSelfTriggers = [
+  "transition-[color,opacity] duration-200",
+  // Hover — fill + text inversion
+  "not-disabled:hover:text-interactive-text",
+  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+  // Focus-visible — same as hover
+  "not-disabled:focus-visible:text-interactive-text",
+  "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
+  "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:focus-visible:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+].join(" ");
+
+/** Bar geometry per border side (resting state position). */
+export const spreadBarClasses = {
+  bottom: "after:top-[calc(100%-2px)] after:left-0 after:right-0 after:bottom-0 after:w-full after:h-0.5",
+  top: "after:top-0 after:left-0 after:right-0 after:bottom-[calc(100%-2px)] after:w-full after:h-0.5",
+  right: "after:top-0 after:left-[calc(100%-2px)] after:right-0 after:bottom-0 after:w-0.5 after:h-full",
+  left: "after:top-0 after:left-0 after:right-[calc(100%-2px)] after:bottom-0 after:w-0.5 after:h-full",
+} as const;
+
 /**
  * Accent outline ring — identical for focus-visible and active states. The
  * `highlight:` custom variant (semantic.css) matches both `:focus-visible` and

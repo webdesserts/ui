@@ -99,7 +99,7 @@ export function App() {
       </nav>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto transition-colors duration-300 bg-[radial-gradient(circle,var(--dot-grid-color)_var(--dot-grid-size),transparent_var(--dot-grid-size))] bg-[length:var(--dot-grid-spacing)_var(--dot-grid-spacing)]">
+      <main className="flex-1 overflow-y-auto transition-colors duration-300 dot-grid">
         <ActiveComponent />
       </main>
     </div>
