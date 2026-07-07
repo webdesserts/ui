@@ -25,6 +25,7 @@
   --np-purple-20: lch(19 7.8 322);
   --np-purple-30: lch(29 7.6 328);
   --np-purple-45: lch(45 7.2 334);
+  --np-purple-60: lch(60 6.6 338);
 
   /* Sepia (hue 34→31, chroma 5.8→5) */
   --np-sepia-60: lch(60 7.2 33);
