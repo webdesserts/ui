@@ -1350,6 +1350,94 @@ describe("Scene debug — stray child flags", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F4 commit 2 feature (d): paint-order badges
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — paint-order badges", () => {
+  test("column-level: an in-between column gets a badge with its depth-1 translateZ", async () => {
+    // Same fixture shape as "Scene debug — stacking depth" above: left/right
+    // focused, middle unfocused (in-between, depth 1 -> translateZ -100).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div data-testid="left-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle">
+            <SceneObject name="middle-obj" focused={false}>
+              <div data-testid="middle-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div data-testid="right-content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
+    await waitForAnimationFrame();
+    const badge = scene.querySelector("[data-debug-paint-badge='column:middle']");
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe("z:-100");
+
+    // Focused columns are not deck cards — no badge for either.
+    expect(scene.querySelector("[data-debug-paint-badge='column:left']")).toBeNull();
+    expect(scene.querySelector("[data-debug-paint-badge='column:right']")).toBeNull();
+  });
+
+  test("within-column: an object sandwiched between two focused siblings gets a badge", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+            <SceneObject name="obj-c" focused>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("content-a").element().closest("[data-testid='scene']") as HTMLElement;
+    await waitForAnimationFrame();
+    const badge = scene.querySelector("[data-debug-paint-badge='object:obj-b']");
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe("z:-100");
+
+    // Focused objects are not deck cards.
+    expect(scene.querySelector("[data-debug-paint-badge='object:obj-a']")).toBeNull();
+    expect(scene.querySelector("[data-debug-paint-badge='object:obj-c']")).toBeNull();
+  });
+
+  test("no badges when nothing is in the depth deck", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    expect(scene.querySelectorAll("[data-debug-paint-badge]").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 10a: Debug — remaining overlay features
 // ---------------------------------------------------------------------------
 

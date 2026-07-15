@@ -547,6 +547,156 @@ function StrayChildFlags({
   );
 }
 
+/** Identifies one deck card (column-level in-between, or within-column depth object). */
+interface DeckCardKey {
+  /** React key + badge-ref key. */
+  key: string;
+  kind: "column" | "object";
+  /** The data-column name (kind "column") or data-scene-id name (kind
+   *  "object") used to re-find the live DOM element on every frame. */
+  domId: string;
+}
+
+/**
+ * Finds every current deck card: columns classified in-between (F1/H8's
+ * `data-stack-depth`, only ever set for in-between columns) and
+ * within-column depth-deck objects (`data-within-column-depth`, only ever
+ * set when an object is sandwiched between two focused siblings — see
+ * SceneObject's withinDepthInfo). Focused cards and outer-left/outer-right
+ * columns carry neither attribute and are correctly excluded — badges are
+ * for deck cards specifically, matching the paint-order invariant they
+ * exist to visually check (Michael's ruled invariant: two objects
+ * overlapping in 2D screen space must never change which one paints on top
+ * — see tests/utils/animation.ts's assertPaintOrderInvariant).
+ */
+function findDeckCardKeys(stage: HTMLElement): DeckCardKey[] {
+  const keys: DeckCardKey[] = [];
+  stage.querySelectorAll<HTMLElement>("[data-stack-depth]").forEach((el) => {
+    const name = el.getAttribute("data-column") ?? "";
+    keys.push({ key: `column:${name}`, kind: "column", domId: name });
+  });
+  stage.querySelectorAll<HTMLElement>("[data-within-column-depth]").forEach((el) => {
+    const name = el.getAttribute("data-scene-id") ?? "";
+    keys.push({ key: `object:${name}`, kind: "object", domId: name });
+  });
+  return keys;
+}
+
+function deckCardKeysEqual(a: DeckCardKey[], b: DeckCardKey[]): boolean {
+  return a.length === b.length && a.every((k, i) => k.key === b[i]?.key);
+}
+
+/**
+ * Reads the live translateZ a card is CURRENTLY rendered at, straight off
+ * its computed `transform` — not off a MotionValue, because only
+ * SceneColumn's column-level z is one (zMV, registered on the motion seam
+ * for feature (a)'s active-springs panel); a within-column depth object's z
+ * lives in Motion's declarative `animate` prop (WAAPI-driven — see
+ * SceneObject's own comment on why opacity/filter/z go there instead of a
+ * MotionValue). getComputedStyle reflects whichever mechanism is driving a
+ * given card, uniformly, so one read path covers both card kinds. Any 3D
+ * transform (translateZ specifically) resolves to `matrix3d(...)` (16
+ * comma-separated values, column-major) — tz is the 15th value (index 14).
+ * A 2D `matrix(...)` or `none` has no z component (0).
+ */
+function parseTranslateZ(transform: string): number {
+  const match = transform.match(/matrix3d\(([^)]+)\)/);
+  if (!match) return 0;
+  const values = match[1]!.split(",").map((v) => parseFloat(v.trim()));
+  return values[14] ?? 0;
+}
+
+/**
+ * F4 feature (d): a small badge on every deck card (column-level and
+ * within-column) showing its current live translateZ — the visual check
+ * for the paint-order invariant (do cards nearer the front actually have a
+ * higher/less-negative z than cards behind them, at a glance, without
+ * pausing a transition and inspecting devtools). Updates continuously via
+ * requestAnimationFrame while mounted (i.e. while `debug` is enabled) —
+ * same rationale and pattern as ActiveSpringsSection above: translateZ can
+ * change every frame mid-spring, off React's own render cycle, so reading
+ * it only at commit time would show it stale throughout a transition.
+ */
+function PaintOrderBadges({
+  viewportRef,
+  stageRef,
+}: {
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [cards, setCards] = useState<DeckCardKey[]>([]);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const fresh = stage ? findDeckCardKeys(stage) : [];
+    setCards((prev) => (deckCardKeysEqual(prev, fresh) ? prev : fresh));
+  });
+
+  const badgeRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const updateBadges = useCallback(() => {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    if (!viewport || !stage) return;
+    const vpRect = viewport.getBoundingClientRect();
+    for (const card of cards) {
+      const el =
+        card.kind === "column"
+          ? stage.querySelector<HTMLElement>(`[data-column='${card.domId}']`)
+          : stage.querySelector<HTMLElement>(`[data-scene-id='${card.domId}']`);
+      const badge = badgeRefs.current.get(card.key);
+      if (!el || !badge) continue;
+      const rect = el.getBoundingClientRect();
+      const z = parseTranslateZ(getComputedStyle(el).transform);
+      badge.style.left = `${rect.left - vpRect.left}px`;
+      badge.style.top = `${rect.top - vpRect.top}px`;
+      badge.textContent = `z:${Math.round(z)}`;
+    }
+  }, [cards]);
+
+  // Paint-synchronous pass so the first frame isn't blank before the first
+  // rAF tick (mirrors ActiveSpringsSection/SceneObjectOutlines).
+  useLayoutEffect(() => {
+    updateBadges();
+  });
+
+  useEffect(() => {
+    let rafId = requestAnimationFrame(function loop() {
+      updateBadges();
+      rafId = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [updateBadges]);
+
+  return (
+    <>
+      {cards.map((card) => (
+        <div
+          key={card.key}
+          ref={(el) => {
+            if (el) badgeRefs.current.set(card.key, el);
+            else badgeRefs.current.delete(card.key);
+          }}
+          data-debug-paint-badge={card.key}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            background: card.kind === "column" ? "#7c3aed" : "#0891b2",
+            color: "#fff",
+            fontFamily: "monospace",
+            fontSize: 9,
+            padding: "0 2px",
+            lineHeight: "12px",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            zIndex: 9999,
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 /**
  * Absolutely-positioned overlay elements that draw colored outlines around each
  * SceneObject. Rendered inside the viewport so positions are relative to it.
@@ -1686,6 +1836,7 @@ function SceneViewport({
               </OutlineRafCallbackContext.Provider>
               <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
               <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
+              <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />
             </div>
           )}
           {/* Overlay is inside the scene div so tests can find it via
