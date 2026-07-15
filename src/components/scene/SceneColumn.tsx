@@ -57,12 +57,6 @@ interface ColumnRegistration {
    */
   register: (name: string, el: HTMLElement, focused: boolean) => () => void;
   /**
-   * Whether the parent column is in the depth deck (in-between, unfocused).
-   * When true, unfocused SceneObjects stay in flow (position: relative) so the
-   * column sizes to its content — necessary for perspective-depth width comparison.
-   */
-  isInDepthDeck: boolean;
-  /**
    * Depth info for unfocused SceneObjects sandwiched between two focused
    * siblings. Objects not in this map receive normal (hidden) treatment.
    */
@@ -1173,11 +1167,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   );
 
   return (
-    // isInDepthDeck is true for ALL unfocused columns, not just in-between ones.
-    // Outer unfocused columns also need their SceneObjects in flow so the column
-    // has natural dimensions (otherwise position: absolute children yield a
-    // zero-width column that overlaps with adjacent focused columns).
-    <ColumnContext.Provider value={{ register, isInDepthDeck: !columnFocused, withinColumnDepths }}>
+    <ColumnContext.Provider value={{ register, withinColumnDepths }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
           time and silently shadows the spring. See depth.ts for the no-shadow rule. */}

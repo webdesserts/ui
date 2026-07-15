@@ -153,8 +153,13 @@ export function computeStackDepths(
 export interface SceneProps {
   children: React.ReactNode;
   /**
-   * Animation duration override (in ms). Set to 0 to disable all animations
-   * in tests. When omitted, spring physics are used.
+   * Set to 0 to disable all animations — every transition becomes
+   * synchronous/instant, primarily useful in tests. Any OTHER value is
+   * currently ignored: despite the numeric type, a non-zero duration is
+   * NOT honored as an actual duration override — Scene always uses spring
+   * physics (see `stiffness`/`damping`) for real animation regardless of
+   * what non-zero number is passed. Omitting this prop (or passing
+   * `undefined`) has the identical effect to passing any non-zero number.
    */
   duration?: number;
   /** Enable debug overlays. */

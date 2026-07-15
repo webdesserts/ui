@@ -125,9 +125,10 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // render on top of the focused object (topOffset may be 0 if the object was
   // never previously focused and has no saved natural height).
   //
-  // Within an unfocused column (depth deck or outer), all objects stay in flow
-  // (isInDepthDeck = true) so the column sizes to its content — necessary for
-  // outer columns to have natural width and for depth-deck perspective sizing.
+  // Within an unfocused column (depth deck or outer), all objects stay in
+  // flow (the `position: "relative"` fallback branch below) so the column
+  // sizes to its content — necessary for outer columns to have natural
+  // width and for depth-deck perspective sizing.
   //
   // Exception: unfocused objects between two focused siblings get depth-card
   // treatment — position: absolute, translateZ projects them back in 3D space

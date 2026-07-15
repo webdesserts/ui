@@ -6298,6 +6298,74 @@ describe("Scene padding cluster (S6)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// S6 commit 4: API hygiene
+// ---------------------------------------------------------------------------
+
+import {
+  DEFAULT_STIFFNESS,
+  DEFAULT_DAMPING,
+  DEFAULT_COLUMN_GAP,
+  DEFAULT_PERSPECTIVE,
+  DEFAULT_PEEK_OFFSET,
+} from "../src";
+
+describe("Scene API hygiene (S6 commit 4)", () => {
+  test("DEFAULT_* constants are importable from the top-level package entry", () => {
+    // Regression pin for src/index.ts's re-export — previously only
+    // reachable via the scene subpath, not the package root.
+    expect(DEFAULT_STIFFNESS).toBe(230);
+    expect(DEFAULT_DAMPING).toBe(45);
+    expect(DEFAULT_COLUMN_GAP).toBe(16);
+    expect(DEFAULT_PERSPECTIVE).toBe(800);
+    expect(DEFAULT_PEEK_OFFSET).toBe(12);
+  });
+
+  test("a non-zero duration is NOT honored as a real duration — it behaves identically to omitting duration (both use spring physics, unlike duration=0)", async () => {
+    // Regression pin for the duration JSDoc's honesty claim. Proof shape:
+    // camera pan transitioning becomes true (a real, in-flight spring) for
+    // duration=300 exactly as it does for duration=undefined — if 300 were
+    // honored as an actual ms duration, or fell through to duration=0's
+    // instant-mode branch, this would either never observe transitioning
+    // (instant) or behave detectably differently. Uses the same
+    // useCamera()-transitioning mechanism as the "real camera pan" test.
+    async function pansWithTransitioningFlicker(durationProp: number | undefined): Promise<boolean> {
+      const build = (rightFocused: boolean) => (
+        <TestWrapper fullPage>
+          <Scene duration={durationProp} stiffness={40} damping={12}>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused={!rightFocused}>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused={rightFocused}>
+                <div style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+            <CameraReader />
+          </Scene>
+        </TestWrapper>
+      );
+
+      const { rerender, getByTestId } = await render(build(false));
+      await wait(500); // let the initial mount pan settle
+      const reader = getByTestId("camera-reader").element() as HTMLElement;
+
+      await rerender(build(true));
+      await waitForAnimationFrame();
+      const wasTransitioning = reader.getAttribute("data-transitioning") === "true";
+
+      await wait(1500); // let this pan settle too, for a clean teardown
+      await cleanup();
+      return wasTransitioning;
+    }
+
+    expect(await pansWithTransitioningFlicker(300)).toBe(true);
+    expect(await pansWithTransitioningFlicker(undefined)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fix 3: Scrollbar ARIA attributes
 // ---------------------------------------------------------------------------
 

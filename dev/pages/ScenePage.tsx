@@ -80,7 +80,7 @@ function BasicFocusDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="nav">
           <SceneObject
             name="nav-panel"
@@ -156,7 +156,7 @@ function CqwSizingDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="nav-cqw">
           <SceneObject
             name="nav-cqw-panel"
@@ -217,7 +217,7 @@ function VerticalSwapDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="content">
           <SceneObject
             name="article-1"
@@ -284,7 +284,7 @@ function DepthDeckDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="left">
           <SceneObject
             name="left-obj"
@@ -362,7 +362,7 @@ function VerticalScrollDemo({ tuning }: { tuning: SceneTuning }) {
       title="Vertical scroll"
       description="Content taller than the viewport. Scroll with trackpad/mouse wheel or keyboard (Arrow, Page, Home, End). Custom scrollbar appears at right edge."
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="col">
           <SceneObject name="tall-content" focused style={{ width: 480 }}>
             <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
@@ -395,7 +395,7 @@ function HorizontalScrollDemo({ tuning }: { tuning: SceneTuning }) {
       title="Horizontal scroll"
       description="Three focused columns with wide content that overflows the viewport. Scroll horizontally — the Camera pans across the scene. Native scrollbar appears at bottom."
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         {(["col-a", "col-b", "col-c"] as const).map((name, i) => {
           const colors = [
             "bg-[lch(30_10_280)]",
@@ -450,7 +450,7 @@ function MultiFocusDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} {...tuning}>
+      <Scene {...tuning}>
         <SceneColumn name="stack-col" objectGap={8}>
           <SceneObject
             name="stack-top"
@@ -537,7 +537,7 @@ function DebugModeDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene duration={300} debug={debugEnabled} {...tuning}>
+      <Scene debug={debugEnabled} {...tuning}>
         <SceneColumn name="nav">
           <SceneObject
             name="nav-panel"
