@@ -36,6 +36,17 @@ function parseTranslateX(transform: string): number {
   return parseFloat(match[1]!);
 }
 
+/** Same rationale as parseTranslateX (see its docstring) — the raw
+ *  translateY written to the transform (undistorted by perspective
+ *  foreshortening), not a rendered getBoundingClientRect() position. */
+function parseTranslateY(transform: string): number {
+  const match =
+    transform.match(/translate3d\([-\d.]+px,\s*([-\d.]+)px/) ??
+    transform.match(/translateY\(([-\d.]+)px\)/);
+  if (!match) throw new Error(`Could not parse translateY from transform: "${transform}"`);
+  return parseFloat(match[1]!);
+}
+
 /** Custom component that returns a SceneColumn — used to prove Scene's
  *  column classification doesn't depend on SceneColumn being a DIRECT child
  *  of Scene's `children` prop (S6 registration architecture). */
@@ -6098,6 +6109,191 @@ describe("Scene padding in scroll bounds", () => {
     // With padding factored in, the content now overflows → scrollbar should appear.
     const scrollbar = scene.querySelector("[data-scrollbar]");
     expect(scrollbar).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S6 commit 3: padding cluster — four missing-subtraction sites plus a
+// distinct x-anchor origin mismatch. maxScroll (verified above) already
+// subtracts padding correctly; these sites didn't.
+// ---------------------------------------------------------------------------
+
+describe("Scene padding cluster (S6)", () => {
+  test("marginTop centers focused content within the padded viewport, not the raw viewport", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={60}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const content = getByTestId("content").element() as HTMLElement;
+
+    const viewportRect = scene.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    const viewportCenterY = viewportRect.top + viewportRect.height / 2;
+    const contentCenterY = contentRect.top + contentRect.height / 2;
+
+    expect(contentCenterY).toBeCloseTo(viewportCenterY, 0);
+  });
+
+  test("inBetweenY centers a depth-deck column within the padded viewport, not the raw viewport", async () => {
+    const build = (middleFocused: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={60}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div data-testid="left-content" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle">
+            <SceneObject name="middle-obj" focused={middleFocused}>
+              <div data-testid="middle-content" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div data-testid="right-content" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    // "middle" must have been focused at least once to have a frozenSize
+    // (in-between columns without one never get a measurable colHeight).
+    const { rerender, getByTestId } = await render(build(true));
+    await rerender(build(false));
+    await waitForAnimationFrame();
+
+    const middleCol = getByTestId("middle-content").element().closest("[data-column]") as HTMLElement;
+
+    // Read RAW values (frozen height from the inline style set by
+    // inBetweenStyle, translateY from the raw transform) rather than
+    // getBoundingClientRect() — the in-between column sits under a CSS
+    // perspective + translateZ projection, which foreshortens rendered
+    // position AND size non-linearly (see parseTranslateX's docstring for
+    // the same rationale applied to the x axis).
+    const frozenHeight = parseFloat(middleCol.style.height || "0");
+    expect(frozenHeight).toBeGreaterThan(0);
+    const translateY = parseTranslateY(middleCol.style.transform);
+
+    // Viewport is 800px tall (fullPage default), padding=60 top+bottom ->
+    // effective viewport height = 680. inBetweenY should center the frozen
+    // column within THAT, not the raw 800.
+    expect(translateY).toBeCloseTo((680 - frozenHeight) / 2, 1);
+  });
+
+  test("Page Down scroll amount accounts for padding (uses effective viewport height, not raw)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={100}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 3000 }}>
+                <button data-testid="focusable-btn">click me</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    column.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }),
+    );
+
+    await waitForAnimationFrame();
+
+    const scrollOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    // Viewport is 800px tall (fullPage default), padding=100 top+bottom ->
+    // effective viewport height = 600. PageDown should scroll by exactly
+    // 600, not the raw 800 (maxScroll=3000-600=2400 leaves plenty of room,
+    // so this isn't clamped).
+    expect(scrollOffset).toBe(600);
+  });
+
+  test("Scrollbar trackHeight accounts for padding (uses effective viewport height, not raw)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={100}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 3000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const scrollbar = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    expect(scrollbar).not.toBeNull();
+
+    // Viewport is 800px tall (fullPage default), padding=100 top+bottom ->
+    // effective viewport height = 600. The scrollbar track sizes to
+    // trackHeight directly (style.height) — should be 600, not raw 800.
+    expect(parseFloat(scrollbar.style.height || "0")).toBe(600);
+  });
+
+  test("in-between column x-anchor accounts for stage padding (stays flush with the focused column when peekOffset=0)", async () => {
+    // Mirrors the existing "peekOffset={0} reproduces the old flush-anchored
+    // behavior" test's shape (tests/scene.test.tsx depth-1 peek test) with
+    // padding added — stackTargetLeft was measured border-box
+    // (getBoundingClientRect) against an absolutely-positioned in-between
+    // column's static position, which CSS resolves content-box-relative — a
+    // padding-sized origin mismatch distinct from the four
+    // missing-subtraction sites above.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={60} peekOffset={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+
+    const rightRect = rightCol.getBoundingClientRect();
+    const middleRect = middleCol.getBoundingClientRect();
+
+    // toBeCloseTo(0, -1) -> tolerance ±5, matching this file's established
+    // convention for a rendered (post-perspective-projection) pixel
+    // comparison (see "depth-1 in-between column peeks left by exactly
+    // peekOffset" above) — sub-pixel rounding noise, not a real deviation
+    // (pre-fix this was off by ~52px, the padding-sized bug this test
+    // guards against).
+    expect(rightRect.left - middleRect.left).toBeCloseTo(0, -1);
   });
 });
 

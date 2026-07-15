@@ -560,10 +560,13 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     };
   }, [scrollCommandRegistry, name, applyScrollCommand]);
 
-  // Ref to the latest viewport height for use in the keyboard handler (avoids
-  // stale closure — we want the current value at the time of the keypress).
-  const viewportHeightRef = useRef(viewportHeight);
-  viewportHeightRef.current = viewportHeight;
+  // Ref to the latest EFFECTIVE (padding-subtracted) viewport height for use
+  // in the keyboard handler (avoids stale closure — we want the current
+  // value at the time of the keypress). Page Up/Down's page size must match
+  // the same padding-adjusted basis as maxScroll (S6 padding cluster) — the
+  // raw viewportHeight overshoots by Scene's padding.
+  const viewportHeightRef = useRef(effectiveViewportHeight);
+  viewportHeightRef.current = effectiveViewportHeight;
 
   // Keyboard scroll: intercept arrow/page/home/end keys when keyboard focus is
   // inside this column. Standard scroll amounts match browser conventions.
@@ -900,9 +903,12 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   if (effectiveContentHeight === 0 && contentWrapperRef.current) {
     effectiveContentHeight = contentWrapperRef.current.getBoundingClientRect().height;
   }
+  // Centers within effectiveViewportHeight (padding-subtracted, same basis
+  // as maxScroll above) — not the raw viewportHeight, which overshoots by
+  // Scene's padding (S6 padding cluster).
   const marginTop =
-    viewportHeight > 0 && effectiveContentHeight > 0
-      ? Math.max(0, (viewportHeight - effectiveContentHeight) / 2)
+    effectiveViewportHeight > 0 && effectiveContentHeight > 0
+      ? Math.max(0, (effectiveViewportHeight - effectiveContentHeight) / 2)
       : 0;
 
   // Registration callback provided to child SceneObjects. Also drives the
@@ -1039,9 +1045,11 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // rather than calling getBoundingClientRect which returns projected sizes
   // inside the preserve-3d context.
   const colHeight = frozenSize?.height ?? (isInBetween ? 0 : (colRef.current?.getBoundingClientRect().height ?? 0));
+  // Centers within effectiveViewportHeight, not the raw viewportHeight (S6
+  // padding cluster — same fix as marginTop above).
   const inBetweenY =
-    isInBetween && viewportHeight > 0 && colHeight > 0
-      ? (viewportHeight - colHeight) / 2
+    isInBetween && effectiveViewportHeight > 0 && colHeight > 0
+      ? (effectiveViewportHeight - colHeight) / 2
       : 0;
 
   // A column that mounts for the first time already focused should enter from
@@ -1255,12 +1263,16 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           {children}
         </motion.div>
 
-        {/* Custom scrollbar — only rendered when focused content overflows. */}
-        {isScrollable && viewportHeight > 0 && (
+        {/* Custom scrollbar — only rendered when focused content overflows.
+            trackHeight uses effectiveViewportHeight (padding-subtracted,
+            same basis as maxScroll) — S6 padding cluster: the raw
+            viewportHeight overshot both the thumb size/position math and
+            the thumb's own keyboard paging (mapScrollKeyToCommand). */}
+        {isScrollable && effectiveViewportHeight > 0 && (
           <Scrollbar
             scrollOffset={scrollOffset}
             maxScroll={maxScroll}
-            trackHeight={viewportHeight}
+            trackHeight={effectiveViewportHeight}
             controlsId={contentWrapperId}
             onScroll={(newOffset) => {
               // Pointer-drag reports an absolute target offset (computed from

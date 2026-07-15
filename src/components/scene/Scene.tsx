@@ -925,7 +925,18 @@ function SceneViewport({
     // Left edge of the rightmost focused column relative to the stage. This is
     // the in-stage x-offset used to position in-between (depth deck) columns so
     // they peek leftward from behind the rightmost focused column.
-    const newTargetLeft = colRect.left - stageRect.left;
+    //
+    // colRect/stageRect (getBoundingClientRect) are BORDER-BOX measurements
+    // (including the stage's own padding). But in-between columns are
+    // position:absolute flex items with no explicit `left` — their CSS
+    // static position (the implicit left:auto baseline that animateX's
+    // translateX offset is added on top of) is resolved CONTENT-BOX
+    // relative, i.e. already past the stage's padding. Subtracting padding
+    // here converts the border-box-relative measurement to that same
+    // content-box-relative basis (S6 padding cluster, pinned empirically:
+    // an unpatched measurement left in-between columns ~padding too far
+    // right of the focused column they're meant to anchor flush against).
+    const newTargetLeft = colRect.left - stageRect.left - padding;
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
   });
 
