@@ -387,12 +387,28 @@ function StageBoundsOutline({
 }) {
   const [bounds, setBounds] = useState<StageBoundsInfo | null>(null);
 
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     const viewport = viewportRef.current;
     const stage = stageRef.current;
     const fresh = viewport && stage ? measureStageBounds(viewport, stage) : null;
     setBounds((prev) => (stageBoundsEqual(prev, fresh) ? prev : fresh));
+  }, [viewportRef, stageRef]);
+
+  useLayoutEffect(() => {
+    measure();
   });
+
+  // F6 item 1 fix: same staleness class as SceneObjectOutlines above — a
+  // React-render-only measurement misses the stage width shifting during a
+  // Motion-driven (imperative, off-React) transition. `stageBoundsEqual`'s
+  // bail-out keeps this from re-rendering every frame once settled.
+  useEffect(() => {
+    let rafId = requestAnimationFrame(function loop() {
+      measure();
+      rafId = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [measure]);
 
   if (!bounds) return null;
 
@@ -501,12 +517,27 @@ function StrayChildFlags({
 }) {
   const [entries, setEntries] = useState<StrayChildEntry[]>([]);
 
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     const viewport = viewportRef.current;
     const stage = stageRef.current;
     const fresh = viewport && stage ? measureStrayChildren(viewport, stage) : [];
     setEntries((prev) => (strayChildrenEqual(prev, fresh) ? prev : fresh));
+  }, [viewportRef, stageRef]);
+
+  useLayoutEffect(() => {
+    measure();
   });
+
+  // F6 item 1 fix: same staleness class as SceneObjectOutlines above.
+  // strayChildrenEqual's bail-out keeps this from re-rendering every frame
+  // once settled.
+  useEffect(() => {
+    let rafId = requestAnimationFrame(function loop() {
+      measure();
+      rafId = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [measure]);
 
   return (
     <>
@@ -704,18 +735,30 @@ function PaintOrderBadges({
  *
  * Outline positions are updated in two ways:
  * 1. `useLayoutEffect` fires on every React render for initial/settled layout.
- * 2. A `requestAnimationFrame` loop runs while `animatingRef.current > 0`,
- *    measuring positions every frame and mutating outline div styles directly
- *    (no setState) so Motion animations are tracked without triggering re-renders.
+ * 2. A `requestAnimationFrame` loop runs continuously for as long as this
+ *    component is mounted (i.e. for as long as `debug` is enabled — F6 item
+ *    1 fix), measuring positions every frame and mutating outline div styles
+ *    directly (no setState) so Motion animations are tracked without
+ *    triggering re-renders. Previously gated on a `animatingRef.current > 0`
+ *    counter fed by `onAnimationStart`/`onLayoutAnimationStart` callbacks —
+ *    those only fire for DECLARATIVE `animate`-prop transitions with the
+ *    callback actually wired up (SceneColumn's opacity/x/y/filter + layout
+ *    FLIP + marginTop), never for the S3+ imperative motion pipeline
+ *    (topOffsetMV, zMV, scrollY, cameraX, SceneObject's within-column
+ *    topMV) or for SceneObject's own declarative opacity/z/filter animate
+ *    (which was never wired to any onAnimationStart callback at all).
+ *    Probe-confirmed on the dev app's Debug mode demo: an object's outline
+ *    froze at its pre-transition position for an entire ~330ms swap and
+ *    never caught up even after the real object settled, because nothing
+ *    ever incremented the counter for that transition. ActiveSpringsSection
+ *    below already reaches this same conclusion for its own per-frame
+ *    readouts and runs continuously for exactly this reason — this mirrors
+ *    that established pattern rather than inventing a new one.
  */
 function SceneObjectOutlines({
   viewportRef,
-  animatingRef,
 }: {
   viewportRef: React.RefObject<HTMLDivElement | null>;
-  /** Counter incremented on animation start, decremented on end. rAF loop
-   *  runs while this is > 0. Owned by SceneViewport. */
-  animatingRef: React.RefObject<number>;
 }) {
   // Outline div refs, keyed by object name. Direct DOM mutation during rAF.
   const outlineRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -765,54 +808,21 @@ function SceneObjectOutlines({
     measureAndUpdate();
   });
 
-  // rAF loop: run while animations are in flight to track motion between renders.
-  const rafIdRef = useRef<number | null>(null);
-
-  const startRaf = useCallback(() => {
-    if (rafIdRef.current !== null) return; // already running
-    const loop = () => {
-      measureAndUpdate();
-      if (animatingRef.current > 0) {
-        rafIdRef.current = requestAnimationFrame(loop);
-      } else {
-        // One final measurement after animations settle.
-        measureAndUpdate();
-        rafIdRef.current = null;
-      }
-    };
-    rafIdRef.current = requestAnimationFrame(loop);
-  }, [measureAndUpdate, animatingRef]);
-
-  // Expose startRaf so SceneViewport can trigger it when animations start.
-  // Store it on a stable ref so SceneViewport can call it without re-renders.
-  const startRafRef = useRef(startRaf);
-  useLayoutEffect(() => {
-    startRafRef.current = startRaf;
-  }, [startRaf]);
-
-  // Clean up the rAF loop when the component unmounts.
+  // F6 item 1 fix: rAF loop runs continuously for as long as this component
+  // is mounted (i.e. for as long as `debug` is enabled), mirroring
+  // ActiveSpringsSection's own established continuous pattern below —
+  // matches Motion's per-frame imperative writes with no external trigger
+  // needed. Debug-only, so the per-frame cost never reaches the production
+  // path; it doesn't mutate React state or the scene's own layout (only
+  // this overlay div's own style, pointer-events: none), so it doesn't
+  // reopen the "debug does not affect layout" bar (F4 commit 1).
   useEffect(() => {
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-  }, []);
-
-  // Expose startRafRef to the parent via a side-channel ref. SceneViewport
-  // passes an outlineStartRafRef that we populate here.
-  const startRafCallbackRef = useContext(OutlineRafCallbackContext);
-  useLayoutEffect(() => {
-    if (startRafCallbackRef) {
-      startRafCallbackRef.current = () => startRafRef.current();
-    }
-    return () => {
-      if (startRafCallbackRef) {
-        startRafCallbackRef.current = null;
-      }
-    };
-  }, [startRafCallbackRef]);
+    let rafId = requestAnimationFrame(function loop() {
+      measureAndUpdate();
+      rafId = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [measureAndUpdate]);
 
   return (
     <>
@@ -863,12 +873,6 @@ function SceneObjectOutlines({
     </>
   );
 }
-
-/**
- * Side-channel context that lets SceneObjectOutlines hand its `startRaf`
- * function up to SceneViewport without prop drilling through debug conditionals.
- */
-const OutlineRafCallbackContext = createContext<React.MutableRefObject<(() => void) | null> | null>(null);
 
 /**
  * Debug overlay section listing every currently-registered MotionValue on
@@ -1354,13 +1358,14 @@ function SceneViewport({
   const firstPaintRef = useContext(SceneFirstPaintContext);
 
   // Counter tracking how many Motion animations are currently in flight.
-  // The debug outline rAF loop runs while this is > 0. Using a ref (not state)
-  // so increment/decrement don't trigger React re-renders.
+  // Tracks in-flight DECLARATIVE `animate`-prop transitions on SceneColumn's
+  // own divs (opacity/x/y/filter, layout FLIP, marginTop) via onStart/onEnd
+  // below. NOT used to gate the debug outline rAF loop anymore (F6 item 1
+  // fix — SceneObjectOutlines now runs continuously while mounted; this
+  // counter never covered the S3+ imperative motion pipeline in the first
+  // place, which is why the outline went stale). Using a ref (not state) so
+  // increment/decrement don't trigger React re-renders.
   const animatingRef = useRef(0);
-
-  // Side-channel ref populated by SceneObjectOutlines with its startRaf function.
-  // Calling this kicks off the rAF loop when an animation starts.
-  const outlineStartRafRef = useRef<(() => void) | null>(null);
 
   // motionSeam: reads whatever a TEST harness has already wrapped
   // MotionSeamContext.Provider with (S7 pinning seam — see motionSeam.ts),
@@ -1388,7 +1393,6 @@ function SceneViewport({
     ? {
         onStart: () => {
           animatingRef.current += 1;
-          outlineStartRafRef.current?.();
         },
         onEnd: () => {
           animatingRef.current = Math.max(0, animatingRef.current - 1);
@@ -1938,12 +1942,7 @@ function SceneViewport({
                 pointerEvents: "none",
               }}
             >
-              <OutlineRafCallbackContext.Provider value={outlineStartRafRef}>
-                <SceneObjectOutlines
-                  viewportRef={viewportRef}
-                  animatingRef={animatingRef}
-                />
-              </OutlineRafCallbackContext.Provider>
+              <SceneObjectOutlines viewportRef={viewportRef} />
               <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
               <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
               <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />

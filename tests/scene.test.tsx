@@ -9,7 +9,7 @@ import { StackDepthContext } from "../src/components/scene/StackDepthContext";
 import { DepthDeckContext } from "../src/components/scene/DepthDeckContext";
 import { ViewportContext } from "../src/components/scene/ViewportContext";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame, wait, createMotionSeamRecorder } from "./utils/animation";
+import { waitForAnimationFrame, wait, createMotionSeamRecorder, waitForAnimationsToSettle } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1886,6 +1886,83 @@ describe("Scene debug — SceneObject outlines", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     const outlines = scene.querySelectorAll("[data-debug-object-outline]");
     expect(outlines.length).toBe(0);
+  });
+
+  test("Debug — object outline's rAF re-measure loop runs continuously while mounted, not gated on declarative animation activity (F6 item 1)", async () => {
+    // Root cause (probe-confirmed on the dev app's Debug mode demo): the
+    // outline's rAF re-measure loop used to be gated on an `animatingRef`
+    // counter fed only by onAnimationStart/onLayoutAnimationStart callbacks
+    // wired to DECLARATIVE `animate`-prop transitions. A within-column
+    // swap's `top` offset (topOffsetMV) is driven entirely by the S3+
+    // imperative motion pipeline (`animate(topOffsetMV, ...)`, no
+    // onAnimationStart-wired prop) — nothing ever incremented the counter,
+    // so the outline froze at its pre-swap position for the whole
+    // transition and never caught up even after the real object settled
+    // (probe measured a max delta of 72px, persisting the entire ~330ms
+    // transition on the real dev app).
+    //
+    // This asserts the fix's actual, direct claim — the rAF loop runs
+    // unconditionally while `debug` is enabled, not "does some declarative
+    // transition happen to also cover it" — rather than reproducing a
+    // specific transition. That's deliberate: probe-verified during
+    // development that a rect-comparison test built around a real
+    // topOffsetMV-driven swap could NOT reliably discriminate fixed from
+    // unfixed code in this test harness, because a same-column swap's
+    // `layout` FLIP prop (still correctly wired to onLayoutAnimationStart)
+    // tends to also fire for incidental sub-pixel shifts during the swap,
+    // masking the topOffsetMV-specific gap even on the pre-fix code. The
+    // rAF-call-rate signature below is immune to that: it holds the scene
+    // completely static (nothing ever transitions, declaratively or
+    // imperatively) after the initial settle, so `animatingRef` genuinely
+    // never leaves 0 — any rAF loop still firing every frame in that
+    // window must be a continuous one, not one gated on real animation
+    // activity. Counts window.requestAnimationFrame call *rate* (not
+    // component-internal state) — a debug-only signal, no production code
+    // instrumentation needed.
+    let rafCount = 0;
+    const originalRaf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      rafCount++;
+      return originalRaf(cb);
+    };
+
+    try {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0} debug>
+            <SceneColumn name="col">
+              <SceneObject name="obj-a" focused>
+                <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      // Let mount-time renders settle before establishing a baseline.
+      await waitForAnimationFrame();
+      await waitForAnimationFrame();
+      await waitForAnimationFrame();
+
+      rafCount = 0;
+      const framesToSample = 5;
+      for (let i = 0; i < framesToSample; i++) {
+        await waitForAnimationFrame();
+      }
+
+      // this test's own waitForAnimationFrame() calls contribute exactly
+      // `framesToSample` — anything beyond that came from continuous debug
+      // loops (ActiveSpringsSection, PaintOrderBadges, and — with the fix —
+      // SceneObjectOutlines/StageBoundsOutline/StrayChildFlags).
+      const continuousLoopCallsPerFrame = rafCount / framesToSample - 1;
+
+      // Before the fix: only ActiveSpringsSection + PaintOrderBadges run
+      // continuously (2). After: + SceneObjectOutlines + StageBoundsOutline
+      // + StrayChildFlags (5 total) — a clear, non-adjacent threshold.
+      expect(continuousLoopCallsPerFrame).toBeGreaterThanOrEqual(5);
+    } finally {
+      window.requestAnimationFrame = originalRaf;
+    }
   });
 });
 
