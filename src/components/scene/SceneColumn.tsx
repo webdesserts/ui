@@ -10,7 +10,7 @@ import React, {
 } from "react";
 import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
-import { useSceneConfig } from "./useSceneConfig";
+import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
@@ -291,12 +291,9 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // slowMo → lazier spring parameters for animation snapshot testing.
   // Declared early (rather than inline near its original JSX use) so the
   // motion pipeline below (driveScrollYRef) can close over it.
-  const transition =
-    duration === 0
-      ? { duration: 0 }
-      : slowMo
-        ? { type: "spring" as const, stiffness: 30, damping: 8 }
-        : { type: "spring" as const, stiffness, damping };
+  // computeSceneTransition (useSceneConfig.tsx) — shared with SceneObject,
+  // was duplicated inline here before Scene F2 C2's DRY extraction.
+  const transition = computeSceneTransition({ duration, slowMo, stiffness, damping });
 
   // A4 first-paint gate: tracks whether this column instance has EVER seen a
   // real (nonzero) effectiveViewportHeight — the LAST-arriving piece of a

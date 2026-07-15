@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { Transition } from "motion/react";
 
 export const DEFAULT_STIFFNESS = 300;
 export const DEFAULT_DAMPING = 30;
@@ -54,4 +55,27 @@ export const SceneConfigContext = createContext<SceneConfig>(defaultConfig);
 /** Returns the current Scene configuration. */
 export function useSceneConfig(): SceneConfig {
   return useContext(SceneConfigContext);
+}
+
+/**
+ * Computes the transition used for Scene's spring-driven animations
+ * (column depth-deck treatment, within-column depth-deck treatment, swap
+ * offsets, camera pan) from the current SceneConfig. Shared by SceneColumn
+ * and SceneObject so both apply the SAME duration=0/slowMo/real-spring
+ * rules — previously duplicated inline in SceneColumn, DRY'd here (Scene
+ * F2 C2).
+ *
+ * - duration===0 (tests): instant, no spring — `{ duration: 0 }`.
+ * - slowMo (animation snapshot testing): the SAME spring type but much
+ *   lazier stiffness/damping, so a test can freeze mid-transition.
+ * - otherwise: the configured spring (stiffness/damping).
+ */
+export function computeSceneTransition(
+  config: Pick<SceneConfig, "duration" | "slowMo" | "stiffness" | "damping">,
+): Transition {
+  return config.duration === 0
+    ? { duration: 0 }
+    : config.slowMo
+      ? { type: "spring", stiffness: 30, damping: 8 }
+      : { type: "spring", stiffness: config.stiffness, damping: config.damping };
 }

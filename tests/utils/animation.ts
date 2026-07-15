@@ -213,7 +213,9 @@ export function pinAllRegisteredAnimations(
 
 /**
  * A single ground-truth paint-order reading between two elements ("a" and
- * "b") at one fraction of an in-progress transition.
+ * "b") at one fraction of an in-progress transition (or a real elapsed-time
+ * sample — see `sampleLivePaintOrder` — in which case `fraction` is just a
+ * sample index, not a proportion of a pinned duration).
  */
 export interface PaintOrderSample {
   fraction: number;
@@ -228,6 +230,57 @@ export interface PaintOrderSample {
 }
 
 /**
+ * Ground-truth paint-order reading between two elements' CURRENT (live)
+ * rects — no freezing/pinning, just `document.elementFromPoint` against
+ * whatever is on screen right now. Tried at a 5x5 grid across the
+ * intersection (inset so no point sits exactly on a border pixel) — the
+ * first point hitting either element (not a third, unrelated occluder)
+ * wins. A single center-point probe proved insufficient in a dense
+ * multi-object scene where a THIRD sibling can occlude most of an A/B
+ * intersection at once; a denser search is cheap (elementFromPoint is
+ * fast) and dramatically cuts the chance every candidate lands under the
+ * same occluder.
+ */
+function readPaintOrderOnce(
+  index: number,
+  elA: HTMLElement,
+  elB: HTMLElement,
+): PaintOrderSample {
+  const rectA = elA.getBoundingClientRect();
+  const rectB = elB.getBoundingClientRect();
+  const left = Math.max(rectA.left, rectB.left);
+  const right = Math.min(rectA.right, rectB.right);
+  const top = Math.max(rectA.top, rectB.top);
+  const bottom = Math.min(rectA.bottom, rectB.bottom);
+  const overlapping = left < right && top < bottom;
+
+  let topElement: "a" | "b" | null = null;
+  if (overlapping) {
+    const w = right - left;
+    const h = bottom - top;
+    const candidates: Array<[number, number]> = [];
+    for (let gy = 1; gy <= 5; gy++) {
+      for (let gx = 1; gx <= 5; gx++) {
+        candidates.push([left + (w * gx) / 6, top + (h * gy) / 6]);
+      }
+    }
+    for (const [x, y] of candidates) {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) continue;
+      if (elA.contains(hit)) {
+        topElement = "a";
+        break;
+      }
+      if (elB.contains(hit)) {
+        topElement = "b";
+        break;
+      }
+    }
+  }
+  return { fraction: index, overlapping, topElement };
+}
+
+/**
  * Samples Michael's ruled paint-order invariant across a set of fractions
  * (0–1) of an in-progress transition: two objects overlapping in 2D screen
  * space must never change which one paints on top; z-crossings are only
@@ -236,16 +289,24 @@ export interface PaintOrderSample {
  * At each fraction, pins every WAAPI track under `container` (freezeAnimationsAt)
  * and — when `recorder` is supplied — every rAF-driven MotionValue track
  * registered on the motion seam (pinAllRegisteredAnimations), so both classes
- * of animation read as "the same instant" for the sample. Ground truth is
- * `document.elementFromPoint` at the midpoint of the two elements' rect
- * intersection — real browser hit-testing, not translateZ value inference —
- * matching this codebase's DOM-truth measurement philosophy (see
- * SceneColumn's remeasureGeometry rect-delta technique).
+ * of animation read as "the same instant" for the sample, then reads ground
+ * truth via `readPaintOrderOnce` (real elementFromPoint hit-testing, not
+ * translateZ value inference — matching this codebase's DOM-truth
+ * measurement philosophy, see SceneColumn's remeasureGeometry rect-delta
+ * technique).
  *
  * Repeated calls to freezeAnimationsAt/pinAllRegisteredAnimations across
  * fractions re-scrub the same already-paused tracks (currentTime/.time are
  * freely settable), so samples can be taken in any order without an
  * unfreeze step between them.
+ *
+ * PREFER `sampleLivePaintOrder` for a transition that spans multiple
+ * distinct real animations (e.g. several MotionValues that don't all start
+ * in the same commit) — freeze/pin assumes every track's "fraction X of its
+ * own duration" lines up with the same real instant, which breaks down
+ * under heavy concurrent test-suite load (probe-confirmed: reliable in
+ * isolation, reproducibly wrong under full-suite load — the same class of
+ * wall-clock race documented on refocus-from-depth-deck-mid-spring).
  */
 export function samplePaintOrder(
   container: HTMLElement,
@@ -258,40 +319,53 @@ export function samplePaintOrder(
   for (const fraction of fractions) {
     freezeAnimationsAt(container, fraction, { subtree: true });
     if (recorder) pinAllRegisteredAnimations(recorder, fraction);
+    samples.push({ ...readPaintOrderOnce(0, elA, elB), fraction });
+  }
+  return samples;
+}
 
-    const rectA = elA.getBoundingClientRect();
-    const rectB = elB.getBoundingClientRect();
-    const left = Math.max(rectA.left, rectB.left);
-    const right = Math.min(rectA.right, rectB.right);
-    const top = Math.max(rectA.top, rectB.top);
-    const bottom = Math.min(rectA.bottom, rectB.bottom);
-    const overlapping = left < right && top < bottom;
-
-    let topElement: "a" | "b" | null = null;
-    if (overlapping) {
-      const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
-      if (hit) {
-        if (elA.contains(hit)) topElement = "a";
-        else if (elB.contains(hit)) topElement = "b";
-      }
-    }
-    samples.push({ fraction, overlapping, topElement });
+/**
+ * Samples Michael's ruled paint-order invariant across REAL elapsed time —
+ * one `document.elementFromPoint` reading per animation frame, no
+ * freeze/pin at all. Robust to the wall-clock race `samplePaintOrder`
+ * (freeze/pin at a fixed fraction) is vulnerable to under concurrent
+ * suite load: this just observes whatever is actually on screen at each
+ * real frame, the same robustness principle as this file's own
+ * poll-until-converged numeric sampling pattern.
+ *
+ * Awaits `waitForAnimationFrame` between reads — caller supplies `frames`
+ * (how many real frames to sample).
+ */
+export async function sampleLivePaintOrder(
+  elA: HTMLElement,
+  elB: HTMLElement,
+  frames: number,
+): Promise<PaintOrderSample[]> {
+  const samples: PaintOrderSample[] = [];
+  for (let i = 0; i < frames; i++) {
+    await waitForAnimationFrame();
+    samples.push(readPaintOrderOnce(i, elA, elB));
   }
   return samples;
 }
 
 /**
  * Asserts Michael's ruled paint-order invariant against samples taken by
- * `samplePaintOrder`: consecutive OVERLAPPING samples must agree on which
- * element paints on top. A non-overlapping sample resets the check — a
- * paint-order swap is legitimate once the pair is disjoint. `labelA`/`labelB`
- * name the two elements in the thrown message (test-authored, e.g. "middle-a"
- * / "left").
+ * `samplePaintOrder`/`sampleLivePaintOrder`: consecutive OVERLAPPING samples
+ * must agree on which element paints on top. A non-overlapping sample
+ * resets the check — a paint-order swap is legitimate once the pair is
+ * disjoint. `labelA`/`labelB` name the two elements in the thrown message
+ * (test-authored, e.g. "middle-a" / "left").
  *
- * Throws (rather than returning a boolean) so a violation surfaces as a test
- * failure with the exact offending fraction and the "topElement: null while
- * overlapping" case (hit point landed on neither element — a setup bug, not
- * a real invariant violation) named distinctly from an actual order swap.
+ * A sample whose hit point landed on NEITHER element (a third, unrelated
+ * sibling fully occludes the A/B intersection at that instant — a real,
+ * legitimate outcome in a scene with more than two overlapping bodies, not
+ * a measurement bug) resets the check the same as a non-overlapping sample
+ * — we simply have no A-vs-B information for that instant, so nothing is
+ * asserted about it.
+ *
+ * Throws (rather than returning a boolean) so a genuine violation surfaces
+ * as a test failure with the exact offending fraction.
  */
 export function assertPaintOrderInvariant(
   samples: PaintOrderSample[],
@@ -300,14 +374,9 @@ export function assertPaintOrderInvariant(
 ): void {
   let lastOverlappingTop: "a" | "b" | null = null;
   for (const sample of samples) {
-    if (!sample.overlapping) {
+    if (!sample.overlapping || sample.topElement === null) {
       lastOverlappingTop = null;
       continue;
-    }
-    if (sample.topElement === null) {
-      throw new Error(
-        `assertPaintOrderInvariant: at fraction ${sample.fraction}, "${labelA}" and "${labelB}" overlap but elementFromPoint hit neither element`,
-      );
     }
     if (lastOverlappingTop !== null && sample.topElement !== lastOverlappingTop) {
       const from = lastOverlappingTop === "a" ? labelA : labelB;

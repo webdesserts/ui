@@ -35,6 +35,7 @@ import {
   createMotionSeamRecorder,
   pinAllRegisteredAnimations,
   samplePaintOrder,
+  sampleLivePaintOrder,
   assertPaintOrderInvariant,
 } from "../utils/animation";
 
@@ -904,6 +905,196 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
     );
     await waitForAnimationFrame();
     await expect.element(page.elementLocator(container)).toMatchScreenshot();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H8 (Scene F2 C2): within-column depth-deck SPRING regressions.
+//
+// Michael's live report: "scene object animation within the stack is still
+// broken" — SceneObject's within-depth branch renders opacity/filter/
+// translateZ/top as a plain inline `style` on a plain `div`, so a depth
+// change (or ejecting from/entering the deck) SNAPS instantly instead of
+// springing, unlike SceneColumn's own depth-deck treatment (which moved to
+// motion.div + animate={} back in Bug 2b's fix).
+//
+// Numeric sampling (getComputedStyle across real rAF frames), NOT
+// screenshots — the depth-deck bug-fix regressions describe block above
+// just spent a long investigation discovering that real-wall-clock
+// screenshot mid-spring capture races Node-side test-orchestration delay
+// under full-suite load; a numeric assertion of monotonic progression
+// sidesteps that whole class of fragility (mirrors this file's own S3
+// topOffsetMV regression test, tests/scene.test.tsx, which samples
+// rendered `top` across rAF frames rather than screenshotting).
+// ---------------------------------------------------------------------------
+
+describe("within-column depth-deck spring regressions (H8)", () => {
+  it("depth-reshape-mid-spring", async () => {
+    // A (focused, permanent anchor) — X (unfocused, the test subject) — M
+    // (unfocused, toggled) — Y (focused, permanent anchor). Initially X's
+    // nearer focused sibling is Y (2 objects away: X, M both between A and
+    // Y) — X sits at depth-2. Focusing M makes M the new nearer anchor (only
+    // X is between A and M) — X's depth drops to depth-1 (opacity
+    // 0.6→0.8, grayscale 0.5→0.25, translateZ -200→-100, and a new,
+    // shallower anchorTop). A real (slowMo) spring should show OPACITY
+    // pass through intermediate values on the way — a plain-div snap would
+    // jump straight to 0.8 on the very first sampled frame.
+    document.documentElement.style.colorScheme = "dark";
+    const panelStyle: React.CSSProperties = {
+      width: 300,
+      height: 150,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontFamily: "monospace",
+      fontSize: 13,
+    };
+    const scene = (mFocused: boolean, slow: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={slow ? undefined : 0} slowMo={slow}>
+          <SceneColumn name="content">
+            <SceneObject name="a" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+            </SceneObject>
+            <SceneObject name="x" focused={false}>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+            </SceneObject>
+            <SceneObject name="m" focused={mFocused}>
+              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+            </SceneObject>
+            <SceneObject name="y" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+    const { container, rerender } = await render(scene(false, false));
+    await waitForAnimationFrame();
+
+    const xEl = () => container.querySelector('[data-scene-id="x"]') as HTMLElement;
+    // Sanity: starts at depth-2 (opacity 0.6, per depth.ts's formula).
+    expect(Number(getComputedStyle(xEl()).opacity)).toBeCloseTo(0.6, 2);
+
+    // Focus M with a real (slowMo) spring — X's depth drops 2→1. Sample
+    // until convergence (bounded) rather than a fixed frame count — slowMo's
+    // stiffness:30/damping:8 spring (zeta≈0.73) takes roughly a second to
+    // settle, well beyond a handful of rAF frames.
+    await rerender(scene(true, true));
+
+    const samples: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      await waitForAnimationFrame();
+      const v = Number(getComputedStyle(xEl()).opacity);
+      samples.push(v);
+      if (Math.abs(v - 0.8) < 0.005) break;
+    }
+
+    const finalValue = samples[samples.length - 1]!;
+    expect(finalValue).toBeCloseTo(0.8, 2);
+    // The regression bar: at least one sampled frame must be a genuine
+    // intermediate value BETWEEN the start (0.6) and the settled end
+    // (finalValue) — not equal to either. A plain-div snap has every
+    // sample equal finalValue starting from frame 1.
+    const hasIntermediateSample = samples.some(
+      (v) => v > 0.6 + 0.005 && v < finalValue - 0.005,
+    );
+    expect(hasIntermediateSample).toBe(true);
+  });
+
+  // H8 risk 3 (F2 C2, binding per the plan): the Y-axis analog of C1's H5
+  // paint-order invariant test — a within-column depth card peeks ABOVE its
+  // anchor sibling by design (A5's pull-out-direction principle), a real
+  // vertical 2D overlap, not just a hypothetical one. Reuses
+  // sampleLivePaintOrder/assertPaintOrderInvariant (tests/utils/animation.ts)
+  // against the SAME depth-reshape transition as depth-reshape-mid-spring
+  // above (X: depth-2→depth-1 as M focuses) — X must never paint in front
+  // of a sibling it's still overlapping mid-spring.
+  //
+  // Uses LIVE sampling (real animation frames, no freeze/pin) rather than
+  // C1's H5 test's freeze-at-a-fraction approach — probe-confirmed the
+  // freeze/pin approach is unreliable here under full-suite concurrent
+  // load (assumes every track's "fraction X of its own duration" lines up
+  // with the same real instant, which breaks down under heavy scheduling
+  // delay — the same wall-clock race class documented on
+  // refocus-from-depth-deck-mid-spring), while polling real frames until
+  // convergence (matching depth-reshape-mid-spring's own approach) proved
+  // robust.
+  //
+  // Like C1's H5 test, this is a GREEN regression guard, not a
+  // red-before/green-after pin for the objectDepthAnimate fix specifically
+  // — defeat-checked (objectDepthAnimate forced to undefined) and it
+  // stayed green: with no z differentiation at all, every object sits at
+  // z:0 (browser default), so DOM order alone already keeps paint order
+  // consistent (X's `top` position still springs via topMV regardless of
+  // objectDepthAnimate, so X still moves through the same overlap
+  // geometry — it just isn't visually dimmed/receded while doing so).
+  // depth-reshape-mid-spring above IS the decisive defeat-check for that
+  // fix (confirmed red on the same sever). This test's job is Michael's
+  // invariant as a standing structural guarantee, independent of whether
+  // it happens to be provably load-bearing against today's specific bug.
+  it("depth-reshape-paint-order-invariant", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const panelStyle: React.CSSProperties = {
+      width: 300,
+      height: 150,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontFamily: "monospace",
+      fontSize: 13,
+    };
+    const scene = (mFocused: boolean, slow: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={slow ? undefined : 0} slowMo={slow}>
+          <SceneColumn name="content">
+            <SceneObject name="a" focused>
+              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+            </SceneObject>
+            <SceneObject name="x" focused={false}>
+              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+            </SceneObject>
+            <SceneObject name="m" focused={mFocused}>
+              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+            </SceneObject>
+            <SceneObject name="y" focused>
+              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+    const { container, rerender } = await render(scene(false, false));
+    await waitForAnimationFrame();
+
+    await rerender(scene(true, true));
+
+    const xEl = container.querySelector('[data-scene-id="x"]') as HTMLElement;
+    const aEl = container.querySelector('[data-scene-id="a"]') as HTMLElement;
+    const mEl = container.querySelector('[data-scene-id="m"]') as HTMLElement;
+    const yEl = container.querySelector('[data-scene-id="y"]') as HTMLElement;
+
+    const [vsA, vsM, vsY] = await Promise.all([
+      sampleLivePaintOrder(xEl, aEl, 90),
+      sampleLivePaintOrder(xEl, mEl, 90),
+      sampleLivePaintOrder(xEl, yEl, 90),
+    ]);
+
+    // Anti-vacuity: at least one sample across all three pairings must
+    // resolve to an ACTUAL topElement (not just "overlapping" — a sample
+    // where a third sibling fully occludes both counts as overlapping but
+    // is skipped by assertPaintOrderInvariant, checking nothing), or this
+    // test would pass trivially with no real A-vs-B information ever
+    // checked (probe-confirmed real, resolvable overlap exists — X peeks
+    // above its anchor by design, A5's pull-out-direction principle).
+    const allSamples = [...vsA, ...vsM, ...vsY];
+    expect(allSamples.some((s) => s.overlapping)).toBe(true);
+    expect(allSamples.some((s) => s.topElement !== null)).toBe(true);
+    assertPaintOrderInvariant(vsA, "x", "a");
+    assertPaintOrderInvariant(vsM, "x", "m");
+    assertPaintOrderInvariant(vsY, "x", "y");
   });
 });
 
