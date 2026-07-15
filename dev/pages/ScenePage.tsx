@@ -1,6 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Scene, SceneColumn, SceneObject, useCamera } from "../../src";
+import {
+  Scene,
+  SceneColumn,
+  SceneObject,
+  useCamera,
+  DEFAULT_STIFFNESS,
+  DEFAULT_DAMPING,
+  DEFAULT_COLUMN_GAP,
+  DEFAULT_PERSPECTIVE,
+} from "../../src";
 import { Button } from "../../src";
 
 // ---------------------------------------------------------------------------
@@ -686,10 +695,10 @@ export interface SceneTuning {
 }
 
 const defaultTuning: SceneTuning = {
-  stiffness: 300,
-  damping: 30,
-  perspective: 800,
-  columnGap: 8,
+  stiffness: DEFAULT_STIFFNESS,
+  damping: DEFAULT_DAMPING,
+  perspective: DEFAULT_PERSPECTIVE,
+  columnGap: DEFAULT_COLUMN_GAP,
   padding: 0,
 };
 
