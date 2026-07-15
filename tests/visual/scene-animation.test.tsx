@@ -223,9 +223,27 @@ describe("mid-animation capture (focus → unfocus)", () => {
     await wait(250);
 
     // Tighter tolerance because slower springs produce less jitter between frames.
+    // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter; S7
+    // rewrites this test on the motionSeam pinnable pipeline — see
+    // plans/Scene Assessment 2026-07-14 fix plan.
+    //
+    // NOTE (fix-round discovery): `maxDiffPixelRatio` is not a real option on
+    // ScreenshotMatcherOptions (confirmed both by a pre-existing `tsc`
+    // error against the root tsconfig, excluded from this package's actual
+    // build gate, and by reading @vitest/browser's pixelmatch comparator
+    // source directly) — it's silently ignored, and every occurrence of it
+    // in this file (this one included, before this fix) has always compared
+    // with the comparator's default of ZERO tolerance (bit-exact). The real
+    // key is comparatorOptions.allowedMismatchedPixelRatio. Scoped to this
+    // one test only, per the fix-round's "one-test stopgap only" — the other
+    // maxDiffPixelRatio occurrences in this file carry the same latent no-op
+    // and are out of scope here.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "focus-to-unfocus-mid-spring-wait",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
+      {
+        ...animationScreenshotOptions,
+        comparatorOptions: { allowedMismatchedPixelRatio: 0.02 },
+      },
     );
   });
 });

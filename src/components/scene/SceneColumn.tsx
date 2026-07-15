@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { animate, motion, useMotionValue, useTransform, useVelocity } from "motion/react";
+import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
@@ -291,12 +291,16 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
   // for inertia's min/max in commit 2.
   const scrollY = useMotionValue(0);
-  // Tracks scrollY's velocity from BOTH animate()-driven ticks and manual
-  // .set() calls (probe-confirmed at source: MotionValue.getVelocity() uses
-  // prevFrameValue/prevUpdatedAt, populated by updateAndNotify on every
-  // .set() regardless of caller — not animation-specific) — this is what
-  // lets touch release compute a real release velocity for inertia below.
-  const scrollVelocity = useVelocity(scrollY);
+  // Release velocity is read via scrollY.getVelocity() directly at release
+  // time (not useVelocity(scrollY)) — probe-confirmed (fix-round,
+  // residual-velocity re-fling): useVelocity's derived value is a CACHED
+  // signal that only refreshes on a "change" event or an elapsed animation
+  // frame tick, neither of which happens in a same-tick grab->release (a
+  // fast tap during a coasting fling) — it would keep reporting the fling's
+  // pre-grab velocity indefinitely in that case. getVelocity() is always
+  // computed fresh with no caching, so it correctly reflects
+  // scrollY.jump()'s velocity-tracking reset (see handleContentPointerDown)
+  // even within the same synchronous tick.
   const motionSeam = useMotionSeam();
   useEffect(() => {
     motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
@@ -972,7 +976,17 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       // source: MotionValue.set() never calls .stop()). A coasting inertia
       // fling from a prior release could still be running here, so it must
       // be stopped explicitly before 1:1 tracking begins.
-      scrollY.stop();
+      // jump() (not stop()) — fix-round, residual-velocity re-fling defect:
+      // .stop() halts the animation but leaves scrollY's internal velocity-
+      // tracking state (prevFrameValue/prevUpdatedAt) untouched, so a grab
+      // followed by a release within motion's MAX_VELOCITY_DELTA (30ms)
+      // window would still read the fling's PRE-GRAB velocity and re-fling
+      // on release even though the finger never moved. jump(currentValue)
+      // resets that tracking state (probe-confirmed: getVelocity() reads 0
+      // immediately after, even within the same synchronous tick) while
+      // also stopping the animation (jump's endAnimation default calls
+      // .stop() internally) — a strict superset of the old .stop() call.
+      scrollY.jump(scrollY.get());
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
     [columnFocused, isScrollable, scrollY],
@@ -1020,11 +1034,54 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       if (duration === 0) {
         // Instant mode: inertia has no meaningful instant equivalent — just
         // settle at the clamped release position (forecast-gate plan §2).
-        scrollY.set(releaseOffset);
+        // Clamped defensively — instant mode never runs a fling (this whole
+        // branch returns before the inertia code below), so scrollY
+        // shouldn't normally be out of bounds here, but the same bound-on-
+        // release invariant as the real-mode path below applies if it ever is.
+        scrollY.set(Math.max(0, Math.min(maxScrollRef.current, releaseOffset)));
         return;
       }
 
-      const velocity = scrollVelocity.get();
+      // scrollY.getVelocity() called directly, NOT a cached useVelocity()
+      // derived value — fix-round, residual-velocity re-fling defect: a
+      // cached value only refreshes on a scrollY "change" event or an
+      // elapsed animation frame tick, neither of which is guaranteed to have
+      // happened yet in a fast grab->release (probe-confirmed: it would
+      // still read the pre-grab fling's velocity indefinitely in a same-tick
+      // sequence). getVelocity() is always computed fresh, so it correctly
+      // reflects handleContentPointerDown's scrollY.jump() reset above.
+      const velocity = scrollY.getVelocity();
+
+      // Fix-round round 2 (gate finding: 203px drift on a genuinely
+      // zero-velocity release): a fresh type:"inertia" animation's
+      // checkCatchBoundary(0) engages its boundary-catch spring at GENERATOR
+      // CREATION TIME whenever the STARTING keyframe is out of [min,max]
+      // bounds — completely independent of the passed velocity (probe-
+      // confirmed at source: animate(y, [2029], {type:"inertia", velocity:0,
+      // max:1200,...}) still springs 2029->1366 over 300ms). scrollY CAN
+      // legitimately sit out of bounds here: it's a snapshot of wherever a
+      // PRIOR fling's own rubber-band overshoot was at the exact moment this
+      // grab's jump() froze it (the plan's "clamped rubber-band" physics can
+      // transiently exceed maxScroll before its own boundary spring pulls it
+      // back — a real, verified C4 behavior, not a bug). A genuinely
+      // zero-velocity release means the user imparted no momentum, so no
+      // inertia/friction decay is warranted here — but the strip must still
+      // never come to rest permanently past its scrollable edge (iOS
+      // convention; the spec's Touch scenario: "overscroll past the scroll
+      // bounds should be clamped"). So: in bounds → leave it exactly where
+      // jump() froze it (nothing to correct); out of bounds → spring back to
+      // the nearest edge, the same correction an uninterrupted fling's own
+      // boundary-catch would eventually have applied.
+      if (Math.abs(velocity) < 0.01) {
+        const current = scrollY.get();
+        const clamped = Math.max(0, Math.min(maxScrollRef.current, current));
+        if (current !== clamped) {
+          const controls = animate(scrollY, clamped, transition);
+          motionSeam?.registerControls(`scrollY:${name}`, controls);
+        }
+        return;
+      }
+
       // NOTE: deviates from the plan's literal
       // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
       // that resolves internally to keyframes=[null, undefined], which
@@ -1046,7 +1103,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       });
       motionSeam?.registerControls(`scrollY:${name}`, controls);
     },
-    [duration, scrollY, scrollVelocity, stiffness, damping, motionSeam, name],
+    [duration, scrollY, stiffness, damping, motionSeam, name, transition],
   );
 
   return (
