@@ -13,9 +13,15 @@ import "@/dev/main.css";
 export function TestWrapper({
   children,
   fullPage,
+  width,
+  height,
 }: {
   children: React.ReactNode;
   fullPage?: boolean;
+  /** Overrides fullPage's default 1280px width (test-only — e.g. mobile snapshots). */
+  width?: number;
+  /** Overrides fullPage's default 800px height (test-only — e.g. mobile snapshots). */
+  height?: number;
 }) {
   const shrinkContainer = useCallback((el: HTMLDivElement | null) => {
     if (el?.parentElement && !fullPage) {
@@ -29,7 +35,7 @@ export function TestWrapper({
       className="bg-surface-base text-text-primary antialiased"
       style={
         fullPage
-          ? { width: "1280px", height: "800px", overflow: "hidden" }
+          ? { width: `${width ?? 1280}px`, height: `${height ?? 800}px`, overflow: "hidden" }
           : { padding: "1rem" }
       }
     >
