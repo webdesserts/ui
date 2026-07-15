@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
-import { StrictMode, useState } from "react";
+import { StrictMode, useLayoutEffect, useState } from "react";
 import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
@@ -3159,6 +3159,79 @@ describe("Scene first paint at rest (A4)", () => {
 
     for (const sample of samples) {
       expect(sample).toBe(samples[0]);
+    }
+  });
+
+  test("a real box-size discrepancy during the settling window resolves instantly, not via a visible layout-FLIP spring (F7 item 2 residual)", async () => {
+    // Root cause (probe-confirmed against a real dev server with real,
+    // space-reserving scrollbars): SceneColumn's outer `motion.div` uses
+    // `layout` (Motion's FLIP projection system), which measures the
+    // column's real getBoundingClientRect() on every commit and springs any
+    // difference from the previous commit's measurement. That spring was
+    // driven by the column's own `transition` prop — used for BOTH its
+    // `animate={{opacity,x,y,filter}}` values AND, implicitly, `layout`'s
+    // own correction — which, unlike marginTopTransition above, was never
+    // gated on `columnGeometryWasSettled`/`firstPaintRef` at all. During
+    // Scene's mount/settling window the column's own box (stretched to the
+    // flex row's cross-axis extent via align-items:stretch) can be measured
+    // at a stale, larger size on an early commit and a smaller, correct size
+    // on a later one — live probe: getBoundingClientRect().height read
+    // 252.7px on an early commit vs. offsetHeight's already-correct,
+    // constant 243px, and the ungated `layout` FLIP animated a visible
+    // scaleY+translateY correction (252.7→243) over ~270ms even after
+    // marginTop's own spring (a separate motion value, item 2's original
+    // fix) had already resolved — this is what still looked like "sliding
+    // in" on first load even once that first fix landed.
+    //
+    // Reproduced here by forcing a REAL box-size change (via TestWrapper's
+    // height prop) from within a useLayoutEffect — pre-paint, same commit
+    // tier as Scene's own first-paint/settling machinery, so this lands
+    // within the same narrow not-yet-settled window the live bug occupies.
+    // A plain content-height change or a clientHeight stub (F5 item 5's
+    // technique) do NOT reproduce this: the column's cross-axis height is
+    // governed entirely by align-items:stretch against the real, rendered
+    // row height, not by content or by JS-only property overrides.
+    function ShrinkOnMount() {
+      const [height, setHeight] = useState(800);
+      useLayoutEffect(() => {
+        setHeight(500);
+      }, []);
+      return (
+        <TestWrapper fullPage height={height}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div data-testid="content" style={{ width: 300, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<ShrinkOnMount />);
+
+    const viewport = getByTestId("scene").element() as HTMLElement;
+    const colEl = viewport.querySelector("[data-column]") as HTMLElement;
+
+    // Sanity: a real, non-degenerate height discrepancy exists to correct —
+    // offsetHeight (a layout metric, immune to any transform) already
+    // reflects the final, settled 500px target on the very first sample.
+    expect(colEl.offsetHeight).toBe(500);
+
+    // Sample across the window the un-fixed bug's spring occupied (~270ms /
+    // ~16 frames in the live probe). getBoundingClientRect().height must
+    // already match offsetHeight (500) by the very first animation frame —
+    // proving the correction applied instantly rather than animating a
+    // stale-vs-settled discrepancy over many frames.
+    await waitForAnimationFrame();
+    const rectHeight = colEl.getBoundingClientRect().height;
+    expect(rectHeight).toBeCloseTo(500, 0);
+
+    // And it stays resolved — no later frame reintroduces the distortion.
+    for (let i = 0; i < 10; i++) {
+      await waitForAnimationFrame();
+      expect(colEl.getBoundingClientRect().height).toBeCloseTo(500, 0);
     }
   });
 });

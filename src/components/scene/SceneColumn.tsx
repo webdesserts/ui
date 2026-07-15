@@ -311,6 +311,25 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // still count as "not yet settled" so its own value commits instantly
   // rather than springing from a placeholder.
   const columnGeometrySettledRef = useRef(false);
+  // F7 item 2 fix: "settled" requires effectiveViewportHeight to be
+  // UNCHANGED across two consecutive commits, not just nonzero once.
+  // Probe-confirmed (cqw demo, real space-reserving scrollbars — headless
+  // Chromium normally suppresses these entirely, see F5 item 5):
+  // viewportHeight arrives in TWO separate real commits during mount, not
+  // one — first without the horizontal scrollbar's space reservation
+  // (254), then with it once SceneViewport's own overflow-x measurement
+  // toggles the scrollbar on and the ResizeObserver picks up the
+  // now-smaller content-box height (243). The original one-shot "nonzero
+  // means settled" check correctly gated the FIRST commit (254) instant,
+  // but by the time the SECOND, scrollbar-corrected commit (243) arrived,
+  // settled was already true from the first — so marginTop sprang from
+  // the placeholder 254-based value down to the correct 243-based one
+  // instead of jumping straight to it (measured: 78.94px -> 73.5px over
+  // ~280ms). Tracking the last-seen value and only marking settled once
+  // it repeats closes this without needing to know anything about
+  // scrollbars specifically — it generalizes to any late-arriving
+  // viewport-height correction during mount, not just this one.
+  const lastEffectiveViewportHeightRef = useRef<number | null>(null);
 
   // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
   // so the content wrapper's `top` can be driven off React's render cycle —
@@ -440,9 +459,13 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // to catch.
   const columnGeometryWasSettled = columnGeometrySettledRef.current;
   useLayoutEffect(() => {
-    if (effectiveViewportHeight > 0) {
+    if (
+      effectiveViewportHeight > 0 &&
+      lastEffectiveViewportHeightRef.current === effectiveViewportHeight
+    ) {
       columnGeometrySettledRef.current = true;
     }
+    lastEffectiveViewportHeightRef.current = effectiveViewportHeight;
   });
 
   const maxScroll = Math.max(
@@ -1106,6 +1129,27 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   const marginTopTransition =
     firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
 
+  // F7 item 2 residual: the outer column's own `transition` (used below for
+  // both its `animate={{...}}` values AND, implicitly, Motion's `layout`
+  // FLIP correction) must respect the SAME settling gate as marginTopTransition
+  // above — same underlying cause, a second site. Motion's `layout` prop
+  // snapshots the column's getBoundingClientRect() on every commit and
+  // FLIP-animates any difference from the previous snapshot. During the
+  // not-yet-settled window, an early commit's box can be measured larger
+  // than its final size (confirmed via probe: getBoundingClientRect().height
+  // read 252.7px on an early commit vs. offsetHeight's already-correct,
+  // constant 243px — a projected/stale rect, not a real layout metric).
+  // Once geometry settles a commit later, `layout` diffs that stale 252.7px
+  // "before" snapshot against the correct 243px "after" and springs a
+  // visible scaleY+translateY correction over ~270ms — this is what made the
+  // content still look like it was "sliding in" even after marginTop's own
+  // spring (fixed above) had already resolved. Forcing duration:0 during the
+  // gate window makes `layout` snap the correction instantly instead of
+  // animating it, matching mountInitial/marginTopTransition's existing
+  // first-paint-suppression philosophy.
+  const columnTransition =
+    firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
+
   // Registration callback provided to child SceneObjects. Also drives the
   // shared ResizeObserver's membership — newly registered elements join the
   // single measurement layer immediately (or are picked up by the mount
@@ -1532,7 +1576,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           // undefined and a filter string, which caused the unfocus pop (bug 2b).
           filter: formatGrayscale(depthGreyscale),
         }}
-        transition={transition}
+        transition={columnTransition}
         onAnimationStart={animCallbacks?.onStart}
         onAnimationComplete={animCallbacks?.onEnd}
         onLayoutAnimationStart={animCallbacks?.onStart}
