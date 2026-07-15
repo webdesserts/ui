@@ -8,6 +8,9 @@ Feature: Scene Debug Mode
 
   # --- Outlines ---
 
+  # The "stage" is the inner flex row of columns that the Camera pans
+  # across — the full scene content, not the visible viewport.
+
   Scenario: Camera layers have colored outlines
     Given a Scene with debug enabled
     Then the Camera viewport should have a cyan outline
@@ -64,5 +67,8 @@ Feature: Scene Debug Mode
   # --- Toggle ---
 
   Scenario: Debug toggles cleanly
-    When debug is enabled then outlines and overlay should appear
-    When debug is disabled then they should disappear completely
+    Given a Scene with debug disabled
+    When debug is enabled
+    Then outlines and the overlay should appear
+    When debug is disabled again
+    Then outlines and the overlay should disappear completely

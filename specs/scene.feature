@@ -2,20 +2,28 @@ Feature: Scene
   A 2D spatial navigation system. SceneObjects live in SceneColumns.
   The scene is a horizontal row of columns in DOM order, each sized
   to fit their content by default (consumer can override via CSS).
-  All columns are always present and visible — the scene is a real
-  space, not a set of hidden panels.
+  All columns are always present in the scene — the scene is a real
+  space, not a set of hidden panels. Whether a given column is in
+  view is a separate question: it depends on the Camera's framing.
 
   The Scene is a spatial layout, not a scroll view. Columns and
   objects exist in a 2D space — they are placed in the scene, not
   inside a clipping container. The Camera is the visible window
-  into that space. Content outside the Camera's view (offscreen
+  into that space. Content outside the Camera's view (parked
   columns, stacked deck columns, content above or below during
   scroll) still exists in the scene, it is simply off-camera.
 
   When columns are focused, they participate in a responsive flex
-  layout filling the viewport. Unfocused columns are positioned
-  by the Scene: outer columns slide offscreen, in-between columns
-  stack as a depth deck behind the nearest focused column.
+  layout filling the viewport. Unfocused columns are parked by the
+  Scene at their frozen size and position in the row: outer columns
+  stay in place to the left or right of the focused group, and
+  in-between columns stack as a depth deck behind the right focused
+  column. Parked outer columns are visible only if the Camera's
+  framing leaves room for them — a nice spatial anchor when there's
+  space, and fully off-camera when there isn't (e.g. narrow
+  viewports). Clicking a visible parked column is a secondary way
+  to refocus it; apps provide primary navigation via their own
+  links and buttons.
 
   # --- Initial Layout ---
 
@@ -38,7 +46,7 @@ Feature: Scene
     Given a Scene with all columns visible but none focused
     When one column becomes focused
     Then it should animate from its initial position into the focused flex layout
-    And unfocused columns should animate to their offscreen/stacked positions
+    And unfocused columns should animate to their parked or stacked positions
 
   # --- Focus ---
 
@@ -79,25 +87,39 @@ Feature: Scene
     Given focused and unfocused objects
     Then unfocused objects should still be rendered in the DOM
 
-  Scenario: Outer unfocused columns slide offscreen
+  Scenario: Outer unfocused columns are parked, not hidden
     Given focused columns in the center of the Scene
     And unfocused columns to the left of the leftmost focused column
     And unfocused columns to the right of the rightmost focused column
-    Then outer-left unfocused columns should be positioned offscreen to the left
-    And outer-right unfocused columns should be positioned offscreen to the right
+    Then outer-left and outer-right unfocused columns should remain in the
+      flex row at their frozen size, in their DOM-order position
+    And the Camera should frame the focused columns
+    And an outer column is visible only if the Camera's framing leaves
+      room for it — it is off-camera, not hidden, when there isn't
+
+  # A deck card peeks out in the direction it will travel when pulled
+  # out of the deck. Column decks anchor under the right focused
+  # column and peek left, as explicit per-depth offsets (a
+  # configurable peekOffset, ~12px per depth level by default),
+  # fanned so every deeper card's edge stays visible.
 
   Scenario: In-between unfocused columns stack as a depth deck
     Given two focused columns with one unfocused column between them
     Then the unfocused column should be positioned under the right focused column
-    And it should peek out to the left to indicate its presence
+    And it should peek out to the left by its configured peekOffset (~12px)
     And it should be scaled down slightly to appear farther back in the scene
 
   Scenario: Multiple in-between columns stack with increasing depth
     Given two focused columns with three unfocused columns between them
     Then all three unfocused columns should be positioned under the right focused column
     And each successive column deeper in the stack should be scaled down further
-    And each should peek out slightly more to the left
+    And each should peek out by an additional peekOffset increment (~12px per
+      depth level), fanned so every card's left edge stays visible
 
+  # Not yet shipped — the current implementation moves a column directly
+  # to its deck position with a single spring, not a picked-up/set-down
+  # sequence.
+  @future
   Scenario: Stacking animation — columns picked up and set down
     Given an unfocused column transitioning from outer to in-between position
     When the column needs to move into the depth stack
@@ -247,22 +269,31 @@ Feature: Scene
   # --- Gaps ---
 
   # Gaps are configurable at two levels: between columns (scene-level)
-  # and between objects within a column (column-level). Gaps can have
-  # a min/max range and stretch based on available space.
+  # and between objects within a column (column-level).
 
   Scenario: Configurable gap between focused columns
     Given a Scene with a column gap configured
     Then focused columns should have that gap between them
-    And the gap should stretch based on available space within its min/max range
 
   Scenario: Configurable gap between objects in a column
     Given a SceneColumn with a gap configured between objects
     Then focused objects within the column should have that gap between them
-    And the gap should stretch based on available space within its min/max range
 
-  Scenario: Default gap is zero
+  # Not yet shipped — gaps are currently fixed px values.
+  @future
+  Scenario: Column gap stretches based on available space
+    Given a Scene with a column gap configured with a min/max range
+    Then the gap should stretch based on available space within its min/max range
+
+  # Not yet shipped — gaps are currently fixed px values.
+  @future
+  Scenario: Object gap stretches based on available space
+    Given a SceneColumn with a gap configured between objects with a min/max range
+    Then the gap should stretch based on available space within its min/max range
+
+  Scenario: Default gap is 16px between columns, zero between objects
     Given no gap configured at either level
-    Then focused columns should be adjacent with no gap
+    Then focused columns should have a 16px gap between them
     And objects within a column should be adjacent with no gap
 
   # --- Padding ---
@@ -289,8 +320,8 @@ Feature: Scene
 
   Scenario: Initial mount animation
     Given a Scene is first rendered with a focused object
-    Then the Camera should animate from a zero-size state to the focused object
-    And the animation should use the same spring physics as focus changes
+    Then the Camera should render at rest at the focused object's bounds
+    And no entrance animation should play on this first paint
 
   Scenario: Reduced motion disables all spring animations
     Given the user prefers reduced motion
@@ -323,17 +354,18 @@ Feature: Scene
     So screen readers do not announce content the user cannot see
 
   Scenario: Focus change moves keyboard focus to new content
-    Given a user interacting with keyboard
+    Given a Scene with a focused SceneObject
     When focus changes to a different SceneObject
     Then keyboard focus should move to the first focusable element
       in the newly focused content
 
   # --- useCamera Hook ---
 
-  Scenario: useCamera reports target bounds
+  Scenario: useCamera reports viewport and target bounds
     Given a Scene with a focused object at known dimensions
-    Then useCamera should return the viewport bounds
-    Including the focused object dimensions plus padding
+    Then useCamera should return the viewport bounds (the Camera element's own bounds)
+    And useCamera should return the target bounds (the focused content's
+      bounds including padding)
 
   Scenario: useCamera reports transitioning during animation
     Given a focus change triggers a Camera animation

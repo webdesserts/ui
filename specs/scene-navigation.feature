@@ -10,9 +10,10 @@ Feature: Scene Navigation
   Navigation deeper goes right, back goes left.
 
   Unfocused columns are positioned by the Scene based on their
-  relation to focused columns: outer columns slide offscreen;
-  in-between columns stack as a depth deck behind the right
-  focused column.
+  relation to focused columns: outer columns are parked in place
+  at their frozen size, visible only if the Camera's framing
+  leaves room for them; in-between columns stack as a depth deck
+  behind the right focused column.
 
   Within a column, the same stacking behavior applies: unfocused
   objects between two focused objects stack as a depth deck behind
@@ -41,6 +42,9 @@ Feature: Scene Navigation
     And if Object B fits the viewport height, it should be centered vertically
     And if Object B is taller than the viewport, it should be top-aligned
     And the column's horizontal position should not change
+    Note: this describes the newly-focused object's visual alignment within
+    the viewport. Scroll-position reset on swap is specified in
+    scene-scroll.feature.
 
   Scenario: Vertical swap direction follows DOM order
     Given a SceneColumn where Object A is before Object B in DOM order
@@ -58,17 +62,24 @@ Feature: Scene Navigation
     Given a SceneColumn with two adjacent focused SceneObjects
     Then both should be visible, stacked vertically within the column
 
+  # A deck card peeks out in the direction it will travel when pulled
+  # out of the deck. Within-column object decks anchor under the lower
+  # focused sibling and peek up, as explicit per-depth offsets (a
+  # configurable peekOffset, ~12px per depth level by default), fanned
+  # so every deeper card's edge stays visible.
+
   Scenario: Unfocused objects between focused objects stack as depth deck
     Given a SceneColumn with Object A (focused), Object B (unfocused), Object C (focused)
     Then Object B should be positioned under Object C (the lower focused object)
-    And it should peek out above and be scaled down for depth
+    And it should peek out above by its configured peekOffset (~12px) and be scaled down for depth
     With the same visual treatment as column-level stacking
     And the gap between Object A and Object C should be configurable
 
   Scenario: Multiple unfocused objects between focused objects stack with depth
     Given a SceneColumn with Object A (focused), Objects B and C (unfocused), Object D (focused)
     Then B and C should be positioned under Object D
-    Each scaled down further and peeking out more to show increasing depth
+    Each scaled down further and peeking out an additional peekOffset increment
+      (~12px per depth level) to show increasing depth
 
   Scenario: Vertical extension becomes one scrollable column
     Given a SceneColumn with two adjacent focused SceneObjects
@@ -89,30 +100,38 @@ Feature: Scene Navigation
 
   # --- Horizontal Navigation ---
 
-  Scenario: Focused columns share viewport width
+  Scenario: Focused columns share viewport width via consumer CSS
     Given three SceneColumns each with a focused object in a 1200px viewport
+    And each column sized with cqw units
     Then all three columns should share the 1200px width
+    Note: columns are content-sized by default; sharing the viewport width
+    is opt-in via consumer CSS (see scene.feature)
 
-  Scenario: Outer unfocused column slides offscreen
+  Scenario: Outer unfocused column is parked, Article expands
     Given Navigation and Article columns both focused
     When Navigation becomes unfocused and is to the left of the leftmost focused column
-    Then Navigation should slide outside the viewport to the left
+    Then Navigation should be parked at its frozen size to the left, off-camera
+      if the Camera's framing leaves no room for it
     And Article should expand to fill the viewport
 
   Scenario: In-between unfocused column stacks as depth deck
     Given Column A (focused), Column B (unfocused), and Column C (focused)
     Then Column B should be positioned under Column C (the right focused column)
-    And it should peek out to the left and be scaled down for depth
+    And it should peek out to the left by its configured peekOffset (~12px), scaled down for depth
     And the gap between Column A and Column C should be configurable at the scene level
 
+  # Not yet shipped — the current implementation moves a column directly
+  # to its deck position with a single spring, not a picked-up/set-down
+  # sequence.
+  @future
   Scenario: In-between stacking animation sequence
     Given an unfocused column that needs to move into a depth stack
     Then the column should animate as if picked up from the right
     And travel left, being set down on the column to its left
     Repeating until all in-between columns are stacked under the right focused column
 
-  Scenario: Refocusing a column slides it back
-    Given Navigation was unfocused and outside the viewport
+  Scenario: Refocusing a parked column slides it back into view
+    Given Navigation is unfocused and parked off-camera to the left
     When Navigation becomes focused
     Then it should animate from its frozen size back into the viewport
     And the other focused content should shrink to make room
@@ -126,10 +145,11 @@ Feature: Scene Navigation
     And the Camera should reframe to include both columns
 
   Scenario: Navigating back reveals content from the left
-    Given Column 1 is unfocused to the left and Column 2 is focused
+    Given Column 1 is unfocused, parked to the left, and Column 2 is focused
     When Column 2 becomes unfocused and Column 1 becomes focused
     Then Column 1 should animate back into view from the left
-    And Column 2 should remain at its last size and slide to the right outside the viewport
+    And Column 2 should remain at its last size, parked to the right — visible
+      only if the Camera's framing leaves room for it
 
   Scenario: Column removed to the right does not shift focused content
     Given focused content in Column 1 and unfocused Column 2 to the right
@@ -164,9 +184,12 @@ Feature: Scene Navigation
     And the focused columns should be centered with equal space on both sides
 
   Scenario: Very narrow viewport
-    Given three focused columns in a 320px viewport
+    Given three focused columns sized with cqw units in a 320px viewport
     Then columns should compress to share the 320px
     And if any column hits its min-width, horizontal scrolling should appear
+    Note: this assumes viewport-sharing sizing (see "Focused columns share
+    viewport width via consumer CSS"); content-sized columns overflow instead
+    of compressing
 
   # Nested Scenes are not supported. The vertical column and
   # multi-focus layout should cover all known use cases.

@@ -8,9 +8,20 @@ Feature: Scene Scroll
 
   Vertical scroll moves the column itself through the scene. The
   camera stays still while the column's content is pushed up or
-  down. Each focused column scrolls independently based on its
+  down. A column is one continuous strip with a single scroll
+  state — SceneObjects within it may still own their own internal
+  scrollbars (a consumer-managed overflow inside a SceneObject),
+  but outside of those, there is exactly one scroll position per
+  column. Each focused column scrolls independently based on its
   own content height. Non-overflowing focused columns stay
   centered; unfocused columns stay frozen.
+
+  A column's scroll position is remembered while its internal
+  focus arrangement is unchanged — parking the column and later
+  refocusing it restores where it was scrolled. Any change to
+  which objects are focused within the column (a vertical swap)
+  resets the scroll position deterministically: it does not
+  remember per-object positions. See "Scroll Position" below.
 
   Scrollbars are styled thin with a transparent track. Each
   focused column is visible as a whole as it slides through the
@@ -54,11 +65,20 @@ Feature: Scene Scroll
 
   # --- Scroll Interaction ---
 
-  Scenario: Vertical scroll targets the column under the cursor
+  Scenario: Vertical scroll targets the column under the cursor when multiple are scrollable
     Given two focused columns that both overflow the viewport height
     When the user scrolls vertically with the cursor over the right column
     Then only the right column should scroll
     And the left column should stay at its current vertical position
+
+  Scenario: Vertical scroll targets the only scrollable column regardless of cursor position
+    Given exactly one focused column that overflows the viewport height
+    And other focused columns that do not overflow
+    When the user scrolls vertically anywhere in the Camera viewport
+    Then the one scrollable column should scroll
+    Note: under-cursor targeting (above) only applies when multiple focused
+    columns are simultaneously scrollable; with only one, there's no
+    ambiguity to resolve and no dead margins in the viewport
 
   Scenario: Diagonal trackpad gesture scrolls both axes simultaneously
     Given a scene that overflows horizontally
@@ -81,6 +101,9 @@ Feature: Scene Scroll
     Given one focused column that is taller than the viewport
     Then a vertical scrollbar should appear at the right edge of the Camera
     And the scroll area should be the entire Camera viewport
+    Note: see "Vertical scroll targets the only scrollable column regardless
+    of cursor position" in Scroll Interaction — wheel input anywhere in the
+    viewport reaches this column, not just when the cursor is over it
 
   Scenario: Each overflowing column gets its own vertical scrollbar
     Given two focused columns that both overflow the viewport height
@@ -90,7 +113,7 @@ Feature: Scene Scroll
 
   Scenario: Horizontal scrollbar when focused columns exceed viewport width
     Given the total width of focused columns exceeds the viewport
-    Then a horizontal scrollbar should appear at the scene's bottom edge
+    Then a horizontal scrollbar should appear at the Camera viewport's bottom edge
 
   Scenario: Both scrollbars when content overflows both axes
     Given focused content exceeds the viewport in both dimensions
@@ -137,11 +160,13 @@ Feature: Scene Scroll
 
   Scenario: Vertical scroll position restores when a column is refocused
     Given a focused column that was previously scrolled halfway down
-    When the user focuses a different column and then returns focus to the first
+    When the user focuses a different column and then returns focus to the
+      first, with the same object focused within it throughout
     Then the column should attempt to restore its previous scroll position
     But if the focused object within the column is not visible at that position
     Then the column should adjust to show the focused object
-    And if the column has drastically resized since last focused
+    And if the column's content height has changed by 50% or more since it
+      was last focused
     Then scrolling to the top of the focused content is the fallback
 
   Scenario: Horizontal scroll position resets when focus layout changes
@@ -154,11 +179,17 @@ Feature: Scene Scroll
     When it becomes focused
     Then its vertical scroll should start at the top
 
-  Scenario: Vertical swap restores per-object scroll position
-    Given Object A was previously scrolled halfway and Object B was at the top
+  Scenario: Vertical swap resets scroll to the newly-focused object
+    Given Object A was previously scrolled halfway down and Object B was
+      unfocused
     When focus swaps from Object A to Object B within the same column
-    Then the column should show Object B at its previous scroll position
-    Because once content is pushed to a position in the scene, it stays there
+    Then the column's scroll position should reset deterministically to show
+      Object B from the top of its content by default
+    And Object A's prior scroll position is not remembered for next time
+    Because a vertical swap changes which object is focused; only the scroll
+    position of an unchanged focus arrangement is remembered
+    Note: the reset alignment is configurable per object (top by default,
+    center as an opt-in — e.g. an image viewer)
 
   Scenario: Keyboard scroll targets the column with keyboard focus
     Given two focused columns that both overflow the viewport height
@@ -232,3 +263,30 @@ Feature: Scene Scroll
     And no column-level vertical scrollbar should appear for that column
     Note: when a SceneObject handles its own internal scrolling, the column
     itself does not overflow, so no column-level scrollbar is needed
+
+  # --- Touch ---
+
+  Scenario: Finger drag pans a focused column's vertical scroll 1:1
+    Given a focused column that overflows the viewport height
+    When the user drags a finger vertically on the column
+    Then the column's scroll position should track the finger 1:1
+
+  Scenario: Releasing a drag with velocity triggers an inertia fling
+    Given the user is dragging a focused column's vertical scroll
+    When the user releases with velocity
+    Then the column should continue scrolling with decelerating inertia
+    And overscroll past the scroll bounds should be clamped
+
+  Scenario: Horizontal camera pan continues to work via native scroll on touch
+    Given a scene that overflows horizontally
+    When the user performs a horizontal touch gesture on the Camera viewport
+    Then the camera should pan horizontally via native overflow scrolling
+    Because the Camera viewport uses touch-action: pan-x to preserve this
+    while still allowing vertical column drag to be handled by the column
+
+  Scenario: The scrollbar thumb is touch-operable
+    Given a vertical scrollbar is visible
+    When the user drags the scrollbar thumb with a finger
+    Then the column should scroll to match the thumb's dragged position
+    Because the thumb uses touch-action: none so the drag isn't hijacked by
+    native scrolling, and has an adequately sized touch hit target
