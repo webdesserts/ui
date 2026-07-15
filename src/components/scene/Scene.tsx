@@ -7,7 +7,7 @@ import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
-import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
+import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { motion, useReducedMotion } from "motion/react";
@@ -1002,7 +1002,7 @@ export function Scene({
   // Mutable map of saved scroll offsets per column name. SceneColumn saves its
   // scroll offset when losing focus and restores it when regaining focus.
   // Using useRef ensures the Map identity is stable — no re-renders on updates.
-  const scrollOffsetStore = useRef<Map<string, number>>(new Map()).current;
+  const scrollOffsetStore = useRef<Map<string, ScrollOffsetEntry>>(new Map()).current;
 
   // True during Scene's first paint; false from the commit after first paint onward.
   // Read synchronously during render by SceneColumn to suppress the Phase 7c

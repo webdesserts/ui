@@ -4442,6 +4442,306 @@ describe("Scene scroll position restore", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A2: Swap-reset scroll model (+ resetAlignment, B6 clamp, B7 lifecycle)
+// ---------------------------------------------------------------------------
+
+describe("Scene swap-reset scroll model", () => {
+  test("swap A→B in an always-focused column resets scroll to top", async () => {
+    // A vertical swap changes which object is focused within the column —
+    // per the ruled A2 model, this always resets scroll deterministically
+    // (does not remember A's prior scroll position for B).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll A down to 300px.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("300");
+
+    // Swap focus from A to B within the same (always-focused) column.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // scrollOffset (distinct from topOffset, which independently shifts to
+    // bring B into view) must reset to 0 — B's scroll position, not A's.
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+  });
+
+  test('resetAlignment="center" produces a roughly-centered non-zero starting offset on swap', async () => {
+    // Object A is short (fits, no scroll of its own). Object B opts into
+    // resetAlignment="center" and is tall enough to overflow. If the swap
+    // read a stale (pre-swap) maxScroll, this would incorrectly compute 0
+    // (A's maxScroll) instead of B's real maxScroll/2 — the one-render-lag
+    // hazard the geometry store's synchronous remeasure exists to close.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false} resetAlignment="center">
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused resetAlignment="center">
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // B alone: contentHeight = 1200, viewport = 800 → maxScroll = 400.
+    // center reset ≈ maxScroll / 2 = 200 (not 0 — the "top" default, and not
+    // 0 from a stale pre-swap maxScroll of 0 either).
+    const scrollOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    expect(scrollOffset).toBeCloseTo(200, -1);
+  });
+
+  test("B6: a restored offset exceeding a shrunk-but-not-drastic maxScroll is clamped, not discarded", async () => {
+    // Content shrinks by ~17% while parked (well under the 50% drastic
+    // threshold) — the saved offset should be preserved but clamped to the
+    // new (smaller) maxScroll, not reset to 0 and not left overshooting.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Let the initial mount fully settle (shared ResizeObserver's first
+    // observe-triggered callback) before scrolling near the max, to avoid
+    // racing a same-frame remeasure.
+    await waitForAnimationFrame();
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll to 380px (near the 1200-800=400 max).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 380,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("380");
+
+    // Unfocus (park), shrinking content height from 1200 to 1000 (16.7%,
+    // well under the 50% drastic threshold) while parked.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Refocus the same (single, unchanged) object — key match, so this is a
+    // restore, not a swap-reset.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused={false}>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // New maxScroll = 1000 - 800 = 200. The saved 380 must be clamped to
+    // 200, not discarded to 0 and not left at the stale 380.
+    expect(column.getAttribute("data-scroll-offset")).toBe("200");
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-200);
+  });
+
+  test("B7: a same-name remount's drastic-resize guard compares against the persisted pre-unfocus content height", async () => {
+    // park (unfocus) → close (unmount) → open a different same-named column
+    // instance. The 50% drastic-resize guard must compare the NEW instance's
+    // content height against the height at the ORIGINAL park (persisted on
+    // the shared store entry, keyed by column name) — not a per-instance
+    // ref that resets to 0 on the fresh mount (which would defeat the guard
+    // and restore-then-clamp a stale offset instead of resetting to top).
+    // NOTE: SceneColumn elements are given explicit (and DIFFERENT) `key`s
+    // across the "close" and "open" renders below. Without this, React's
+    // default index-based reconciliation would REUSE the same col1 fiber
+    // across the remove/re-add (same type at the same array position, just
+    // different props) — never triggering a genuine unmount, which would
+    // silently defeat this test (a per-instance ref would never actually
+    // reset, masking the bug regardless of the fix).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn key="col1-a" name="col1">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = () => scene.querySelector("[data-column='col1']") as HTMLElement;
+    const columnRect = column().getBoundingClientRect();
+
+    // Scroll to 1000px (2000 - 800 = 1200 max).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 1000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    expect(column().getAttribute("data-scroll-offset")).toBe("1000");
+
+    // Park: focus moves to a second column.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn key="col1-a" name="col1">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Close: col1 unmounts entirely.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // Open: a NEW col1 instance (different key — genuinely a fresh mount;
+    // same name, same single object name) with drastically shorter content
+    // (2000 → 900, 55% reduction — drastic, but the new maxScroll is still
+    // non-zero so a restore-then-clamp would produce a DIFFERENT, observably
+    // wrong result than a correct reset-to-top). Mounts already focused.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn key="col1-b" name="col1">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 900 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="panel2" focused={false}>
+              <div data-testid="content2" style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    // New maxScroll = 900 - 800 = 100. A restore-then-clamp bug would land
+    // on 100; the correct drastic-resize reset lands on 0.
+    expect(column().getAttribute("data-scroll-offset")).toBe("0");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fix 2: Padding in scroll bounds
 // ---------------------------------------------------------------------------
 

@@ -19,6 +19,17 @@ export interface SceneObjectProps {
    * explicit dimensions (width, height, minWidth) on the object.
    */
   style?: React.CSSProperties;
+  /**
+   * How this column's scroll position resets when this object becomes the
+   * newly-focused object after a within-column swap (the A2 swap-reset
+   * model — a swap always resets deterministically, it never inherits the
+   * previously-focused object's scroll position). "top" (default) shows
+   * this object from the top of its content; "center" starts roughly
+   * centered — e.g. an image viewer where the interesting content sits
+   * mid-frame. Read by the parent SceneColumn via child prop introspection
+   * (deriveObjectStates) — not used directly by this component.
+   */
+  resetAlignment?: "top" | "center";
 }
 
 /**

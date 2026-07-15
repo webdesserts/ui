@@ -75,23 +75,46 @@ function deriveColumnFocused(children: React.ReactNode): boolean {
   );
 }
 
+/** A direct SceneObject child's focus state and reset preference, in DOM order. */
+interface ObjectState {
+  name: string;
+  focused: boolean;
+  resetAlignment: "top" | "center";
+}
+
 /**
  * Derives all direct SceneObject children's focus state in DOM order.
- * Returns an array of `{ name, focused }` entries.
+ * Returns an array of `{ name, focused, resetAlignment }` entries.
  */
-function deriveObjectStates(
-  children: React.ReactNode,
-): Array<{ name: string; focused: boolean }> {
-  const result: Array<{ name: string; focused: boolean }> = [];
+function deriveObjectStates(children: React.ReactNode): ObjectState[] {
+  const result: ObjectState[] = [];
   React.Children.forEach(children, (child) => {
     if (
       isValidElement<SceneObjectProps>(child) &&
       child.type === SceneObject
     ) {
-      result.push({ name: child.props.name, focused: child.props.focused });
+      result.push({
+        name: child.props.name,
+        focused: child.props.focused,
+        resetAlignment: child.props.resetAlignment ?? "top",
+      });
     }
   });
   return result;
+}
+
+/**
+ * Joins the names of all currently-focused objects (sorted, so the key is
+ * independent of DOM order) into a single string key. Used by the swap-reset
+ * scroll model (A2) to distinguish an unchanged inner focus arrangement
+ * (park/return — restore) from a within-column swap (reset).
+ */
+function computeFocusedObjectKey(objectStates: ObjectState[]): string {
+  return objectStates
+    .filter((o) => o.focused)
+    .map((o) => o.name)
+    .sort()
+    .join(",");
 }
 
 /** A registered object's measured position within its column's content wrapper. */
@@ -115,7 +138,7 @@ interface GeometryEntry {
  * with no need to sum anything here.
  */
 function computeTopOffset(
-  objectStates: Array<{ name: string; focused: boolean }>,
+  objectStates: ObjectState[],
   geometryStore: Map<string, GeometryEntry>,
 ): number {
   const focusedNames = objectStates
@@ -142,7 +165,7 @@ function computeTopOffset(
  * unfocused object. Objects that are not sandwiched are absent from the map.
  */
 function computeWithinColumnDepths(
-  objectStates: Array<{ name: string; focused: boolean }>,
+  objectStates: ObjectState[],
   geometryStore: Map<string, GeometryEntry>,
 ): Map<string, WithinColumnDepthInfo> {
   const result = new Map<string, WithinColumnDepthInfo>();
@@ -184,7 +207,7 @@ function computeWithinColumnDepths(
  * only ever includes focused content, never unfocused in-flow siblings.
  */
 function computeFocusedContentHeight(
-  objectStates: Array<{ name: string; focused: boolean }>,
+  objectStates: ObjectState[],
   geometryStore: Map<string, GeometryEntry>,
   objectGap: number,
 ): number {
@@ -469,6 +492,21 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // Used to give them peekable depth-card treatment instead of hiding them.
   const withinColumnDepths = computeWithinColumnDepths(objectStates, geometryStore.current);
 
+  // Joined focused-object-name key for this render (see computeFocusedObjectKey).
+  // Drives the swap-reset scroll model (A2) below.
+  const focusedObjectKey = computeFocusedObjectKey(objectStates);
+
+  // Tracks the key from the last render where this column WAS focused. The
+  // save-on-unfocus effect below runs on the render where columnFocused just
+  // became false — by then objectStates already reflects "nothing focused"
+  // (focusedObjectKey === ""), so this ref preserves what was actually
+  // active right before the park. Plain render-time ref mutation (like
+  // maxScrollRef above) — safe, no setState involved.
+  const lastActiveFocusedKeyRef = useRef("");
+  if (columnFocused) {
+    lastActiveFocusedKeyRef.current = focusedObjectKey;
+  }
+
   // While the column is focused, snapshot its current dimensions synchronously
   // after each render (useLayoutEffect fires before the browser paints). This
   // ensures `lastObservedSize` is always fresh and doesn't depend on the async
@@ -494,53 +532,37 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     isMountingRef.current = false;
   }, []);
 
-  // Tracks the content height at the time the column last lost focus. Used to
-  // detect drastic resizes between unfocus and refocus — if the content has
-  // changed by more than 50%, the saved scroll position is discarded.
-  const savedContentHeight = useRef<number>(0);
-
-  // Save scroll offset and content height when the column transitions to unfocused.
-  // Using useLayoutEffect ensures this runs before the useEffect clamping logic —
-  // clamping (tied to maxScroll) would zero the ref before we could save it.
+  // Save scroll offset, focused-object key, and content height when the
+  // column transitions to unfocused. Using useLayoutEffect ensures this runs
+  // before the useEffect clamping logic — clamping (tied to maxScroll) would
+  // zero the ref before we could save it. All three fields live together on
+  // the STORE entry (keyed by column name, owned by the parent Scene) rather
+  // than a per-instance ref — this is the B7 fix: contentHeightAtSave
+  // survives an unmount/remount of a same-named column, where a fresh
+  // component instance's own ref would otherwise reset to 0 and defeat the
+  // drastic-resize guard below.
   useLayoutEffect(() => {
     if (!columnFocused && wasEverFocused.current) {
-      scrollOffsetStore.set(name, scrollOffsetRef.current);
-      savedContentHeight.current =
-        contentWrapperRef.current?.getBoundingClientRect().height ?? 0;
+      scrollOffsetStore.set(name, {
+        offset: scrollOffsetRef.current,
+        focusedKey: lastActiveFocusedKeyRef.current,
+        contentHeightAtSave: contentWrapperRef.current?.getBoundingClientRect().height ?? 0,
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
 
-  // Track column focus state: set up a ResizeObserver for ongoing size changes
-  // while focused, freeze the last size on focus loss, and clear on re-focus.
+  // Track column focus state: freeze the last size on focus loss, and clear
+  // on re-focus. Scroll offset restore/reset lives in the swap-reset effect
+  // below (A2) — it needs to react to focusedObjectKey too, to also catch a
+  // within-column swap (columnFocused stays true throughout a swap, so a
+  // [columnFocused]-only effect like this one would never see it — probe-
+  // confirmed: a swap left the prior scroll offset untouched).
   useEffect(() => {
     if (columnFocused) {
       wasEverFocused.current = true;
       // Re-focusing — clear the frozen size so the column returns to flex flow.
       setFrozenSize(null);
-
-      // Restore the previously saved scroll position for this column, unless
-      // the content has drastically resized since last focused (>50% change).
-      // A drastic resize makes the saved position meaningless — fall back to top.
-      const savedOffset = scrollOffsetStore.get(name);
-      if (savedOffset !== undefined && savedOffset > 0) {
-        const currentHeight = contentWrapperRef.current?.getBoundingClientRect().height ?? 0;
-        const prevHeight = savedContentHeight.current;
-        const isDrasticResize =
-          prevHeight > 0 &&
-          currentHeight > 0 &&
-          Math.abs(currentHeight - prevHeight) / prevHeight > 0.5;
-
-        if (!isDrasticResize) {
-          scrollOffsetRef.current = savedOffset;
-          setScrollOffset(savedOffset);
-        } else {
-          // Content changed too much — start from top.
-          scrollOffsetRef.current = 0;
-          setScrollOffset(0);
-        }
-      }
-
       // lastObservedSize while focused is now kept current by the shared
       // geometry ResizeObserver below (single measurement layer) — no
       // per-focus observer needed here.
@@ -611,6 +633,92 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     if (!columnFocused) return;
     setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));
   });
+
+  // Swap-reset scroll model (A2): decides this column's scroll offset
+  // whenever it is focused AND its inner focus arrangement (focusedObjectKey)
+  // settles to a new value. [columnFocused, focusedObjectKey] as deps is
+  // what unifies BOTH triggers with one mechanism — park→return (columnFocused
+  // flips true, same key as when parked) and a within-column swap
+  // (columnFocused stays true, key changes) — while a re-render where
+  // NEITHER changed (e.g. from unrelated content updates) correctly does not
+  // re-run this and clobber active user scrolling.
+  //
+  // Declared AFTER the remeasure effect above so geometryStore.current is
+  // already fresh for THIS commit — reading the still-stale `contentHeight`/
+  // `maxScroll` REACT STATE here (which only updates a render later, since
+  // state updates don't retroactively affect an already-captured closure)
+  // would corrupt resetAlignment:"center"'s maxScroll read at swap time
+  // (forecast-gate adjudication #4/riskiest-unknown #2). Computing a fresh
+  // value directly from the just-remeasured geometry store sidesteps that
+  // lag entirely.
+  useLayoutEffect(() => {
+    if (!columnFocused) return;
+
+    const freshContentHeight = computeFocusedContentHeight(objectStates, geometryStore.current, objectGap);
+    const freshMaxScroll = Math.max(
+      0,
+      effectiveViewportHeight > 0 ? freshContentHeight - effectiveViewportHeight : 0,
+    );
+
+    const entry = scrollOffsetStore.get(name);
+    let nextOffset: number;
+
+    if (entry && entry.focusedKey === focusedObjectKey) {
+      // Unchanged arrangement (park/return with the same object(s) focused).
+      // Drastic-resize guard: a saved offset from before a >50% content
+      // change is meaningless — fall back to top. Compares against the
+      // STORE's persisted contentHeightAtSave (B7), not a per-instance ref.
+      const prevHeight = entry.contentHeightAtSave;
+      const isDrasticResize =
+        prevHeight > 0 &&
+        freshContentHeight > 0 &&
+        Math.abs(freshContentHeight - prevHeight) / prevHeight > 0.5;
+
+      nextOffset = isDrasticResize
+        ? 0
+        // B6: clamp the restored offset to the current maxScroll — a saved
+        // position must not outlive a resize that shrank the scrollable
+        // range while parked. This clamp is NOT redundant with the
+        // pre-existing generic [maxScroll] clamp effect elsewhere in this
+        // file: that one is a passive useEffect (runs post-paint), while
+        // this swap-reset decision is a useLayoutEffect (runs pre-paint).
+        // Without this clamp, the DOM commits and paints one real frame at
+        // the raw unclamped offset before the passive effect corrects it —
+        // verified via a MutationObserver on data-scroll-offset showing the
+        // commit sequence null→0→380→200 with this clamp removed, vs
+        // null→0→200 with it present (380 was the saved pre-resize offset,
+        // 200 the correct post-resize maxScroll). Do not remove this as a
+        // "simplification" on the theory that the passive effect already
+        // covers it — no settled-state test can catch that regression,
+        // since both paths converge to the same final value; only the
+        // transient unclamped frame is observably different.
+        : Math.max(0, Math.min(entry.offset, freshMaxScroll));
+    } else {
+      // A swap (or first-ever focus, or a mismatched/absent entry): reset
+      // deterministically per the newly-focused object's resetAlignment.
+      // Tie-break (forecast-gate adjudication #2): when 2+ objects become
+      // newly focused simultaneously, the FIRST newly-focused one in DOM
+      // order governs — objectStates is already in DOM order, so the first
+      // match is exactly that.
+      const newlyFocused = objectStates.find((o) => o.focused);
+      nextOffset = newlyFocused?.resetAlignment === "center" ? freshMaxScroll / 2 : 0;
+    }
+
+    scrollOffsetRef.current = nextOffset;
+    setScrollOffset(nextOffset);
+    // Keep the store's offset/key in sync so a LATER swap within the same
+    // focused session compares against the truly-latest arrangement, not a
+    // stale entry from before this column was even refocused (contentHeightAtSave
+    // is deliberately NOT touched here — it must only change at the moment
+    // of an actual park, so a later drastic-resize check has something
+    // meaningful to compare against).
+    scrollOffsetStore.set(name, {
+      offset: nextOffset,
+      focusedKey: focusedObjectKey,
+      contentHeightAtSave: entry?.contentHeightAtSave ?? 0,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnFocused, focusedObjectKey]);
 
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0
