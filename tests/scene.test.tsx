@@ -6916,8 +6916,8 @@ describe("Scene API hygiene (S6 commit 4)", () => {
   test("DEFAULT_* constants are importable from the top-level package entry", () => {
     // Regression pin for src/index.ts's re-export — previously only
     // reachable via the scene subpath, not the package root.
-    expect(DEFAULT_STIFFNESS).toBe(230);
-    expect(DEFAULT_DAMPING).toBe(45);
+    expect(DEFAULT_STIFFNESS).toBe(300);
+    expect(DEFAULT_DAMPING).toBe(30);
     expect(DEFAULT_COLUMN_GAP).toBe(16);
     expect(DEFAULT_PERSPECTIVE).toBe(800);
     expect(DEFAULT_PEEK_OFFSET).toBe(12);

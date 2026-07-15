@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
-export const DEFAULT_STIFFNESS = 230;
-export const DEFAULT_DAMPING = 45;
+export const DEFAULT_STIFFNESS = 300;
+export const DEFAULT_DAMPING = 30;
 export const DEFAULT_COLUMN_GAP = 16;
 export const DEFAULT_PERSPECTIVE = 800;
 export const DEFAULT_PEEK_OFFSET = 12;

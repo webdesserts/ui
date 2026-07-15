@@ -170,9 +170,9 @@ export interface SceneProps {
   padding?: number;
   /** Slow-motion springs for animation snapshot testing. Same spring physics, much lazier parameters. */
   slowMo?: boolean;
-  /** Spring stiffness for position/size animations. Defaults to DEFAULT_STIFFNESS (230). */
+  /** Spring stiffness for position/size animations. Defaults to DEFAULT_STIFFNESS (300). */
   stiffness?: number;
-  /** Spring damping for position/size animations. Defaults to DEFAULT_DAMPING (45). */
+  /** Spring damping for position/size animations. Defaults to DEFAULT_DAMPING (30). */
   damping?: number;
   /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to DEFAULT_PERSPECTIVE (800). */
   perspective?: number;
