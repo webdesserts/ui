@@ -34,6 +34,8 @@ import {
   unfreezeAnimations,
   createMotionSeamRecorder,
   pinAllRegisteredAnimations,
+  samplePaintOrder,
+  assertPaintOrderInvariant,
 } from "../utils/animation";
 
 afterEach(() => {
@@ -932,35 +934,61 @@ describe("depth-deck bug-fix regressions", () => {
   // useLayoutEffect — closes the one-paint-late freeze gap this comment used
   // to describe; see H11's fix for the sibling content-height mechanism).
   //
-  // Re-attempted the un-skip after landing B14, per the fix wave's
-  // instruction — VERIFIED NOT SUFFICIENT: 10 runs of this test against the
-  // (stale, pre-fix) stored baseline produced 10 DIFFERENT diff-pixel counts
-  // (76,572 / 80,622 / 81,537 / 85,944 / 86,184 / 88,661 / 92,278 / 99,556 /
-  // 104,752 / 79,398 — a ~30% relative spread), so real, still-unpinned
-  // non-determinism remains (the average magnitude dropped substantially
-  // from B14 fixing the content-height swing, but did not reach the
-  // 10x-identical bar this un-skip needs).
+  // Re-attempted the un-skip after landing B14 — VERIFIED NOT SUFFICIENT: 10
+  // runs of this test against the (stale, pre-fix) stored baseline produced
+  // 10 DIFFERENT diff-pixel counts (~30% relative spread), so real,
+  // still-unpinned non-determinism remained. Root cause traced to a second,
+  // independent mechanism: unlike this file's other real-animation tests
+  // ("camera-pan-mid-spring", "unfocus-sync-mid-spring"), this test never
+  // wrapped a MotionSeamContext.Provider / called
+  // pinAllRegisteredAnimations. Middle A becoming newly focused changes the
+  // focused-column SET, which triggers a real cameraX pan (Scene.tsx's
+  // stageLeft effect) — a rAF-driven `left` property, not WAAPI — running
+  // uncoupled from freezeAnimationsAt's WAAPI freeze, so Middle A's exact
+  // captured position depended on wall-clock timing relative to the pan's
+  // progress at the moment of freeze.
   //
-  // Root cause is NOT B14 — it's a second, independent mechanism: unlike
-  // this file's other real-animation tests ("camera-pan-mid-spring",
-  // "unfocus-sync-mid-spring"), THIS test never wraps a
-  // MotionSeamContext.Provider / calls pinAllRegisteredAnimations. Middle A
-  // becoming newly focused changes the focused-column SET (adds "middle-a"),
-  // which triggers a REAL cameraX pan (Scene.tsx's stageLeft effect) — a
-  // rAF-driven `left` property, not WAAPI, exactly the class this file's own
-  // module doc says freezeAnimationsAt cannot touch. That pan runs
-  // completely uncoupled from freezeAnimationsAt's WAAPI freeze, so Middle
-  // A's exact captured position depends on wall-clock timing relative to the
-  // pan's progress at the moment of freeze — a real source of run-to-run
-  // variance freezeAnimationsAt alone can't close.
+  // FIXED that gap (F2 C1): rewritten on the motionSeam-pinning pattern
+  // "unfocus-sync-mid-spring" already uses — wraps MotionSeamContext.Provider
+  // and calls pinAllRegisteredAnimations alongside freezeAnimationsAt.
+  // VERIFIED 20/20 identical IN ISOLATION (10 solo runs of this test alone,
+  // 10 more paired with the rest of this file only).
   //
-  // The fix would be the SAME motionSeam-pinning rewrite this file's other
-  // camera-pan tests already use (pin cameraX to the same fraction as the
-  // frozen WAAPI tracks) — a test-infrastructure change, not a B14-adjacent
-  // production fix, and explicitly out of scope for this item (mirrors S7's
-  // own "attempted... and REVERTED" note above). Kept skipped; the
-  // motionSeam-pinning rewrite is the next concrete step for whoever picks
-  // this back up.
+  // STILL SKIPPED — a SECOND, deeper pre-existing race, found only under
+  // full-suite concurrent load (this test alone, or paired only with
+  // tests/scene-perspective-platform.test.tsx or
+  // tests/visual/scene.test.tsx, is reliably green; paired with almost any
+  // OTHER scene test file — tests/scene.test.tsx, scene-touch,
+  // scene-input-controller, scene-mobile — it fails consistently, 100%
+  // reproduction across many runs). CONFIRMED PRE-EXISTING and unrelated to
+  // this item's own changes: reproduces identically with SceneColumn.tsx
+  // and Scene.tsx reverted to their pre-F2 (7ca9eab) state, test-file
+  // changes only.
+  //
+  // Root cause (found by inspecting the actual vs. expected screenshots
+  // directly, not guessing): under heavier Node-side test-orchestration
+  // load (more concurrent CDP/test-runner traffic from the other files),
+  // the delay between `await rerender(...)` resolving and this test's next
+  // line of JS actually running can grow large enough that Middle A's REAL
+  // slowMo spring (and its `layout` FLIP) finish naturally in the browser's
+  // own wall-clock time before this test ever calls freezeAnimationsAt —
+  // motion cleans up a finished WAAPI/FLIP animation (removes it from
+  // getAnimations()), so by the time freeze runs there is nothing left to
+  // scrub back to 30%; the screenshot captures the fully-settled resting
+  // layout instead (the actual/diff images from a failing run show exactly
+  // this: Left/Middle A/Right fully separated at rest, vs. the baseline's
+  // Middle A still overlapping Left mid-slide). Two mitigations tried and
+  // both INEFFECTIVE, ruling out a simple registration-order race: a second
+  // waitForAnimationFrame() (2/3 improved but not reliable) and polling
+  // until `recorder.controls.has("cameraX")` before freezing (registered
+  // almost immediately either way — not the bottleneck; still failed 4/4).
+  // A real fix needs a way to capture the mid-spring frame WITHOUT racing
+  // real wall-clock time under variable Node-side scheduling delay (e.g.
+  // fake timers, or forcing motion to retain a finished animation) — a
+  // bigger test-infrastructure investment than this item's scope. Tracked
+  // as a follow-up, separate from H5/C1's actual concern (spike 1's
+  // FLIP+animate double-count, which the paint-order invariant test below
+  // already re-diagnosed as moot for this geometry).
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
@@ -978,62 +1006,67 @@ describe("depth-deck bug-fix regressions", () => {
       fontFamily: "monospace",
       fontSize: 13,
     };
+    const recorder = createMotionSeamRecorder();
     const { container, rerender } = await render(
-      <TestWrapper fullPage>
-        <Scene duration={0}>
-          <SceneColumn name="left">
-            <SceneObject name="left-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                Left (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="middle-a">
-            <SceneObject name="middle-a-obj" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                Middle A (deck)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="right">
-            <SceneObject name="right-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                Right (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused={false}>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (deck)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
     await waitForAnimationFrame();
 
     // Focus Middle A with slowMo springs — all visual tracks spring together.
     await rerender(
-      <TestWrapper fullPage>
-        <Scene slowMo>
-          <SceneColumn name="left">
-            <SceneObject name="left-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                Left (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="middle-a">
-            <SceneObject name="middle-a-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                Middle A (refocusing)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="right">
-            <SceneObject name="right-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                Right (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene slowMo>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (refocusing)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
 
     // One frame so WAAPI animations appear in getAnimations().
@@ -1041,7 +1074,11 @@ describe("depth-deck bug-fix regressions", () => {
 
     // Freeze at 30% — Middle A should visibly be between its deck position and
     // the focused row. If bug 2a regressed, it would start from Right's edge.
+    // pinAllRegisteredAnimations pins cameraX (and z) to the SAME fraction so
+    // every track reads as "the same instant" (this test's fix — see the
+    // comment above).
     const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
+    pinAllRegisteredAnimations(recorder, 0.3);
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "refocus-from-depth-deck-mid-spring",
@@ -1049,6 +1086,120 @@ describe("depth-deck bug-fix regressions", () => {
     );
 
     unfreezeAnimations(frozen);
+  });
+
+  // H5 acceptance test (F2, Michael's ruled paint-order invariant): two
+  // objects overlapping in 2D screen space must never change which one
+  // paints on top; z-crossings are only legal once disjoint. Checked via
+  // real elementFromPoint hit-testing (samplePaintOrder/
+  // assertPaintOrderInvariant, tests/utils/animation.ts) across the same
+  // refocus-from-depth-deck transition the visual test above exercises, at
+  // 10 fractions of the transition.
+  //
+  // Re-diagnosis finding (F2 pickup note 1): this specific scenario was
+  // probed at MUCH finer resolution (41 evenly-spaced fractions) and shows
+  // ZERO invariant violations — Middle A never overlaps Left, and Right
+  // paints on top of Middle A for the entire transition, including the
+  // fully-settled frame. So spike 1's FLIP+animate double-count fix is
+  // MOOT for this geometry (matches Michael's live "no inefficient motion"
+  // verdict post-F1) — this test is a green REGRESSION GUARD, not a
+  // red-before/green-after pin for spike 1.
+  //
+  // Spike 2 (z-clearance coupling, see zMV's declaration in
+  // SceneColumn.tsx) was ATTEMPTED as a defensive structural guarantee
+  // beyond what this scenario needs, but REVERTED: its
+  // requestAnimationFrame-polled gate raced this suite's synchronous
+  // single-frame test-pinning methodology (reliable in isolation, a
+  // reproducible ~4% pixel mismatch on the visual test above under
+  // full-suite load) for no offsetting benefit — two independent attempts
+  // (this scenario, and a 4-column leapfrog adversarial probe) found no
+  // constructible violation on today's F1-fixed codebase to justify the
+  // trade-off. See SceneColumn.tsx's zMV comment for the full writeup.
+  it("refocus-from-depth-deck-paint-order-invariant", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const panelStyle: React.CSSProperties = {
+      width: 250,
+      height: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "#fff",
+      fontFamily: "monospace",
+      fontSize: 13,
+    };
+    const recorder = createMotionSeamRecorder();
+    const { container, rerender } = await render(
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused={false}>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (deck)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
+    );
+    await waitForAnimationFrame();
+
+    await rerender(
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene slowMo>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (refocusing)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
+    );
+    await waitForAnimationFrame();
+
+    const midA = container.querySelector('[data-column="middle-a"]') as HTMLElement;
+    const left = container.querySelector('[data-column="left"]') as HTMLElement;
+    const right = container.querySelector('[data-column="right"]') as HTMLElement;
+
+    const fractions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+    const vsLeft = samplePaintOrder(container as HTMLElement, midA, left, fractions, recorder);
+    const vsRight = samplePaintOrder(container as HTMLElement, midA, right, fractions, recorder);
+
+    assertPaintOrderInvariant(vsLeft, "middle-a", "left");
+    assertPaintOrderInvariant(vsRight, "middle-a", "right");
   });
 
   // TODO(flake): re-enable after investigating cleaner mid-spring capture.

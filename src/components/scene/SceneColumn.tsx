@@ -1203,6 +1203,57 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // z-index is NOT used inside preserve-3d — 3D z-ordering is determined
   // entirely by translateZ values (higher z = closer = rendered in front).
 
+  // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
+  // objects overlapping in 2D screen space must never change relative paint
+  // order — a z-crossing (moving from "behind" toward "in front") is only
+  // legal once the pair is disjoint.
+  //
+  // ATTEMPTED AND REVERTED (F2): promoted z to a real MotionValue (zMV,
+  // still in place below) and gated a front-ward retarget behind a
+  // requestAnimationFrame poll against every other registered column's live
+  // getBoundingClientRect (via a ColumnElementsContext read side on the S6
+  // registry), releasing the spring once disjoint — the shape the plan
+  // specified. VERIFIED NOT SAFE TO SHIP: the poll's resolution takes a
+  // variable number of REAL animation frames (for the exact scenario this
+  // exists to protect, the FIRST check — one synchronous tick after
+  // retarget, before x/y have moved at all — sees the column still
+  // overlapping its anchor by definition, so the slow multi-frame path is
+  // the COMMON case, not a corner case). This fundamentally races this
+  // suite's synchronous single-frame test-pinning methodology
+  // (pinAllRegisteredAnimations silently skips a key that hasn't
+  // registered yet — see its own doc comment): under isolated runs the poll
+  // reliably resolved before the test's one waitForAnimationFrame + freeze
+  // call (10/10 identical), but under full-suite load it consistently did
+  // not (3/3 runs, ~4% pixel mismatch on refocus-from-depth-deck-mid-spring
+  // — a real regression, not noise). Also could not construct a scenario
+  // (2 attempts, including a 4-column leapfrog probe) where skipping the
+  // gate entails an actual invariant violation on today's F1-fixed
+  // codebase — this codebase's DOM-order convention (consumers declare
+  // columns in left-to-right visual intent order) plus every
+  // depth-treated value sharing one spring transition already keeps paint
+  // order consistent in every case tried. Reverted the gating; kept the
+  // zMV promotion itself (harmless, and gives z the same
+  // pinnable/observable motion-seam treatment topOffset/scrollY/cameraX
+  // already have). Documenting per this branch's own established fallback
+  // (see B14/H11-site-2, 7ca9eab) rather than shipping either a fabricated
+  // defeat-check or a mechanism proven to break test determinism.
+  const zMV = useMotionValue(depthZ);
+  const zTargetRef = useRef(depthZ);
+
+  useLayoutEffect(() => {
+    if (depthZ === zTargetRef.current) return;
+    zTargetRef.current = depthZ;
+
+    if (duration === 0) {
+      zMV.set(depthZ);
+    } else if (firstPaintRef.current || !columnGeometryWasSettled) {
+      zMV.jump(depthZ);
+    } else {
+      const controls = animate(zMV, depthZ, transition);
+      motionSeam?.registerControls(`z:${name}`, controls);
+    }
+  });
+
   // In-between columns are position:absolute from the stage top. To visually
   // align them with the focused content (which is centered via marginTop),
   // we translate them down to the vertical center of the viewport.
@@ -1342,7 +1393,11 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     <ColumnContext.Provider value={{ register, withinColumnDepths }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
-          time and silently shadows the spring. See depth.ts for the no-shadow rule. */}
+          time and silently shadows the spring. See depth.ts for the no-shadow rule.
+          `z` is the deliberate exception: it's bound via `style` as the zMV
+          MotionValue (see its declaration above), the same imperative-drive
+          pattern the content wrapper's `top` uses below — not a static value
+          that would shadow a spring, but the live output of one. */}
       <motion.div
         ref={colRef}
         layout
@@ -1362,10 +1417,10 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           // Invariant: depth-deck position lives entirely in transform space (x, y,
           // z). Motion's layout FLIP cannot see it. This is why 'layout' must
           // compose with these via animate transforms, never by re-measuring layout
-          // boxes.
+          // boxes. z is NOT here — see zMV's declaration above (z-clearance
+          // coupling) and the style prop below.
           x: animateX,
           y: inBetweenY,
-          z: depthZ,
           // Always emit a valid filter string — motion cannot interpolate between
           // undefined and a filter string, which caused the unfocus pop (bug 2b).
           filter: formatGrayscale(depthGreyscale),
@@ -1376,7 +1431,15 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
         onLayoutAnimationStart={animCallbacks?.onStart}
         onLayoutAnimationComplete={animCallbacks?.onEnd}
         className={className}
-        style={columnStyle}
+        style={{
+          ...columnStyle,
+          // Instant mode (duration=0): synchronous plain-number write, same
+          // rationale as the content wrapper's `top` below (forecast-gate
+          // adjudication #1) — relying on motion's rAF-batched style binding
+          // for a synchronous instant-mode write would depend on
+          // undocumented same-frame-ordering internals.
+          z: duration === 0 ? depthZ : zMV,
+        }}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.
             margin-top centers focused content vertically when it fits the

@@ -210,3 +210,112 @@ export function pinAllRegisteredAnimations(
     controls.time = fraction * controls.duration;
   }
 }
+
+/**
+ * A single ground-truth paint-order reading between two elements ("a" and
+ * "b") at one fraction of an in-progress transition.
+ */
+export interface PaintOrderSample {
+  fraction: number;
+  /** Whether the two elements' screen-space rects overlap at this fraction. */
+  overlapping: boolean;
+  /**
+   * Which element real browser hit-testing reports as painted on top, at a
+   * point inside the overlap. `null` when the elements don't overlap, or
+   * (unexpectedly) when the hit point lands on neither element.
+   */
+  topElement: "a" | "b" | null;
+}
+
+/**
+ * Samples Michael's ruled paint-order invariant across a set of fractions
+ * (0–1) of an in-progress transition: two objects overlapping in 2D screen
+ * space must never change which one paints on top; z-crossings are only
+ * legitimate once the pair is disjoint.
+ *
+ * At each fraction, pins every WAAPI track under `container` (freezeAnimationsAt)
+ * and — when `recorder` is supplied — every rAF-driven MotionValue track
+ * registered on the motion seam (pinAllRegisteredAnimations), so both classes
+ * of animation read as "the same instant" for the sample. Ground truth is
+ * `document.elementFromPoint` at the midpoint of the two elements' rect
+ * intersection — real browser hit-testing, not translateZ value inference —
+ * matching this codebase's DOM-truth measurement philosophy (see
+ * SceneColumn's remeasureGeometry rect-delta technique).
+ *
+ * Repeated calls to freezeAnimationsAt/pinAllRegisteredAnimations across
+ * fractions re-scrub the same already-paused tracks (currentTime/.time are
+ * freely settable), so samples can be taken in any order without an
+ * unfreeze step between them.
+ */
+export function samplePaintOrder(
+  container: HTMLElement,
+  elA: HTMLElement,
+  elB: HTMLElement,
+  fractions: number[],
+  recorder?: { controls: Map<string, AnimationPlaybackControls | undefined> },
+): PaintOrderSample[] {
+  const samples: PaintOrderSample[] = [];
+  for (const fraction of fractions) {
+    freezeAnimationsAt(container, fraction, { subtree: true });
+    if (recorder) pinAllRegisteredAnimations(recorder, fraction);
+
+    const rectA = elA.getBoundingClientRect();
+    const rectB = elB.getBoundingClientRect();
+    const left = Math.max(rectA.left, rectB.left);
+    const right = Math.min(rectA.right, rectB.right);
+    const top = Math.max(rectA.top, rectB.top);
+    const bottom = Math.min(rectA.bottom, rectB.bottom);
+    const overlapping = left < right && top < bottom;
+
+    let topElement: "a" | "b" | null = null;
+    if (overlapping) {
+      const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+      if (hit) {
+        if (elA.contains(hit)) topElement = "a";
+        else if (elB.contains(hit)) topElement = "b";
+      }
+    }
+    samples.push({ fraction, overlapping, topElement });
+  }
+  return samples;
+}
+
+/**
+ * Asserts Michael's ruled paint-order invariant against samples taken by
+ * `samplePaintOrder`: consecutive OVERLAPPING samples must agree on which
+ * element paints on top. A non-overlapping sample resets the check — a
+ * paint-order swap is legitimate once the pair is disjoint. `labelA`/`labelB`
+ * name the two elements in the thrown message (test-authored, e.g. "middle-a"
+ * / "left").
+ *
+ * Throws (rather than returning a boolean) so a violation surfaces as a test
+ * failure with the exact offending fraction and the "topElement: null while
+ * overlapping" case (hit point landed on neither element — a setup bug, not
+ * a real invariant violation) named distinctly from an actual order swap.
+ */
+export function assertPaintOrderInvariant(
+  samples: PaintOrderSample[],
+  labelA: string,
+  labelB: string,
+): void {
+  let lastOverlappingTop: "a" | "b" | null = null;
+  for (const sample of samples) {
+    if (!sample.overlapping) {
+      lastOverlappingTop = null;
+      continue;
+    }
+    if (sample.topElement === null) {
+      throw new Error(
+        `assertPaintOrderInvariant: at fraction ${sample.fraction}, "${labelA}" and "${labelB}" overlap but elementFromPoint hit neither element`,
+      );
+    }
+    if (lastOverlappingTop !== null && sample.topElement !== lastOverlappingTop) {
+      const from = lastOverlappingTop === "a" ? labelA : labelB;
+      const to = sample.topElement === "a" ? labelA : labelB;
+      throw new Error(
+        `assertPaintOrderInvariant: paint order changed from "${from}" to "${to}" at fraction ${sample.fraction} while "${labelA}"/"${labelB}" were still overlapping — z-crossings are only legal when disjoint`,
+      );
+    }
+    lastOverlappingTop = sample.topElement;
+  }
+}
