@@ -536,25 +536,23 @@ function MultiFocusDemo({ tuning }: { tuning: SceneTuning }) {
 }
 
 // ---------------------------------------------------------------------------
-// Demo 8: Debug mode
-// Toggle debug overlays on a 3-column layout
+// Demo 8: Standard blog
+// A nav/article/sidebar layout — was "Debug mode" (its own local debug
+// toggle), now a plain content demo. The page-wide Debug checkbox in
+// TuningPanel (F6 item 2) covers inspecting it, along with every other demo.
 // ---------------------------------------------------------------------------
 
-function DebugModeDemo({ tuning }: { tuning: SceneTuning }) {
-  const [debugEnabled, setDebugEnabled] = useState(false);
+function StandardBlogDemo({ tuning }: { tuning: SceneTuning }) {
   const [navFocused, setNavFocused] = useState(true);
   const [activeArticle, setActiveArticle] = useState<ArticleTarget>("article-1");
   const [sidebarFocused, setSidebarFocused] = useState(true);
 
   return (
     <DemoSection
-      title="Debug mode"
-      description="Debug overlays: cyan = viewport, magenta = stage, green = focused object, gray = unfocused object. Overlay panel shows object state, scroll info, and Camera bounds."
+      title="Standard blog"
+      description="A typical blog layout: nav, article (with a second article to swap to), and sidebar — all independently focusable columns."
       controls={
         <>
-          <Button size="sm" ghost={!debugEnabled} onClick={() => setDebugEnabled((v) => !v)}>
-            Debug: {debugEnabled ? "on" : "off"}
-          </Button>
           <Button size="sm" ghost={!navFocused} onClick={() => setNavFocused((v) => !v)}>
             Nav: {navFocused ? "focused" : "unfocused"}
           </Button>
@@ -575,7 +573,7 @@ function DebugModeDemo({ tuning }: { tuning: SceneTuning }) {
       }
     >
       {(debugTarget) => (
-        <Scene debug={debugEnabled} {...tuning}>
+        <Scene {...tuning}>
           <SceneColumn name="nav">
             <SceneObject
               name="nav-panel"
@@ -692,6 +690,16 @@ export interface SceneTuning {
   perspective: number;
   columnGap: number;
   padding: number;
+  /**
+   * Page-wide debug overlay toggle (F6 item 2) — spread onto every demo's
+   * `<Scene {...tuning}>` alongside the physics/layout knobs above, so
+   * flipping it once inspects every demo on the page simultaneously.
+   * Bundled into `tuning` (rather than a separate piece of page state)
+   * specifically so it flows through the SAME `{...tuning}` spread every
+   * demo already applies to its own <Scene> — no per-demo prop threading
+   * needed.
+   */
+  debug: boolean;
 }
 
 const defaultTuning: SceneTuning = {
@@ -700,6 +708,7 @@ const defaultTuning: SceneTuning = {
   perspective: DEFAULT_PERSPECTIVE,
   columnGap: DEFAULT_COLUMN_GAP,
   padding: 0,
+  debug: false,
 };
 
 function TuningPanel({
@@ -740,7 +749,7 @@ function TuningPanel({
   }, []);
 
   const sliders: Array<{
-    key: keyof SceneTuning;
+    key: Exclude<keyof SceneTuning, "debug">;
     label: string;
     min: number;
     max: number;
@@ -790,6 +799,24 @@ function TuningPanel({
           <span style={{ width: 36, textAlign: "right" }}>{tuning[key]}</span>
         </div>
       ))}
+      {/* F6 item 2: page-wide debug toggle, spread onto every demo below via
+          `{...tuning}` — a checkbox rather than a slider (boolean, not a
+          numeric range), still routed through scheduleChange for the same
+          rAF-coalesced commit as every other field, and uncontrolled
+          (defaultChecked, not checked) matching the sliders' defaultValue
+          pattern above — this panel doesn't re-render per keystroke/tick,
+          so a controlled input would desync from the checkbox's own live
+          DOM state between commits. */}
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+        <span style={{ width: 72, flexShrink: 0, color: "#94a3b8" }}>Debug</span>
+        <input
+          type="checkbox"
+          defaultChecked={tuning.debug}
+          onChange={(e) =>
+            scheduleChange({ ...pendingRef.current, debug: e.target.checked })
+          }
+        />
+      </label>
     </div>
   );
 }
@@ -818,7 +845,7 @@ export function ScenePage() {
       <VerticalScrollDemo tuning={tuning} />
       <HorizontalScrollDemo tuning={tuning} />
       <MultiFocusDemo tuning={tuning} />
-      <DebugModeDemo tuning={tuning} />
+      <StandardBlogDemo tuning={tuning} />
 
       <TuningPanel tuning={tuning} onChange={setTuning} />
     </div>
