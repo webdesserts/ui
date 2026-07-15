@@ -1219,7 +1219,28 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Depth deck visual values for in-between columns. Deeper columns appear
   // smaller (via perspective + translateZ), more transparent, more greyscale,
   // and stacked lower (z-index).
-  const isInBetween = position === "in-between" && stackDepth > 0;
+  //
+  // F5 item 2 fix: gated on `!columnFocused` IN ADDITION to `position ===
+  // "in-between"` — `position` is registry-derived and one-commit-stale by
+  // construction (see the S6 registration architecture comments elsewhere in
+  // this file), while `columnFocused` is a plain prop-walk read, fresh every
+  // render with no cross-component lag. On the exact commit where a
+  // never-focused deck card's `focused` prop first flips true, `position`
+  // can still read "in-between" from before the click for that one render —
+  // probe-confirmed on the dev app's Depth deck stacking demo (clicking a
+  // depth-2 card): that single mismatched render already uses `focusedStyle`
+  // (position: relative, in the flex row — `columnStyle` above already
+  // prioritizes `columnFocused` first) while STILL computing real depth-deck
+  // `animate` values (reduced opacity, translateZ, and a nonzero `animateX`
+  // offset) from the stale `position`/`stackDepth` — a transform offset
+  // applied on top of an already-in-flex-flow element, which paints as a
+  // visible jump before the next commit (Scene's registry-correction pass)
+  // resets the offset to 0 and the zMV/opacity spring proceeds normally. A
+  // column that's genuinely focused (`columnFocused === true`) can NEVER
+  // legitimately be "in-between" — `computeColumnPositions` itself always
+  // assigns `null` to a focused column — so this guard has zero false-
+  // negative risk, it only closes the stale-registry window.
+  const isInBetween = !columnFocused && position === "in-between" && stackDepth > 0;
 
   // In-between columns animate toward the rightmost focused column's left edge,
   // then peek out further left by an explicit per-depth offset (A5 — the
@@ -1229,7 +1250,9 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // card's left edge stays visible past its shallower neighbors. This is a
   // manual offset, not an emergent artifact of perspective projection.
   // Outer columns stay at x:0 — they're in the natural flex row position.
-  const animateX = position === "in-between" ? stackTargetLeft - peekOffset * stackDepth : 0;
+  // Same `!columnFocused` guard as isInBetween above, and for the same
+  // reason (F5 item 2).
+  const animateX = !columnFocused && position === "in-between" ? stackTargetLeft - peekOffset * stackDepth : 0;
   // translateZ pushes in-between columns back in 3D space. The stage's
   // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
   // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.

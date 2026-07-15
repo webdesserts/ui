@@ -4,6 +4,10 @@ import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { MotionSeamContext } from "../src/components/scene/motionSeam";
+import { ColumnPositionContext, type ColumnPosition } from "../src/components/scene/ColumnPositionContext";
+import { StackDepthContext } from "../src/components/scene/StackDepthContext";
+import { DepthDeckContext } from "../src/components/scene/DepthDeckContext";
+import { ViewportContext } from "../src/components/scene/ViewportContext";
 import { TestWrapper } from "./test-wrapper";
 import { waitForAnimationFrame, wait, createMotionSeamRecorder } from "./utils/animation";
 
@@ -5190,6 +5194,72 @@ describe("Scene depth deck stacking", () => {
     await rerender(build(true));
     await wait(800);
     expect(readMarginTop()).toBeCloseTo(settled, 0);
+  });
+
+  test("a column whose child JUST became focused never applies depth-deck visual treatment, even when the registry-derived position/depth still lag one commit behind (F5 item 2)", async () => {
+    // Demo 4 shape, distinct mechanism from H11 above (that one is about
+    // getBoundingClientRect() reporting a projected size mid-transform;
+    // already fixed). Root cause here (probe-confirmed on the dev app's
+    // Depth deck stacking demo, instrumented render trace): Scene's own S6
+    // registration architecture is "one-commit-stale by construction" (see
+    // this file's own comments on columnRegistryRef) — `position`/
+    // `stackDepth` (read from context, populated from Scene's REGISTRY) can
+    // still report the PREVIOUS commit's classification ("in-between",
+    // depth 2) for exactly one render after a column's `focused` prop flips
+    // true, even though `columnFocused` (a plain prop-walk of this column's
+    // own children, always fresh) is already correct. Before the fix,
+    // `isInBetween`/`animateX` trusted `position` alone, so that one
+    // mismatched render fed the `animate` prop stale depth-deck values
+    // (reduced opacity, translateZ, a large nonzero x offset) on top of an
+    // element ALREADY laid out via flex/relative — Motion picks up that
+    // stale target and starts springing toward it before the very next
+    // commit corrects it, a spurious retarget that's visible as a jump
+    // (probe-confirmed via raw transform sampling: translateX swung from
+    // +142 to -98 across a single frame at exactly this transition).
+    //
+    // This test reproduces the mismatch DETERMINISTICALLY rather than
+    // racing React's own synchronous corrective re-render (which resolves
+    // before control ever returns to a test, making the intermediate state
+    // unobservable from outside the component): `position`/`stackDepth` are
+    // held fixed at their pre-focus "in-between, depth 2" values across the
+    // rerender (exactly what a lagging registry would still report) while
+    // the child object's `focused` prop flips true. `data-stack-depth`
+    // (driven directly by `isInBetween`) is a plain React-rendered
+    // attribute — synchronous and deterministic, no animation-timing
+    // dependency, unlike the animate-prop values themselves.
+    const position = new Map<string, ColumnPosition>([["middle", "in-between"]]);
+    const stackDepths = new Map<string, number>([["middle", 2]]);
+
+    const build = (focused: boolean) => (
+      <TestWrapper fullPage>
+        <ViewportContext.Provider value={{ top: 0, left: 0, width: 1000, height: 800 }}>
+          <DepthDeckContext.Provider value={100}>
+            <ColumnPositionContext.Provider value={position}>
+              <StackDepthContext.Provider value={stackDepths}>
+                <SceneColumn name="middle">
+                  <SceneObject name="middle-obj" focused={focused}>
+                    <div data-testid="content" style={{ width: 240, height: 200 }} />
+                  </SceneObject>
+                </SceneColumn>
+              </StackDepthContext.Provider>
+            </ColumnPositionContext.Provider>
+          </DepthDeckContext.Provider>
+        </ViewportContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(false));
+    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    // Sanity: genuinely classified in-between/depth-2 while unfocused.
+    expect(col.getAttribute("data-stack-depth")).toBe("2");
+
+    // Focus the child WITHOUT updating position/stackDepth — the exact
+    // one-commit-stale window a real registry-lag click produces.
+    await rerender(build(true));
+
+    expect(col.getAttribute("data-column-focused")).toBe("true");
+    expect(col.getAttribute("data-stack-depth")).toBeNull();
+    expect(window.getComputedStyle(col).position).toBe("relative");
   });
 });
 
