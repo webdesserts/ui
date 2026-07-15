@@ -4295,6 +4295,80 @@ describe("Scene depth deck stacking", () => {
     // perspective projection (not a manual x offset) distinguished depths.
     expect(parseTranslateX(middle1.style.transform)).toBe(parseTranslateX(middle2.style.transform));
   });
+
+  test("H11: a never-before-focused deck card's marginTop converges monotonically on first focus (no swing)", async () => {
+    // Demo 4 shape (Left/MidA/MidB/Right — dev/pages/ScenePage.tsx's depth
+    // deck demo): a column with NO frozenSize yet (never focused before)
+    // undergoes a bigger layout-FLIP box-shape change on its first focus
+    // than on any later one. Probe-confirmed root cause: while that
+    // transition's translateZ/scale transform is still mid-flight,
+    // getBoundingClientRect() on a registered object (or the content
+    // wrapper fallback) reports a PROJECTED size — corrupting the
+    // contentHeight geometryStore feeds, so marginTop overshoots (~301 ->
+    // ~330) before correcting back to the true resting value (~300) over
+    // several hundred ms. A column's SECOND focus (frozenSize already set
+    // from the first unfocus) never shows this — its marginTop is flat
+    // throughout. Real mode (no duration override) — the spring must
+    // actually run for the swing to be observable.
+    const build = (midAFocused: boolean) => (
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div style={{ width: 240, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject name="middle-a-obj" focused={midAFocused}>
+              <div data-testid="mid-a-content" style={{ width: 240, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-b">
+            <SceneObject name="middle-b-obj" focused={false}>
+              <div style={{ width: 240, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div style={{ width: 240, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(false));
+    await wait(500);
+
+    const midAWrapper = getByTestId("mid-a-content").element()
+      .closest("[data-column]")?.querySelector("[data-column-content]") as HTMLElement;
+    const readMarginTop = () => parseFloat(midAWrapper.style.marginTop || "0");
+
+    // First focus: sample marginTop across the transition.
+    await rerender(build(true));
+    const firstFocusSamples = [readMarginTop()];
+    for (const delay of [16, 32, 50, 100, 150, 200, 300]) {
+      await wait(delay);
+      firstFocusSamples.push(readMarginTop());
+    }
+    await wait(500);
+    const settled = readMarginTop();
+
+    // No mid-flight retarget: every sample stays within a few px of the
+    // final settled value — before the fix, samples swung ~30px past it.
+    for (const sample of firstFocusSamples) {
+      expect(Math.abs(sample - settled)).toBeLessThan(5);
+    }
+
+    // Second focus (frozenSize now set from the intervening unfocus) — a
+    // sanity control confirming the settled value itself is stable/correct,
+    // not coincidentally landing inside tolerance by chance.
+    await rerender(build(false));
+    await wait(800);
+    await rerender(build(true));
+    await wait(800);
+    expect(readMarginTop()).toBeCloseTo(settled, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -631,6 +631,23 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Returns true when the geometry actually changed (fingerprint bail-out —
   // avoids forcing a re-render on every ResizeObserver callback when
   // nothing moved).
+  //
+  // H11 fix (first-focus-only vertical marginTop swing): height uses
+  // `el.offsetHeight`, NOT `rect.height`. A column transitioning out of the
+  // depth deck (in-between position) carries an active translateZ/scale
+  // transform — a layout-FLIP correction on top of the depth treatment,
+  // biggest on a column's FIRST focus (no frozenSize yet, so the box shape
+  // changes dramatically) — and getBoundingClientRect() reports that
+  // transform's PROJECTED size, not the true laid-out height. Unlike
+  // offsetTop's rect-delta (both rects share the same transform context, so
+  // it cancels out), there is no delta to cancel a direct scale factor
+  // applied to a raw dimension. offsetHeight is a layout metric, immune to
+  // any transform on the element or its ancestors — probe-verified (first-
+  // vs-second-focus trace): before this fix, first focus's marginTop
+  // overshot from ~301 to ~330 before settling back to 300 over ~500ms
+  // (second focus, with a real frozenSize already set, stayed flat at 300
+  // throughout); after, first focus converges monotonically, matching
+  // second focus's flat trace.
   const remeasureGeometry = useCallback((): boolean => {
     const wrapper = contentWrapperRef.current;
     if (!wrapper) return false;
@@ -639,7 +656,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       const rect = el.getBoundingClientRect();
       geometryStore.current.set(objName, {
         offsetTop: rect.top - wrapperRect.top,
-        height: rect.height,
+        height: el.offsetHeight,
       });
     }
     const fingerprint = Array.from(geometryStore.current.entries())
@@ -920,7 +937,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Never-focused columns measure their content wrapper directly.
   let effectiveContentHeight = columnFocused ? contentHeight : frozenContentHeight;
   if (effectiveContentHeight === 0 && contentWrapperRef.current) {
-    effectiveContentHeight = contentWrapperRef.current.getBoundingClientRect().height;
+    // offsetHeight (not getBoundingClientRect().height, H11): this wrapper
+    // sits inside the outer column's own translateZ/scale transform (depth-
+    // deck treatment, or an in-flight layout-FLIP correction on first focus
+    // — see remeasureGeometry's matching fix below) — getBoundingClientRect
+    // would report a perspective-projected/scaled size, not the true laid-
+    // out height. offsetHeight is a layout metric, immune to transforms
+    // applied to the element or any ancestor.
+    effectiveContentHeight = contentWrapperRef.current.offsetHeight;
   }
   // Centers within effectiveViewportHeight (padding-subtracted, same basis
   // as maxScroll above) — not the raw viewportHeight, which overshoots by
