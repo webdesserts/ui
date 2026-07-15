@@ -5638,8 +5638,13 @@ describe("Scene scroll position restore", () => {
         cancelable: true,
       }),
     );
-    await waitForAnimationFrame();
-    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+    // The wheel handler's setScrollOffset update comes from a native
+    // (non-React-owned) DOM event outside any act() boundary, so React's
+    // commit isn't guaranteed to land within exactly one animation frame —
+    // instrumented probe confirmed a ~1/6 flake rate on a cold first mount
+    // in this file, needing a second frame to settle. Poll for the settled
+    // DOM value instead of assuming a fixed frame count (S7).
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-100);
 
     // Unfocus the column — a second column takes focus
     await rerender(
@@ -5679,9 +5684,9 @@ describe("Scene scroll position restore", () => {
     );
     await waitForAnimationFrame();
 
-    // Scroll position should be restored to 100px
-    const topAfterRefocus = parseFloat(contentWrapper.style.top || "0");
-    expect(topAfterRefocus).toBe(-100);
+    // Scroll position should be restored to 100px — same poll rationale as
+    // the scroll assertion above.
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-100);
   });
 
   test("scroll resets to 0 when column first becomes focused (no saved position)", async () => {
