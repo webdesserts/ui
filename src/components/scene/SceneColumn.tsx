@@ -16,12 +16,14 @@ import { ColumnPositionContext } from "./ColumnPositionContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
+import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
+import { isInteractiveElement, mapScrollKeyToCommand, type ScrollCommand } from "./inputController";
 
 // ---------------------------------------------------------------------------
 // ColumnContext — lets SceneObjects register their elements and report their
@@ -267,6 +269,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
+  const scrollCommandRegistry = useContext(ScrollCommandRegistryContext);
   const position = columnPositions.get(name) ?? null;
   const stackTargetLeft = useContext(DepthDeckContext);
   const stackDepths = useContext(StackDepthContext);
@@ -370,8 +373,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   //
   // scrollOffset drives `top: -scrollOffset` on the content wrapper.
   // maxScroll = contentHeight - viewportHeight (clamped to 0 when content fits).
-  // The viewport's wheel handler dispatches a custom 'columnscroll' event on
-  // the column element with a deltaY payload, and we update scrollOffset here.
+  // The viewport's wheel handler decides a target column and calls straight
+  // into that column's registered applyScrollCommand (S5 input controller,
+  // below) with a scrollBy command — no intervening DOM event.
   // -------------------------------------------------------------------------
 
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -400,27 +404,138 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     }
   }, [maxScroll]);
 
-  // Listen for custom 'columnscroll' events dispatched by the Scene viewport's
-  // wheel handler. The event carries a `deltaY` detail value; we add it to the
-  // current scrollOffset and clamp to [0, maxScroll].
+  // Single write-path closure (S5 input controller) for every scroll command
+  // source: wheel (via the registry below), keyboard, touch release (fling),
+  // and the Scrollbar thumb (pointer-drag and keyboard). Non-fling commands
+  // resolve to a target offset and write it through the same triplet
+  // (scrollOffsetRef, scrollOffset state, driveScrollYRef) every other write
+  // site used to duplicate individually. fling is a real branch of its own —
+  // it drives the scrollY MotionValue directly (instant clamp, boundary
+  // spring-back, or full inertia decay) rather than the driveScrollYRef
+  // triplet, since inertia's physics aren't expressible as a single target +
+  // the standard transition chase.
+  const applyScrollCommand = useCallback(
+    (cmd: ScrollCommand) => {
+      if (cmd.type === "fling") {
+        if (duration === 0) {
+          // Instant mode: inertia has no meaningful instant equivalent — just
+          // settle at the clamped release position (forecast-gate plan §2).
+          // Clamped defensively — instant mode never runs a fling (this whole
+          // branch returns before the inertia code below), so scrollY
+          // shouldn't normally be out of bounds here, but the same bound-on-
+          // release invariant as the real-mode path below applies if it ever is.
+          scrollY.set(Math.max(0, Math.min(maxScrollRef.current, scrollY.get())));
+          return;
+        }
+
+        // velocity is scrollY.getVelocity(), read directly by the caller at
+        // release time — NOT a cached useVelocity() derived value — fix-round,
+        // residual-velocity re-fling defect: a cached value only refreshes on
+        // a scrollY "change" event or an elapsed animation frame tick,
+        // neither of which is guaranteed to have happened yet in a fast
+        // grab->release (probe-confirmed: it would still read the pre-grab
+        // fling's velocity indefinitely in a same-tick sequence).
+        // getVelocity() is always computed fresh, so it correctly reflects
+        // handleContentPointerDown's scrollY.jump() reset.
+        const velocity = cmd.velocity;
+
+        // Fix-round round 2 (gate finding: 203px drift on a genuinely
+        // zero-velocity release): a fresh type:"inertia" animation's
+        // checkCatchBoundary(0) engages its boundary-catch spring at GENERATOR
+        // CREATION TIME whenever the STARTING keyframe is out of [min,max]
+        // bounds — completely independent of the passed velocity (probe-
+        // confirmed at source: animate(y, [2029], {type:"inertia", velocity:0,
+        // max:1200,...}) still springs 2029->1366 over 300ms). scrollY CAN
+        // legitimately sit out of bounds here: it's a snapshot of wherever a
+        // PRIOR fling's own rubber-band overshoot was at the exact moment this
+        // grab's jump() froze it (the plan's "clamped rubber-band" physics can
+        // transiently exceed maxScroll before its own boundary spring pulls it
+        // back — a real, verified C4 behavior, not a bug). A genuinely
+        // zero-velocity release means the user imparted no momentum, so no
+        // inertia/friction decay is warranted here — but the strip must still
+        // never come to rest permanently past its scrollable edge (iOS
+        // convention; the spec's Touch scenario: "overscroll past the scroll
+        // bounds should be clamped"). So: in bounds → leave it exactly where
+        // jump() froze it (nothing to correct); out of bounds → spring back to
+        // the nearest edge, the same correction an uninterrupted fling's own
+        // boundary-catch would eventually have applied.
+        if (Math.abs(velocity) < 0.01) {
+          const current = scrollY.get();
+          const clamped = Math.max(0, Math.min(maxScrollRef.current, current));
+          if (current !== clamped) {
+            const controls = animate(scrollY, clamped, transition);
+            motionSeam?.registerControls(`scrollY:${name}`, controls);
+          }
+          return;
+        }
+
+        // NOTE: deviates from the plan's literal
+        // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
+        // that resolves internally to keyframes=[null, undefined], which
+        // finishes the animation instantly without ever running. Passing an
+        // explicit single-element keyframes array with the current value is
+        // required for inertia to actually decelerate from here.
+        const controls = animate(scrollY, [scrollY.get()], {
+          type: "inertia",
+          velocity,
+          min: 0,
+          max: maxScrollRef.current,
+          // Reuses Scene's configured spring constants for the boundary bounce
+          // so the touch-release feel matches wheel/keyboard's spring physics,
+          // rather than introducing a third unrelated set of magic numbers —
+          // judgment call: the plan named bounceStiffness/bounceDamping
+          // without pinning values.
+          bounceStiffness: stiffness,
+          bounceDamping: damping,
+        });
+        motionSeam?.registerControls(`scrollY:${name}`, controls);
+        return;
+      }
+
+      let nextOffset: number;
+      switch (cmd.type) {
+        case "scrollBy":
+        case "page":
+          nextOffset = Math.max(
+            0,
+            Math.min(maxScrollRef.current, scrollOffsetRef.current + cmd.delta),
+          );
+          break;
+        case "toTop":
+          nextOffset = 0;
+          break;
+        case "toBottom":
+          nextOffset = maxScrollRef.current;
+          break;
+      }
+      scrollOffsetRef.current = nextOffset;
+      setScrollOffset(nextOffset);
+      driveScrollYRef.current(nextOffset);
+    },
+    [duration, transition, motionSeam, name, stiffness, damping, scrollY],
+  );
+
+  // Mirrors driveScrollYRef's ref pattern: the wheel/keyboard effects below
+  // subscribe once via `[]` deps for a stable listener across renders, so
+  // they read applyScrollCommand through a ref kept fresh every render
+  // rather than closing over a possibly-stale version from mount time.
+  const applyScrollCommandRef = useRef(applyScrollCommand);
+  applyScrollCommandRef.current = applyScrollCommand;
+
+  // Register this column's command applier so Scene's wheel handler can
+  // route a decided ScrollCommand straight here (replaces the old
+  // 'columnscroll' CustomEvent bridge). Kept fresh as applyScrollCommand's
+  // own deps change; only deletes on cleanup if we're still the registered
+  // handler for this name (guards a same-name remount race, mirroring this
+  // file's other name-keyed store patterns).
   useEffect(() => {
-    const el = colRef.current;
-    if (!el) return;
-
-    const handler = (e: Event) => {
-      const { deltaY } = (e as CustomEvent<{ deltaY: number }>).detail;
-      const newOffset = Math.max(
-        0,
-        Math.min(maxScrollRef.current, scrollOffsetRef.current + deltaY),
-      );
-      scrollOffsetRef.current = newOffset;
-      setScrollOffset(newOffset);
-      driveScrollYRef.current(newOffset);
+    scrollCommandRegistry.set(name, applyScrollCommand);
+    return () => {
+      if (scrollCommandRegistry.get(name) === applyScrollCommand) {
+        scrollCommandRegistry.delete(name);
+      }
     };
-
-    el.addEventListener("columnscroll", handler);
-    return () => el.removeEventListener("columnscroll", handler);
-  }, []); // colRef is stable; maxScrollRef and scrollOffsetRef are mutable refs
+  }, [scrollCommandRegistry, name, applyScrollCommand]);
 
   // Ref to the latest viewport height for use in the keyboard handler (avoids
   // stale closure — we want the current value at the time of the keypress).
@@ -429,6 +544,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   // Keyboard scroll: intercept arrow/page/home/end keys when keyboard focus is
   // inside this column. Standard scroll amounts match browser conventions.
+  // isInteractiveElement (S5 input controller, DELTA-1) is the CURATED
+  // exemption gate — a naive [role]/[tabindex] matcher would also exempt this
+  // column's own scrollable content wrapper (role="region", tabIndex=0 — D2)
+  // and the scrollbar thumb, breaking the tab-to-region-then-arrow-scroll path.
   useEffect(() => {
     const el = colRef.current;
     if (!el) return;
@@ -437,67 +556,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       // Only handle when this column has focused content to scroll.
       if (maxScrollRef.current <= 0) return;
 
-      // Don't intercept keys when focus is in an editable element.
-      const target = e.target as HTMLElement;
-      const tagName = target.tagName;
-      if (
-        tagName === "INPUT" ||
-        tagName === "TEXTAREA" ||
-        tagName === "SELECT" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
+      if (isInteractiveElement(e.target as Element)) return;
 
-      let delta = 0;
-      const pageSize = viewportHeightRef.current;
+      const cmd = mapScrollKeyToCommand(e.key, e.shiftKey, viewportHeightRef.current);
+      if (!cmd) return; // Not a scroll key — don't intercept
 
-      switch (e.key) {
-        case "ArrowDown":
-          delta = 40;
-          break;
-        case "ArrowUp":
-          delta = -40;
-          break;
-        case "PageDown":
-        case " ":
-          if (e.key === " " && e.shiftKey) {
-            delta = -pageSize;
-          } else {
-            delta = pageSize;
-          }
-          break;
-        case "PageUp":
-          delta = -pageSize;
-          break;
-        case "Home":
-          // Scroll to top: set offset to 0
-          scrollOffsetRef.current = 0;
-          setScrollOffset(0);
-          driveScrollYRef.current(0);
-          e.preventDefault();
-          return;
-        case "End":
-          // Scroll to bottom
-          scrollOffsetRef.current = maxScrollRef.current;
-          setScrollOffset(maxScrollRef.current);
-          driveScrollYRef.current(maxScrollRef.current);
-          e.preventDefault();
-          return;
-        default:
-          return; // Not a scroll key — don't intercept
-      }
-
-      if (delta !== 0) {
-        const newOffset = Math.max(
-          0,
-          Math.min(maxScrollRef.current, scrollOffsetRef.current + delta),
-        );
-        scrollOffsetRef.current = newOffset;
-        setScrollOffset(newOffset);
-        driveScrollYRef.current(newOffset);
-        e.preventDefault();
-      }
+      applyScrollCommandRef.current(cmd);
+      e.preventDefault();
     };
 
     el.addEventListener("keydown", handler);
@@ -1035,17 +1100,6 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       // final drag position even though real mode skipped per-tick renders.
       setScrollOffset(releaseOffset);
 
-      if (duration === 0) {
-        // Instant mode: inertia has no meaningful instant equivalent — just
-        // settle at the clamped release position (forecast-gate plan §2).
-        // Clamped defensively — instant mode never runs a fling (this whole
-        // branch returns before the inertia code below), so scrollY
-        // shouldn't normally be out of bounds here, but the same bound-on-
-        // release invariant as the real-mode path below applies if it ever is.
-        scrollY.set(Math.max(0, Math.min(maxScrollRef.current, releaseOffset)));
-        return;
-      }
-
       // scrollY.getVelocity() called directly, NOT a cached useVelocity()
       // derived value — fix-round, residual-velocity re-fling defect: a
       // cached value only refreshes on a scrollY "change" event or an
@@ -1054,60 +1108,13 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       // still read the pre-grab fling's velocity indefinitely in a same-tick
       // sequence). getVelocity() is always computed fresh, so it correctly
       // reflects handleContentPointerDown's scrollY.jump() reset above.
-      const velocity = scrollY.getVelocity();
-
-      // Fix-round round 2 (gate finding: 203px drift on a genuinely
-      // zero-velocity release): a fresh type:"inertia" animation's
-      // checkCatchBoundary(0) engages its boundary-catch spring at GENERATOR
-      // CREATION TIME whenever the STARTING keyframe is out of [min,max]
-      // bounds — completely independent of the passed velocity (probe-
-      // confirmed at source: animate(y, [2029], {type:"inertia", velocity:0,
-      // max:1200,...}) still springs 2029->1366 over 300ms). scrollY CAN
-      // legitimately sit out of bounds here: it's a snapshot of wherever a
-      // PRIOR fling's own rubber-band overshoot was at the exact moment this
-      // grab's jump() froze it (the plan's "clamped rubber-band" physics can
-      // transiently exceed maxScroll before its own boundary spring pulls it
-      // back — a real, verified C4 behavior, not a bug). A genuinely
-      // zero-velocity release means the user imparted no momentum, so no
-      // inertia/friction decay is warranted here — but the strip must still
-      // never come to rest permanently past its scrollable edge (iOS
-      // convention; the spec's Touch scenario: "overscroll past the scroll
-      // bounds should be clamped"). So: in bounds → leave it exactly where
-      // jump() froze it (nothing to correct); out of bounds → spring back to
-      // the nearest edge, the same correction an uninterrupted fling's own
-      // boundary-catch would eventually have applied.
-      if (Math.abs(velocity) < 0.01) {
-        const current = scrollY.get();
-        const clamped = Math.max(0, Math.min(maxScrollRef.current, current));
-        if (current !== clamped) {
-          const controls = animate(scrollY, clamped, transition);
-          motionSeam?.registerControls(`scrollY:${name}`, controls);
-        }
-        return;
-      }
-
-      // NOTE: deviates from the plan's literal
-      // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
-      // that resolves internally to keyframes=[null, undefined], which
-      // finishes the animation instantly without ever running. Passing an
-      // explicit single-element keyframes array with the current value is
-      // required for inertia to actually decelerate from here.
-      const controls = animate(scrollY, [scrollY.get()], {
-        type: "inertia",
-        velocity,
-        min: 0,
-        max: maxScrollRef.current,
-        // Reuses Scene's configured spring constants for the boundary bounce
-        // so the touch-release feel matches wheel/keyboard's spring physics,
-        // rather than introducing a third unrelated set of magic numbers —
-        // judgment call: the plan named bounceStiffness/bounceDamping
-        // without pinning values.
-        bounceStiffness: stiffness,
-        bounceDamping: damping,
-      });
-      motionSeam?.registerControls(`scrollY:${name}`, controls);
+      // Skipped in instant mode (duration===0) — inertia has no meaningful
+      // instant equivalent (forecast-gate plan §2) and applyScrollCommand's
+      // fling branch never reads velocity in that case anyway.
+      const velocity = duration === 0 ? 0 : scrollY.getVelocity();
+      applyScrollCommand({ type: "fling", velocity });
     },
-    [duration, scrollY, stiffness, damping, motionSeam, name, transition],
+    [duration, scrollY, applyScrollCommand],
   );
 
   return (
@@ -1200,9 +1207,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             maxScroll={maxScroll}
             trackHeight={viewportHeight}
             onScroll={(newOffset) => {
-              scrollOffsetRef.current = newOffset;
-              setScrollOffset(newOffset);
-              driveScrollYRef.current(newOffset);
+              // Pointer-drag reports an absolute target offset (computed from
+              // track/thumb geometry), not a delta — expressed as a scrollBy
+              // command via the delta from the current offset so it goes
+              // through the same applyScrollCommand write path as every
+              // other scroll source.
+              applyScrollCommand({ type: "scrollBy", delta: newOffset - scrollOffsetRef.current });
             }}
           />
         )}

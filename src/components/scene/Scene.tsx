@@ -8,9 +8,11 @@ import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionCont
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
+import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
+import { normalizeWheelDelta, decideWheelTargetColumn, type ScrollCommand } from "./inputController";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
 
 /**
@@ -626,6 +628,7 @@ function SceneViewport({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+  const scrollCommandRegistry = useContext(ScrollCommandRegistryContext);
 
   // Counter tracking how many Motion animations are currently in flight.
   // The debug outline rAF loop runs while this is > 0. Using a ref (not state)
@@ -845,9 +848,12 @@ function SceneViewport({
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
   });
 
-  // Route wheel deltaY to the column under the cursor as a custom 'columnscroll'
-  // event. deltaX is left to the native horizontal scroll on the viewport.
-  // Registered as non-passive so preventDefault() is allowed.
+  // Route wheel input to a target column's registered command applier
+  // (S5 — replaces the old `columnscroll` CustomEvent bridge). deltaX is left
+  // to the native horizontal scroll on the viewport. Registered as
+  // non-passive so preventDefault() is allowed — normalize -> decide ->
+  // apply all run synchronously within the same event so preventDefault()
+  // timing is preserved exactly as before.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -855,14 +861,18 @@ function SceneViewport({
     const handler = (e: WheelEvent) => {
       if (e.deltaY === 0) return;
 
-      // Find which [data-column] element is under the cursor.
-      const target = document.elementFromPoint(e.clientX, e.clientY);
-      const column = target?.closest("[data-column]");
+      // ctrlKey (pinch-zoom) -> null: never routed, never preventDefault-ed,
+      // letting the browser's native pinch-zoom pass through untouched.
+      const scaledDeltaY = normalizeWheelDelta(e, el.clientHeight);
+      if (scaledDeltaY === null) return;
+
+      const column = decideWheelTargetColumn(el, e.clientX, e.clientY);
       if (!column) return;
 
-      // Only route to focused columns that can scroll.
-      if (column.getAttribute("data-column-focused") !== "true") return;
-      if (!column.hasAttribute("data-max-scroll")) return;
+      const name = column.getAttribute("data-column");
+      if (!name) return;
+      const applyScrollCommand = scrollCommandRegistry.get(name);
+      if (!applyScrollCommand) return;
 
       // Prevent the viewport from scrolling vertically. When the event also has
       // deltaX (diagonal trackpad gesture), only prevent default if there's no
@@ -874,17 +884,12 @@ function SceneViewport({
         e.preventDefault();
       }
 
-      column.dispatchEvent(
-        new CustomEvent("columnscroll", {
-          detail: { deltaY: e.deltaY },
-          bubbles: false,
-        }),
-      );
+      applyScrollCommand({ type: "scrollBy", delta: scaledDeltaY });
     };
 
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, []);
+  }, [scrollCommandRegistry]);
 
   return (
     <AnimationCallbackContext.Provider value={animationCallbacks}>
@@ -1054,6 +1059,13 @@ export function Scene({
   // Using useRef ensures the Map identity is stable — no re-renders on updates.
   const scrollOffsetStore = useRef<Map<string, ScrollOffsetEntry>>(new Map()).current;
 
+  // Mutable map of column name -> command applier. SceneColumn registers its
+  // applyScrollCommand closure here; SceneViewport's wheel handler looks up
+  // the decided target column's applier and calls it directly (S5 — replaces
+  // the old `columnscroll` CustomEvent bridge). Same stable-identity rationale
+  // as scrollOffsetStore above.
+  const scrollCommandRegistry = useRef<Map<string, (cmd: ScrollCommand) => void>>(new Map()).current;
+
   // True during Scene's first paint; false from the commit after first paint onward.
   // Read synchronously during render by SceneColumn to suppress the Phase 7c
   // slide-in-from-right on first mount (every column looks like it's "late-mounting"
@@ -1100,6 +1112,7 @@ export function Scene({
         }}
       >
         <ScrollOffsetStoreContext.Provider value={scrollOffsetStore}>
+        <ScrollCommandRegistryContext.Provider value={scrollCommandRegistry}>
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
             <SceneViewport
@@ -1120,6 +1133,7 @@ export function Scene({
             </SceneViewport>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
+        </ScrollCommandRegistryContext.Provider>
         </ScrollOffsetStoreContext.Provider>
       </CameraContext.Provider>
     </SceneConfigContext.Provider>

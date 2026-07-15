@@ -2394,6 +2394,78 @@ describe("Scene keyboard scroll", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// S5: input controller — keyboard exemption (D1, DELTA-1)
+// ---------------------------------------------------------------------------
+
+describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
+  test("D1: pressing Space on a button inside a scrollable focused column does not hijack the keypress (button keeps Space)", async () => {
+    // Regression for the naive isInteractiveElement matcher: Space must
+    // activate the button, not scroll the column.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 400, height: 1200 }}>
+                <button data-testid="action-btn">action</button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const btn = getByTestId("action-btn").element() as HTMLElement;
+
+    btn.focus();
+    const notPrevented = btn.dispatchEvent(
+      new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    // The column must not have scrolled...
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+    // ...and the keydown must not have been intercepted (defaultPrevented
+    // false — a real button's native Space-activation behavior stays intact).
+    expect(notPrevented).toBe(true);
+  });
+
+  test("DELTA-1: keyboard-focusing the scrollable content wrapper itself and pressing ArrowDown still scrolls the column (role=region must not self-exempt)", async () => {
+    // The regression a naive [role]/[tabindex] matcher would cause: it would
+    // exempt the column's OWN content wrapper (role="region", tabIndex=0 —
+    // D2), breaking the tab-to-region-then-arrow-scroll keyboard path.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    contentWrapper.focus();
+    expect(document.activeElement).toBe(contentWrapper);
+
+    contentWrapper.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-40);
+  });
+});
+
 describe("Scene scroll position management", () => {
   test("vertical scroll resets to 0 when column first becomes focused", async () => {
     // A newly-focused column should start with scrollOffset = 0.
@@ -2569,6 +2641,161 @@ describe("Scene scroll edge cases", () => {
 
     // Scrollbar should be gone
     expect(scene.querySelector("[data-scrollbar]")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S5: input controller — wheel (normalizeWheelDelta, decideWheelTargetColumn)
+// ---------------------------------------------------------------------------
+
+describe("Scene wheel input controller (S5)", () => {
+  test("ctrl+wheel (pinch-zoom) does not scroll and does not preventDefault", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const colRect = column.getBoundingClientRect();
+
+    const notPrevented = scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 100,
+        ctrlKey: true,
+        clientX: colRect.left + colRect.width / 2,
+        clientY: colRect.top + colRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+    // dispatchEvent returns true when preventDefault was never called.
+    expect(notPrevented).toBe(true);
+  });
+
+  test("deltaMode=LINE scales deltaY by 16px per line (3 lines -> 48px)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const colRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 3,
+        deltaMode: 1, // DOM_DELTA_LINE
+        clientX: colRect.left + colRect.width / 2,
+        clientY: colRect.top + colRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-48);
+  });
+
+  test("A10: wheel anywhere in the viewport scrolls the single scrollable focused column, even off-column", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused>
+              <div data-testid="content-b" style={{ width: 400, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    const colBRect = colB.getBoundingClientRect();
+
+    // Cursor is over column B (not scrollable) — column A must still scroll
+    // since it's the ONLY scrollable focused column in the viewport (A10
+    // fallback: no dead margins when only one column can possibly respond).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: colBRect.left + colBRect.width / 2,
+        clientY: colBRect.top + colBRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(colAContent.style.top || "0")).toBe(-60);
+  });
+
+  test("multiple scrollable focused columns: wheel routes to the column under the cursor (unchanged hit-test behavior)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused>
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    const colBContent = colB.querySelector("[data-column-content]") as HTMLElement;
+    const colBRect = colB.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: colBRect.left + colBRect.width / 2,
+        clientY: colBRect.top + colBRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(colBContent.style.top || "0")).toBe(-60);
+    expect(parseFloat(colAContent.style.top || "0")).toBe(0);
   });
 });
 
