@@ -118,9 +118,9 @@ const INTERACTIVE_ROLES = new Set([
  * column's own scrollable content wrapper (`role="region"`, `tabIndex={0}` —
  * D2) and the scrollbar thumb, breaking the tab-to-region-then-arrow-scroll
  * keyboard path. `role="region"` is not an interactive role, so it never
- * exempts on its own; and an element bearing (or nested within)
- * `[data-column-content]` or `[data-scrollbar]` never exempts via the
- * generic non-negative-tabindex rule, no matter its tabindex value.
+ * exempts on its own; the content wrapper and scrollbar thumb never exempt
+ * via the generic non-negative-tabindex rule below, no matter their tabindex
+ * value — see the SELF-vs-ANCESTOR asymmetry note just above that check.
  */
 export function isInteractiveElement(el: Element): boolean {
   if (isEditableElement(el)) return true;
@@ -133,11 +133,18 @@ export function isInteractiveElement(el: Element): boolean {
   const role = el.getAttribute("role");
   if (role && INTERACTIVE_ROLES.has(role)) return true;
 
-  // The column's own content wrapper and the scrollbar thumb (a descendant
-  // of the [data-scrollbar] track) are navigable-but-not-interactive: never
-  // exempt them via the generic tabindex rule below.
-  const exempt = el.closest("[data-column-content], [data-scrollbar]");
-  if (!exempt) {
+  // The column's own content wrapper is navigable-but-not-interactive — but
+  // ONLY the wrapper itself, a SELF-ONLY check (fix round, gate finding):
+  // every consumer's actual content lives inside [data-column-content] by
+  // construction, so an ancestor-inclusive closest() check here would
+  // wrongly exempt every NESTED focusable widget too (a roving-tabindex
+  // list item, a focusable message bubble), hijacking its own arrow/Space
+  // keys for column scroll. The scrollbar thumb is the opposite case:
+  // [data-scrollbar] lives on the TRACK, an ANCESTOR of the thumb itself, so
+  // closest() (ancestor-inclusive) is correct and necessary there.
+  const isContentWrapperItself = el.hasAttribute("data-column-content");
+  const isWithinScrollbar = el.closest("[data-scrollbar]") !== null;
+  if (!isContentWrapperItself && !isWithinScrollbar) {
     const tabindex = el.getAttribute("tabindex");
     if (tabindex !== null && Number(tabindex) >= 0) return true;
   }

@@ -2464,6 +2464,48 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
 
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-40);
   });
+
+  test("fix round: a focusable no-role widget nested inside scrollable content keeps its own ArrowDown (column does not scroll)", async () => {
+    // Gate finding: isInteractiveElement's content-wrapper exemption used a
+    // closest()-based (self-OR-ancestor) check, which wrongly exempted every
+    // nested focusable element too — since all consumer content lives inside
+    // [data-column-content] by construction, ANY nested widget with a bare
+    // tabindex (a roving-tabindex list item, a focusable message bubble) had
+    // its own arrow/Space keys hijacked by column scroll. The fix scopes the
+    // content-wrapper exemption to a SELF-ONLY check.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 400, height: 1200 }}>
+                <div data-testid="widget" tabIndex={0}>widget</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const widget = getByTestId("widget").element() as HTMLElement;
+
+    widget.focus();
+    expect(document.activeElement).toBe(widget);
+
+    const notPrevented = widget.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    // The column must NOT have scrolled...
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+    // ...and the keydown must not have been intercepted — the widget keeps
+    // its own ArrowDown for whatever internal purpose it has.
+    expect(notPrevented).toBe(true);
+  });
 });
 
 describe("Scene scroll position management", () => {

@@ -195,6 +195,26 @@ describe("isInteractiveElement", () => {
     expect(isInteractiveElement(el)).toBe(false);
   });
 
+  test("fix round: a bare tabindex=0 element NESTED inside [data-column-content] (a consumer widget, not the wrapper itself) IS interactive", () => {
+    // The content-wrapper exemption is a SELF-ONLY check — every consumer's
+    // actual content lives inside [data-column-content] by construction, so
+    // an ancestor-inclusive closest() check here would wrongly exempt every
+    // nested focusable widget (a roving-tabindex list item, a focusable
+    // message bubble) from the generic tabindex rule too, hijacking its own
+    // arrow/Space keys for column scroll.
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute("data-column-content", "");
+    const widget = document.createElement("div");
+    widget.setAttribute("tabindex", "0");
+    wrapper.appendChild(widget);
+    document.body.appendChild(wrapper);
+    try {
+      expect(isInteractiveElement(widget)).toBe(true);
+    } finally {
+      wrapper.remove();
+    }
+  });
+
   test("DELTA-1: an element NESTED under [data-scrollbar] with tabindex=0 is NOT interactive (the scrollbar thumb)", () => {
     const track = document.createElement("div");
     track.setAttribute("data-scrollbar", "");
