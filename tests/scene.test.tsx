@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import { StrictMode, useState } from "react";
 import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
@@ -2806,6 +2807,81 @@ describe("Scene first paint at rest (A4)", () => {
     }
 
     // Sanity: real resting value to have sprung from/to.
+    expect(samples[samples.length - 1]).not.toBe(0);
+
+    for (const sample of samples) {
+      expect(sample).toBe(samples[0]);
+    }
+  });
+
+  test("StrictMode: marginTop is at rest immediately on a real, non-act mount — no first-paint spring (F5 item 3)", async () => {
+    // React StrictMode double-invokes a component's render FUNCTION BODY in
+    // development (discarding the first call's return value, keeping the
+    // second). columnGeometrySettledRef (SceneColumn's A4 first-paint gate)
+    // used to be mutated directly during render — impure, and on the exact
+    // commit where effectiveViewportHeight first becomes real, StrictMode's
+    // second (kept) invocation observed the ref already flipped `true` by the
+    // first invocation, silently defeating the "capture before mutate" gate
+    // on the one render it exists to keep instant. The two tests above never
+    // exercise this: their `render()` mount doesn't reproduce the same
+    // paint/effect interleaving a REAL, later, event-driven mount does
+    // (probe-confirmed on the actual dev app, which is StrictMode-wrapped:
+    // marginTop visibly springs 0->79px over ~330ms on page load). This test
+    // reproduces that shape directly — mount a toggle button first, then a
+    // real DOM `.click()` mounts the Scene — under an explicit <StrictMode>
+    // wrapper, which the app-level demo already uses (dev/main.tsx).
+    function MountOnClick() {
+      const [mounted, setMounted] = useState(false);
+      return (
+        <>
+          <button data-testid="mount-btn" onClick={() => setMounted(true)}>
+            Mount
+          </button>
+          {mounted && (
+            <Scene>
+              <SceneColumn name="col-a">
+                <SceneObject name="obj-a" focused>
+                  <div data-testid="content-a" style={{ width: 300, height: 300 }} />
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="col-b">
+                <SceneObject name="obj-b" focused>
+                  <div data-testid="content-b" style={{ width: 300, height: 300 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          )}
+        </>
+      );
+    }
+
+    const { getByTestId } = await render(
+      <StrictMode>
+        <TestWrapper fullPage>
+          <MountOnClick />
+        </TestWrapper>
+      </StrictMode>,
+    );
+
+    (getByTestId("mount-btn").element() as HTMLElement).click();
+    await waitForAnimationFrame();
+
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement;
+    const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+
+    // rAF-sample across ~40 real frames (not fixed-delay polling) — a real
+    // spring shows a smooth multi-frame climb across this window; the earlier
+    // sample point already caught most of the climb in the manual probe, so
+    // sampling starts immediately after the mounting frame.
+    const samples: number[] = [readMarginTop()];
+    for (let i = 0; i < 40; i++) {
+      await waitForAnimationFrame();
+      samples.push(readMarginTop());
+    }
+
+    // Sanity: a real resting value to have sprung from/to (not degenerately 0
+    // throughout, which would make this test vacuous).
     expect(samples[samples.length - 1]).not.toBe(0);
 
     for (const sample of samples) {

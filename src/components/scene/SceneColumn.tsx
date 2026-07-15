@@ -419,11 +419,31 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   const effectiveViewportHeight = viewportHeight - padding * 2;
 
   // A4 first-paint gate (continued from columnGeometrySettledRef's decl
-  // above): capture BEFORE mutating, then mark settled for future renders.
+  // above): read the PRE-mutation value; the mutation itself is deferred to
+  // a useLayoutEffect below (F5 item 3 fix) rather than happening inline
+  // here during render. Mutating a ref directly in the render body is
+  // impure, and React StrictMode's development-only double-invocation of
+  // the render function body defeats this exact gate: probe-confirmed (F5
+  // item 3) that at the critical commit — the render where
+  // effectiveViewportHeight first becomes real — StrictMode calls this
+  // component function twice; the first call correctly reads `false` and
+  // mutates the ref to `true` as a side effect, then the SECOND call (whose
+  // return value React actually uses for reconciliation) reads the
+  // already-mutated `true`, silently collapsing `columnGeometryWasSettled`
+  // to `true` for the very render this gate exists to keep instant. That
+  // showed up as marginTop (and any other `columnGeometryWasSettled`
+  // consumer) springing from a placeholder on every first paint instead of
+  // jumping. Reading the ref here (unmutated) and writing it only from a
+  // layout effect keeps both StrictMode invocations of a given commit
+  // observing the SAME value, since the effect only runs once the real
+  // commit has been decided — no more render-body impurity for StrictMode
+  // to catch.
   const columnGeometryWasSettled = columnGeometrySettledRef.current;
-  if (effectiveViewportHeight > 0) {
-    columnGeometrySettledRef.current = true;
-  }
+  useLayoutEffect(() => {
+    if (effectiveViewportHeight > 0) {
+      columnGeometrySettledRef.current = true;
+    }
+  });
 
   const maxScroll = Math.max(
     0,
