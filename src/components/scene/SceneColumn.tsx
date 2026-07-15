@@ -298,6 +298,23 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
         ? { type: "spring" as const, stiffness: 30, damping: 8 }
         : { type: "spring" as const, stiffness, damping };
 
+  // A4 first-paint gate: tracks whether this column instance has EVER seen a
+  // real (nonzero) effectiveViewportHeight — the LAST-arriving piece of a
+  // column's initial geometry settling (SceneViewport's own viewport
+  // measurement is a layout effect declared in an ANCESTOR component, so it
+  // lands a render after this column's own content-height/geometryStore
+  // corrections settle in the same commit — probe-confirmed: the render
+  // where effectiveViewportHeight first becomes real already has
+  // firstPaintRef.current === false, because Scene's passive first-paint-
+  // flip effect fires between the two synchronous correction rounds).
+  // columnGeometryWasSettled captures the PRE-mutation value (read below,
+  // right after effectiveViewportHeight is computed) so both marginTop and
+  // topOffsetMV's drive gate reflect whether settling had ALREADY happened
+  // as of the PREVIOUS render — the render where it first happens must
+  // still count as "not yet settled" so its own value commits instantly
+  // rather than springing from a placeholder.
+  const columnGeometrySettledRef = useRef(false);
+
   // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
   // so the content wrapper's `top` can be driven off React's render cycle —
   // touch pan (commit 2) needs 1:1 per-frame writes without forcing a
@@ -401,6 +418,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Effective viewport height accounts for Scene padding applied to the stage.
   // Padding reduces the usable height, so the scroll range grows accordingly.
   const effectiveViewportHeight = viewportHeight - padding * 2;
+
+  // A4 first-paint gate (continued from columnGeometrySettledRef's decl
+  // above): capture BEFORE mutating, then mark settled for future renders.
+  const columnGeometryWasSettled = columnGeometrySettledRef.current;
+  if (effectiveViewportHeight > 0) {
+    columnGeometrySettledRef.current = true;
+  }
+
   const maxScroll = Math.max(
     0,
     columnFocused && effectiveViewportHeight > 0
@@ -905,6 +930,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       ? Math.max(0, (effectiveViewportHeight - effectiveContentHeight) / 2)
       : 0;
 
+  // A4 first-paint gate for marginTop: `animate={{marginTop}}` below springs
+  // between whatever value it was PREVIOUSLY committed with and the new one,
+  // even across renders the browser never actually painted — see
+  // columnGeometryWasSettled's declaration above for why firstPaintRef alone
+  // doesn't cover this gap.
+  const marginTopTransition =
+    firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
+
   // Registration callback provided to child SceneObjects. Also drives the
   // shared ResizeObserver's membership — newly registered elements join the
   // single measurement layer immediately (or are picked up by the mount
@@ -971,21 +1004,24 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Mirrors driveScrollYRef's instant-vs-real branching: duration===0 uses a
   // synchronous `.set()` (composedTop isn't even used in that mode, but
   // keeping the MotionValue's own value consistent is cheap and avoids a
-  // stale target if duration toggles at runtime). firstPaintRef.current
-  // gates the very first drive(s) to `.jump()` rather than animate() — the
-  // same first-paint suppression SceneColumn's mountInitial already applies
-  // to the slide-in: without it, a column's topOffset can differ from its
-  // useMotionValue seed by the time geometry settles a render or two into
-  // Scene's first paint (still pre-paint, since firstPaintRef only flips in
-  // a passive effect that fires after paint), and springing from 0 there
-  // would look identical to the entrance jank first-paint suppression exists
-  // to prevent.
+  // stale target if duration toggles at runtime). Gated to `.jump()` rather
+  // than animate() during firstPaintRef.current OR before
+  // columnGeometryWasSettled — the same first-paint suppression
+  // SceneColumn's mountInitial already applies to the slide-in: without it,
+  // a column's topOffset can differ from its useMotionValue seed by the time
+  // geometry settles a render or two into Scene's first paint, and springing
+  // from 0 there would look identical to the entrance jank first-paint
+  // suppression exists to prevent. columnGeometryWasSettled is required in
+  // ADDITION to firstPaintRef.current (not redundant with it) — probe-
+  // confirmed the render where topOffset's underlying geometry first
+  // settles already has firstPaintRef.current === false (see
+  // columnGeometrySettledRef's declaration above).
   useLayoutEffect(() => {
     if (topOffset === topOffsetTargetRef.current) return;
     topOffsetTargetRef.current = topOffset;
     if (duration === 0) {
       topOffsetMV.set(topOffset);
-    } else if (firstPaintRef.current) {
+    } else if (firstPaintRef.current || !columnGeometryWasSettled) {
       topOffsetMV.jump(topOffset);
     } else {
       const controls = animate(topOffsetMV, topOffset, transition);
@@ -1265,7 +1301,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           {...(isScrollable ? { tabIndex: 0 } : {})}
           initial={false}
           animate={{ marginTop }}
-          transition={transition}
+          transition={marginTopTransition}
           onAnimationStart={animCallbacks?.onStart}
           onAnimationComplete={animCallbacks?.onEnd}
           onPointerDown={handleContentPointerDown}

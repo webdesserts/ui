@@ -673,6 +673,11 @@ function SceneViewport({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ top: 0, left: 0, width: 0, height: 0 });
   const scrollCommandRegistry = useContext(ScrollCommandRegistryContext);
+  // A4: distinguishes Scene's true first paint from a later re-render, so the
+  // stageLeft effect below can gate its FIRST drive of cameraX to a `.jump()`
+  // instead of an animate() spring — mirrors SceneColumn's own mountInitial/
+  // topOffsetMV first-paint gating (see SceneColumn.tsx).
+  const firstPaintRef = useContext(SceneFirstPaintContext);
 
   // Counter tracking how many Motion animations are currently in flight.
   // The debug outline rAF loop runs while this is > 0. Using a ref (not state)
@@ -910,6 +915,15 @@ function SceneViewport({
     // retargets the in-flight spring, matching the old animate={{left}} prop's
     // per-render retarget behavior.
     //
+    // A4 first-paint gate: cameraX is seeded to 0 (useMotionValue(0) below),
+    // so on Scene's true first commit `stageLeftChanged` is (almost) always
+    // true even though there is nothing to actually TRANSIT from — the
+    // camera was never at 0, it just hasn't been positioned yet. Without this
+    // gate, that first commit springs cameraX from 0 to the real centered
+    // position over the configured transition, producing a visible climb on
+    // every mount. `.jump()` snaps it straight to rest instead, mirroring
+    // SceneColumn's mountInitial/topOffsetMV first-paint gating.
+    //
     // useCamera() transitioning (forecast-gate adjudication #5c): the token
     // captured at invocation guards onTransitionComplete against a
     // superseded animation's `.then()` firing after a newer retarget has
@@ -917,6 +931,8 @@ function SceneViewport({
     if (stageLeftChanged) {
       if (duration === 0) {
         cameraX.set(newStageLeft);
+      } else if (firstPaintRef.current) {
+        cameraX.jump(newStageLeft);
       } else {
         const token = ++cameraTransitionTokenRef.current;
         onTransitionStart();

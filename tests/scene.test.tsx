@@ -2009,6 +2009,107 @@ describe("Scene centering", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A4: first paint at rest (no entrance animation) — a multi-column centered
+// layout mounted directly in real (non-instant) mode should already be at
+// its resting stage-left/marginTop position on the very first painted frame,
+// not spring into place from 0 over the following ~600ms.
+// ---------------------------------------------------------------------------
+
+describe("Scene first paint at rest (A4)", () => {
+  test("stage left and content marginTop are constant from the first sample — no first-paint spring", async () => {
+    // Two focused columns, combined width (600px) well under the 1280px
+    // viewport (triggers non-zero horizontal centering) and content height
+    // (300px) well under the 800px viewport (triggers non-zero vertical
+    // centering) — both channels have real distance to spring across if the
+    // first-paint gate is missing. No duration override — real springs.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col-a">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement;
+
+    const readStageLeft = () => parseFloat(window.getComputedStyle(stage).left);
+    const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+
+    // Sample immediately (the first painted frame) plus several points across
+    // the following ~600ms — long enough to catch a slow default-spring climb.
+    const stageLeftSamples = [readStageLeft()];
+    const marginTopSamples = [readMarginTop()];
+    for (const delay of [16, 100, 200, 300, 600]) {
+      await wait(delay);
+      stageLeftSamples.push(readStageLeft());
+      marginTopSamples.push(readMarginTop());
+    }
+
+    // Sanity: both channels have real resting values to have sprung from/to
+    // (not degenerately 0 the whole time, which would make this test vacuous).
+    expect(stageLeftSamples[stageLeftSamples.length - 1]).not.toBe(0);
+    expect(marginTopSamples[marginTopSamples.length - 1]).not.toBe(0);
+
+    for (const sample of stageLeftSamples) {
+      expect(sample).toBe(stageLeftSamples[0]);
+    }
+    for (const sample of marginTopSamples) {
+      expect(sample).toBe(marginTopSamples[0]);
+    }
+  });
+
+  test("a column mounting already focused on its second object is at rest immediately — no first-paint spring", async () => {
+    // topOffsetMV (item 1's swap-spring fix) shares the same first-paint gap
+    // as marginTop above: mounting DIRECTLY with a later object focused
+    // (e.g. a deep link) needs a nonzero topOffset from the very first
+    // frame, not a spring up from 0.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 1000 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 1000 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement;
+
+    const readTop = () => parseFloat(contentWrapper.style.top || "0");
+    const samples = [readTop()];
+    for (const delay of [16, 100, 300, 600]) {
+      await wait(delay);
+      samples.push(readTop());
+    }
+
+    // Sanity: real resting value to have sprung from/to.
+    expect(samples[samples.length - 1]).not.toBe(0);
+
+    for (const sample of samples) {
+      expect(sample).toBe(samples[0]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // S7 coverage backfill: Alignment & Centering (scene-scroll.feature, each
 // axis handled independently — these assert BOTH axes together in one
 // scenario, which the pre-existing per-axis tests above don't do).
