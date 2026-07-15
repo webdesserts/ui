@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Scene, SceneColumn, SceneObject, useCamera } from "../../src";
 import { Button } from "../../src";
 
@@ -6,14 +7,27 @@ import { Button } from "../../src";
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-function CameraDebug() {
+/**
+ * Renders the camera readout via a portal into an externally-owned overlay
+ * div (see DemoSection's debugTarget) instead of as a direct child of
+ * <Scene>. Scene's wrapChild dev-warns on (and lets scrollWidth grow from)
+ * any direct child that isn't a SceneColumn/SceneObject — a plain <p> child
+ * used to join the stage's flex row and widen its scroll extent. Nesting
+ * this call site inside a SceneObject's own children keeps it a valid place
+ * to call useCamera() (still inside Scene's CameraContext) while the portal
+ * itself renders zero DOM at that position, so it never joins Scene's
+ * layout or triggers the stray-child warning.
+ */
+function CameraDebugPortal({ target }: { target: HTMLDivElement | null }) {
   const camera = useCamera();
-  return (
+  if (!target) return null;
+  return createPortal(
     <p className="text-xs text-text-muted font-mono">
       Camera: {Math.round(camera.viewport.left)},{Math.round(camera.viewport.top)}{" "}
       {Math.round(camera.viewport.width)}x{Math.round(camera.viewport.height)}
       {camera.transitioning && " (moving)"}
-    </p>
+    </p>,
+    target,
   );
 }
 
@@ -80,54 +94,56 @@ function BasicFocusDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene {...tuning}>
-        <SceneColumn name="nav">
-          <SceneObject
-            name="nav-panel"
-            focused={navFocused}
-            style={{ width: 160, height: "100%" }}
-            onActivate={() => setNavFocused(true)}
-          >
-            <Panel
-              title="Nav"
-              subtitle="160px"
-              color="bg-[lch(30_10_200)]"
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="nav">
+            <SceneObject
+              name="nav-panel"
               focused={navFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="article">
-          <SceneObject
-            name="article-panel"
-            focused={articleFocused}
-            style={{ width: 480, height: "100%" }}
-            onActivate={() => setArticleFocused(true)}
-          >
-            <Panel
-              title="Article"
-              subtitle="480px"
-              color="bg-[lch(30_10_280)]"
+              style={{ width: 160, height: "100%" }}
+              onActivate={() => setNavFocused(true)}
+            >
+              <Panel
+                title="Nav"
+                subtitle="160px"
+                color="bg-[lch(30_10_200)]"
+                focused={navFocused}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject
+              name="article-panel"
               focused={articleFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="sidebar">
-          <SceneObject
-            name="sidebar-panel"
-            focused={sidebarFocused}
-            style={{ width: 160, height: "100%" }}
-            onActivate={() => setSidebarFocused(true)}
-          >
-            <Panel
-              title="Sidebar"
-              subtitle="160px"
-              color="bg-[lch(30_10_340)]"
+              style={{ width: 480, height: "100%" }}
+              onActivate={() => setArticleFocused(true)}
+            >
+              <Panel
+                title="Article"
+                subtitle="480px"
+                color="bg-[lch(30_10_280)]"
+                focused={articleFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sidebar">
+            <SceneObject
+              name="sidebar-panel"
               focused={sidebarFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: 160, height: "100%" }}
+              onActivate={() => setSidebarFocused(true)}
+            >
+              <Panel
+                title="Sidebar"
+                subtitle="160px"
+                color="bg-[lch(30_10_340)]"
+                focused={sidebarFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -156,39 +172,41 @@ function CqwSizingDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene {...tuning}>
-        <SceneColumn name="nav-cqw">
-          <SceneObject
-            name="nav-cqw-panel"
-            focused={leftFocused}
-            style={{ width: "20cqw", height: "100%" } as React.CSSProperties}
-            onActivate={() => setLeftFocused(true)}
-          >
-            <Panel
-              title="Nav"
-              subtitle="20cqw"
-              color="bg-[lch(30_10_200)]"
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="nav-cqw">
+            <SceneObject
+              name="nav-cqw-panel"
               focused={leftFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="article-cqw">
-          <SceneObject
-            name="article-cqw-panel"
-            focused={rightFocused}
-            style={{ width: "80cqw", height: "100%" } as React.CSSProperties}
-            onActivate={() => setRightFocused(true)}
-          >
-            <Panel
-              title="Article"
-              subtitle="80cqw"
-              color="bg-[lch(30_10_280)]"
+              style={{ width: "20cqw", height: "100%" } as React.CSSProperties}
+              onActivate={() => setLeftFocused(true)}
+            >
+              <Panel
+                title="Nav"
+                subtitle="20cqw"
+                color="bg-[lch(30_10_200)]"
+                focused={leftFocused}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article-cqw">
+            <SceneObject
+              name="article-cqw-panel"
               focused={rightFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: "80cqw", height: "100%" } as React.CSSProperties}
+              onActivate={() => setRightFocused(true)}
+            >
+              <Panel
+                title="Article"
+                subtitle="80cqw"
+                color="bg-[lch(30_10_280)]"
+                focused={rightFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -217,36 +235,38 @@ function VerticalSwapDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene {...tuning}>
-        <SceneColumn name="content">
-          <SceneObject
-            name="article-1"
-            focused={active === "article-1"}
-            style={{ width: 480 }}
-            onActivate={() => setActive("article-1")}
-          >
-            <Panel
-              title="Article 1"
-              subtitle="Click to focus"
-              color="bg-[lch(30_10_340)]"
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="content">
+            <SceneObject
+              name="article-1"
               focused={active === "article-1"}
-            />
-          </SceneObject>
-          <SceneObject
-            name="article-2"
-            focused={active === "article-2"}
-            style={{ width: 480 }}
-            onActivate={() => setActive("article-2")}
-          >
-            <Panel
-              title="Article 2"
-              subtitle="Click to focus"
-              color="bg-[lch(30_15_10)]"
-              focused={active === "article-2"} />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: 480 }}
+              onActivate={() => setActive("article-1")}
+            >
+              <Panel
+                title="Article 1"
+                subtitle="Click to focus"
+                color="bg-[lch(30_10_340)]"
+                focused={active === "article-1"}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+            <SceneObject
+              name="article-2"
+              focused={active === "article-2"}
+              style={{ width: 480 }}
+              onActivate={() => setActive("article-2")}
+            >
+              <Panel
+                title="Article 2"
+                subtitle="Click to focus"
+                color="bg-[lch(30_15_10)]"
+                focused={active === "article-2"} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -284,69 +304,71 @@ function DepthDeckDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene {...tuning}>
-        <SceneColumn name="left">
-          <SceneObject
-            name="left-obj"
-            focused={leftFocused}
-            style={{ width: 240, height: "100%" }}
-            onActivate={() => setLeftFocused(true)}
-          >
-            <Panel
-              title="Left"
-              subtitle="always focused"
-              color="bg-[lch(30_10_280)]"
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="left">
+            <SceneObject
+              name="left-obj"
               focused={leftFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="middle-a">
-          <SceneObject
-            name="middle-a-obj"
-            focused={middleAFocused}
-            style={{ width: 240, height: "100%" }}
-            onActivate={() => setMiddleAFocused(true)}
-          >
-            <Panel
-              title="Middle A"
-              subtitle="depth deck (depth 2)"
-              color="bg-[lch(30_10_200)]"
+              style={{ width: 240, height: "100%" }}
+              onActivate={() => setLeftFocused(true)}
+            >
+              <Panel
+                title="Left"
+                subtitle="always focused"
+                color="bg-[lch(30_10_280)]"
+                focused={leftFocused}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-a">
+            <SceneObject
+              name="middle-a-obj"
               focused={middleAFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="middle-b">
-          <SceneObject
-            name="middle-b-obj"
-            focused={middleBFocused}
-            style={{ width: 240, height: "100%" }}
-            onActivate={() => setMiddleBFocused(true)}
-          >
-            <Panel
-              title="Middle B"
-              subtitle="depth deck (depth 1)"
-              color="bg-[lch(30_10_120)]"
+              style={{ width: 240, height: "100%" }}
+              onActivate={() => setMiddleAFocused(true)}
+            >
+              <Panel
+                title="Middle A"
+                subtitle="depth deck (depth 2)"
+                color="bg-[lch(30_10_200)]"
+                focused={middleAFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="middle-b">
+            <SceneObject
+              name="middle-b-obj"
               focused={middleBFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="right">
-          <SceneObject
-            name="right-obj"
-            focused={rightFocused}
-            style={{ width: 240, height: "100%" }}
-            onActivate={() => setRightFocused(true)}
-          >
-            <Panel
-              title="Right"
-              subtitle="always focused"
-              color="bg-[lch(30_10_340)]"
+              style={{ width: 240, height: "100%" }}
+              onActivate={() => setMiddleBFocused(true)}
+            >
+              <Panel
+                title="Middle B"
+                subtitle="depth deck (depth 1)"
+                color="bg-[lch(30_10_120)]"
+                focused={middleBFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject
+              name="right-obj"
               focused={rightFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: 240, height: "100%" }}
+              onActivate={() => setRightFocused(true)}
+            >
+              <Panel
+                title="Right"
+                subtitle="always focused"
+                color="bg-[lch(30_10_340)]"
+                focused={rightFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -362,24 +384,26 @@ function VerticalScrollDemo({ tuning }: { tuning: SceneTuning }) {
       title="Vertical scroll"
       description="Content taller than the viewport. Scroll with trackpad/mouse wheel or keyboard (Arrow, Page, Home, End). Custom scrollbar appears at right edge."
     >
-      <Scene {...tuning}>
-        <SceneColumn name="col">
-          <SceneObject name="tall-content" focused style={{ width: 480 }}>
-            <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
-              {Array.from({ length: 12 }, (_, i) => (
-                <div key={i} className="bg-white/5 rounded p-4">
-                  <h4 className="text-white/80 text-sm font-light">Section {i + 1}</h4>
-                  <p className="text-white/40 text-xs mt-1">
-                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
-                    incididunt ut labore et dolore magna aliqua.
-                  </p>
-                </div>
-              ))}
-            </div>
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="col">
+            <SceneObject name="tall-content" focused style={{ width: 480 }}>
+              <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
+                {Array.from({ length: 12 }, (_, i) => (
+                  <div key={i} className="bg-white/5 rounded p-4">
+                    <h4 className="text-white/80 text-sm font-light">Section {i + 1}</h4>
+                    <p className="text-white/40 text-xs mt-1">
+                      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
+                      incididunt ut labore et dolore magna aliqua.
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -395,28 +419,30 @@ function HorizontalScrollDemo({ tuning }: { tuning: SceneTuning }) {
       title="Horizontal scroll"
       description="Three focused columns with wide content that overflows the viewport. Scroll horizontally — the Camera pans across the scene. Native scrollbar appears at bottom."
     >
-      <Scene {...tuning}>
-        {(["col-a", "col-b", "col-c"] as const).map((name, i) => {
-          const colors = [
-            "bg-[lch(30_10_280)]",
-            "bg-[lch(30_10_200)]",
-            "bg-[lch(30_10_120)]",
-          ];
-          return (
-            <SceneColumn key={name} name={name}>
-              <SceneObject name={`${name}-obj`} focused style={{ width: 400, height: "100%" }}>
-                <Panel
-                  title={`Column ${String.fromCharCode(65 + i)}`}
-                  subtitle="400px wide"
-                  color={colors[i] ?? "bg-[lch(30_10_280)]"}
-                  focused
-                />
-              </SceneObject>
-            </SceneColumn>
-          );
-        })}
-        <CameraDebug />
-      </Scene>
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          {(["col-a", "col-b", "col-c"] as const).map((name, i) => {
+            const colors = [
+              "bg-[lch(30_10_280)]",
+              "bg-[lch(30_10_200)]",
+              "bg-[lch(30_10_120)]",
+            ];
+            return (
+              <SceneColumn key={name} name={name}>
+                <SceneObject name={`${name}-obj`} focused style={{ width: 400, height: "100%" }}>
+                  <Panel
+                    title={`Column ${String.fromCharCode(65 + i)}`}
+                    subtitle="400px wide"
+                    color={colors[i] ?? "bg-[lch(30_10_280)]"}
+                    focused
+                  />
+                  {i === 0 && <CameraDebugPortal target={debugTarget} />}
+                </SceneObject>
+              </SceneColumn>
+            );
+          })}
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -450,50 +476,52 @@ function MultiFocusDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene {...tuning}>
-        <SceneColumn name="stack-col" objectGap={8}>
-          <SceneObject
-            name="stack-top"
-            focused={topFocused}
-            style={{ width: 480 }}
-            onActivate={() => setTopFocused(true)}
-          >
-            <Panel
-              title="Top"
-              subtitle="Object 1"
-              color="bg-[lch(30_10_280)]"
+      {(debugTarget) => (
+        <Scene {...tuning}>
+          <SceneColumn name="stack-col" objectGap={8}>
+            <SceneObject
+              name="stack-top"
               focused={topFocused}
-            />
-          </SceneObject>
-          <SceneObject
-            name="stack-middle"
-            focused={middleFocused}
-            style={{ width: 480 }}
-            onActivate={() => setMiddleFocused(true)}
-          >
-            <Panel
-              title="Middle"
-              subtitle="Sandwiched when unfocused"
-              color="bg-[lch(30_10_200)]"
+              style={{ width: 480 }}
+              onActivate={() => setTopFocused(true)}
+            >
+              <Panel
+                title="Top"
+                subtitle="Object 1"
+                color="bg-[lch(30_10_280)]"
+                focused={topFocused}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+            <SceneObject
+              name="stack-middle"
               focused={middleFocused}
-            />
-          </SceneObject>
-          <SceneObject
-            name="stack-bottom"
-            focused={bottomFocused}
-            style={{ width: 480 }}
-            onActivate={() => setBottomFocused(true)}
-          >
-            <Panel
-              title="Bottom"
-              subtitle="Object 3"
-              color="bg-[lch(30_10_120)]"
+              style={{ width: 480 }}
+              onActivate={() => setMiddleFocused(true)}
+            >
+              <Panel
+                title="Middle"
+                subtitle="Sandwiched when unfocused"
+                color="bg-[lch(30_10_200)]"
+                focused={middleFocused}
+              />
+            </SceneObject>
+            <SceneObject
+              name="stack-bottom"
               focused={bottomFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: 480 }}
+              onActivate={() => setBottomFocused(true)}
+            >
+              <Panel
+                title="Bottom"
+                subtitle="Object 3"
+                color="bg-[lch(30_10_120)]"
+                focused={bottomFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -537,65 +565,67 @@ function DebugModeDemo({ tuning }: { tuning: SceneTuning }) {
         </>
       }
     >
-      <Scene debug={debugEnabled} {...tuning}>
-        <SceneColumn name="nav">
-          <SceneObject
-            name="nav-panel"
-            focused={navFocused}
-            style={{ width: 160, height: "100%" }}
-            onActivate={() => setNavFocused(true)}
-          >
-            <Panel
-              title="Nav"
-              subtitle="160px"
-              color="bg-[lch(30_10_200)]"
+      {(debugTarget) => (
+        <Scene debug={debugEnabled} {...tuning}>
+          <SceneColumn name="nav">
+            <SceneObject
+              name="nav-panel"
               focused={navFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="article">
-          <SceneObject
-            name="article-1"
-            focused={activeArticle === "article-1"}
-            style={{ width: 420 }}
-            onActivate={() => setActiveArticle("article-1")}
-          >
-            <Panel
-              title="Article 1"
-              color="bg-[lch(30_10_340)]"
+              style={{ width: 160, height: "100%" }}
+              onActivate={() => setNavFocused(true)}
+            >
+              <Panel
+                title="Nav"
+                subtitle="160px"
+                color="bg-[lch(30_10_200)]"
+                focused={navFocused}
+              />
+              <CameraDebugPortal target={debugTarget} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="article">
+            <SceneObject
+              name="article-1"
               focused={activeArticle === "article-1"}
-            />
-          </SceneObject>
-          <SceneObject
-            name="article-2"
-            focused={activeArticle === "article-2"}
-            style={{ width: 420 }}
-            onActivate={() => setActiveArticle("article-2")}
-          >
-            <Panel
-              title="Article 2"
-              color="bg-[lch(30_15_10)]"
+              style={{ width: 420 }}
+              onActivate={() => setActiveArticle("article-1")}
+            >
+              <Panel
+                title="Article 1"
+                color="bg-[lch(30_10_340)]"
+                focused={activeArticle === "article-1"}
+              />
+            </SceneObject>
+            <SceneObject
+              name="article-2"
               focused={activeArticle === "article-2"}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <SceneColumn name="sidebar">
-          <SceneObject
-            name="sidebar-panel"
-            focused={sidebarFocused}
-            style={{ width: 160, height: "100%" }}
-            onActivate={() => setSidebarFocused(true)}
-          >
-            <Panel
-              title="Sidebar"
-              subtitle="160px"
-              color="bg-[lch(30_10_280)]"
+              style={{ width: 420 }}
+              onActivate={() => setActiveArticle("article-2")}
+            >
+              <Panel
+                title="Article 2"
+                color="bg-[lch(30_15_10)]"
+                focused={activeArticle === "article-2"}
+              />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sidebar">
+            <SceneObject
+              name="sidebar-panel"
               focused={sidebarFocused}
-            />
-          </SceneObject>
-        </SceneColumn>
-        <CameraDebug />
-      </Scene>
+              style={{ width: 160, height: "100%" }}
+              onActivate={() => setSidebarFocused(true)}
+            >
+              <Panel
+                title="Sidebar"
+                subtitle="160px"
+                color="bg-[lch(30_10_280)]"
+                focused={sidebarFocused}
+              />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      )}
     </DemoSection>
   );
 }
@@ -613,8 +643,15 @@ function DemoSection({
   title: string;
   description: string;
   controls?: React.ReactNode;
-  children: React.ReactNode;
+  /**
+   * Render prop rather than a plain node: the debugTarget div below is owned
+   * by DemoSection (one per demo box) and handed to whichever demo wants to
+   * nest a <CameraDebugPortal target={debugTarget} /> inside its <Scene>.
+   */
+  children: (debugTarget: HTMLDivElement | null) => React.ReactNode;
 }) {
+  const [debugTarget, setDebugTarget] = useState<HTMLDivElement | null>(null);
+
   return (
     <section className="flex flex-col gap-3">
       <div>
@@ -622,8 +659,15 @@ function DemoSection({
         <p className="text-text-secondary text-sm mt-0.5">{description}</p>
       </div>
       {controls && <div className="flex gap-2 flex-wrap items-center">{controls}</div>}
-      <div className="h-64 border border-rule-subtle rounded-sm overflow-hidden">
-        {children}
+      <div className="h-64 border border-rule-subtle rounded-sm overflow-hidden relative">
+        {children(debugTarget)}
+        {/* Camera-debug portal target: absolutely positioned within this
+            box so the readout it receives never joins Scene's stage flex
+            row or widens its scrollWidth (see CameraDebugPortal above). */}
+        <div
+          ref={setDebugTarget}
+          className="absolute bottom-1 right-1 z-10 pointer-events-none"
+        />
       </div>
     </section>
   );
