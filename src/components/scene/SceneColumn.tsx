@@ -952,17 +952,54 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // composedTop for the real-animation equivalent.
   const combinedTop = -(topOffset + scrollOffset);
 
+  // topOffsetMV: a MotionValue channel for the swap-offset component of
+  // `top`, paired with scrollY in composedTop below (S3-regression fix).
+  // topOffset (above) is a plain per-render TARGET, recomputed synchronously
+  // from fresh geometry on every render — it does not itself spring. Before
+  // this MotionValue existed, composedTop recombined directly with that raw
+  // number, so a vertical swap changed `top` in a single frame (teleport)
+  // instead of springing through intermediate values the way it did pre-S3
+  // (when `top` was driven via motion's `animate={{top}}` prop). Seeded to
+  // this render's topOffset so the very first commit needs no drive.
+  const topOffsetMV = useMotionValue(topOffset);
+  // The last target actually driven into topOffsetMV — compared against the
+  // fresh per-render topOffset below to detect a real swap (vs. an unrelated
+  // re-render where topOffset is unchanged).
+  const topOffsetTargetRef = useRef(topOffset);
+
+  // Drives topOffsetMV toward this render's topOffset whenever it changed.
+  // Mirrors driveScrollYRef's instant-vs-real branching: duration===0 uses a
+  // synchronous `.set()` (composedTop isn't even used in that mode, but
+  // keeping the MotionValue's own value consistent is cheap and avoids a
+  // stale target if duration toggles at runtime). firstPaintRef.current
+  // gates the very first drive(s) to `.jump()` rather than animate() — the
+  // same first-paint suppression SceneColumn's mountInitial already applies
+  // to the slide-in: without it, a column's topOffset can differ from its
+  // useMotionValue seed by the time geometry settles a render or two into
+  // Scene's first paint (still pre-paint, since firstPaintRef only flips in
+  // a passive effect that fires after paint), and springing from 0 there
+  // would look identical to the entrance jank first-paint suppression exists
+  // to prevent.
+  useLayoutEffect(() => {
+    if (topOffset === topOffsetTargetRef.current) return;
+    topOffsetTargetRef.current = topOffset;
+    if (duration === 0) {
+      topOffsetMV.set(topOffset);
+    } else if (firstPaintRef.current) {
+      topOffsetMV.jump(topOffset);
+    } else {
+      const controls = animate(topOffsetMV, topOffset, transition);
+      motionSeam?.registerControls(`topOffset:${name}`, controls);
+    }
+  });
+
   // Real-animation equivalent of combinedTop: a MotionValue derived from
-  // scrollY (the live, per-tick value) composed with topOffset (a per-render
-  // plain number — the swap offset only changes on focus swap, recomputed
-  // synchronously each render from fresh geometry). useTransform recombines
-  // synchronously on every render with a fresh closure (forecast-gate
-  // validated at source: no stale-closure trap), so topOffset here is never
-  // stale even though it isn't itself a MotionValue. NOT used in instant mode
-  // — forecast-gate adjudication #1: relying on motion's rAF-batched style
-  // binding for a synchronous instant-mode write would depend on undocumented
-  // same-frame-ordering internals.
-  const composedTop = useTransform(scrollY, (so) => -(topOffset + so));
+  // BOTH scrollY (the live, per-tick JS scroll value) and topOffsetMV (the
+  // swap offset, now itself a springing MotionValue — see above). NOT used
+  // in instant mode — forecast-gate adjudication #1: relying on motion's
+  // rAF-batched style binding for a synchronous instant-mode write would
+  // depend on undocumented same-frame-ordering internals.
+  const composedTop = useTransform<number, number>([topOffsetMV, scrollY], ([t, s]) => -(t + s));
 
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.

@@ -1549,6 +1549,67 @@ describe("SceneColumn vertical swap", () => {
     // enough to bring B to the top of the viewport.
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-200);
   });
+
+  test("real mode: a swap springs the wrapper's top through intermediate values (S3 regression)", async () => {
+    // Pre-S3, `top` was driven via motion's `animate={{top}}` prop, which
+    // sprang through intermediate values on every swap. S3's composedTop
+    // MotionValue recombines synchronously with the plain per-render
+    // topOffset on every render, so a swap changes `top` in a single frame
+    // (teleport) instead of springing. Large content height so the swap
+    // distance is big enough to sample multiple distinct intermediate
+    // values within a handful of rAF frames.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 1000 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 1000 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
+      ?.querySelector("[data-column-content]") as HTMLElement;
+
+    // Swap to B with the default (real) spring — no duration override.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 1000 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 1000 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const samples: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      await waitForAnimationFrame();
+      samples.push(parseFloat(contentWrapper.style.top || "0"));
+    }
+
+    // Not a single-frame teleport: samples must not all be identical (today
+    // every sample is already at the final value post-jump).
+    const allIdentical = samples.every((s) => s === samples[0]);
+    expect(allIdentical).toBe(false);
+
+    // Monotonic progression toward the final (more negative) target — the
+    // wrapper slides up, so `top` should never increase between samples
+    // within this early capture window (well before any spring overshoot).
+    for (let i = 1; i < samples.length; i++) {
+      expect(samples[i]).toBeLessThanOrEqual(samples[i - 1]);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
