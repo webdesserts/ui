@@ -106,6 +106,13 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
         userSelect: "none",
       }}
     >
+      {/* Thumb hit-box: widened to 24px (WCAG 2.2 SC 2.5.8 minimum target
+          size) while the VISIBLE bar (inner div below) stays thin at 6px,
+          right-flush — the same visual position as before. touchAction:
+          "none" so a touch-drag starting on the thumb is never hijacked by
+          native scrolling/zooming in ANY direction (the Camera viewport's
+          own touch-action: pan-x pinch-zoom would otherwise let the browser
+          claim a horizontal drag that starts here). */}
       <div
         role="scrollbar"
         aria-orientation="vertical"
@@ -120,13 +127,26 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
           position: "absolute",
           right: 0,
           top: thumbTop,
-          width: 6,
+          width: 24,
           height: thumbHeight,
-          background: "rgba(128, 128, 128, 0.5)",
-          borderRadius: 3,
+          touchAction: "none",
           cursor: "grab",
         }}
-      />
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            width: 6,
+            height: "100%",
+            background: "rgba(128, 128, 128, 0.5)",
+            borderRadius: 3,
+            pointerEvents: "none",
+          }}
+        />
+      </div>
     </div>
   );
 }

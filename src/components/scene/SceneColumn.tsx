@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { animate, motion, useMotionValue, useTransform } from "motion/react";
+import { animate, motion, useMotionValue, useTransform, useVelocity } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
@@ -291,6 +291,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
   // for inertia's min/max in commit 2.
   const scrollY = useMotionValue(0);
+  // Tracks scrollY's velocity from BOTH animate()-driven ticks and manual
+  // .set() calls (probe-confirmed at source: MotionValue.getVelocity() uses
+  // prevFrameValue/prevUpdatedAt, populated by updateAndNotify on every
+  // .set() regardless of caller — not animation-specific) — this is what
+  // lets touch release compute a real release velocity for inertia below.
+  const scrollVelocity = useVelocity(scrollY);
   const motionSeam = useMotionSeam();
   useEffect(() => {
     motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
@@ -939,6 +945,110 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   const isScrollable = columnFocused && maxScroll > 0;
 
+  // -------------------------------------------------------------------------
+  // Touch pan (1:1 finger tracking + release inertia)
+  //
+  // Mirrors Scrollbar.tsx's setPointerCapture idiom rather than motion's
+  // `drag` prop (transform-based; would abandon the deliberate top/left-not-
+  // transform text-quality architecture — see the module doc). Gated on
+  // columnFocused && isScrollable (mirrors Scrollbar's conditional render)
+  // AND pointerType touch/pen only — mouse drag stays native (text selection
+  // preserved; the spec's Touch scenarios are finger-only).
+  // -------------------------------------------------------------------------
+
+  const dragStartY = useRef(0);
+  const dragStartOffset = useRef(0);
+  const isDragging = useRef(false);
+
+  const handleContentPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!columnFocused || !isScrollable) return;
+      if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+      isDragging.current = true;
+      dragStartY.current = e.clientY;
+      dragStartOffset.current = scrollOffsetRef.current;
+      // A bare .set() does NOT stop an in-flight animate()-driven animation
+      // (its own rAF loop keeps overwriting the value — probe-confirmed at
+      // source: MotionValue.set() never calls .stop()). A coasting inertia
+      // fling from a prior release could still be running here, so it must
+      // be stopped explicitly before 1:1 tracking begins.
+      scrollY.stop();
+      (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
+    },
+    [columnFocused, isScrollable, scrollY],
+  );
+
+  const handleContentPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDragging.current) return;
+      // 1:1 finger tracking: the finger moving down (deltaY positive) should
+      // move the content down too (content "attached" to the finger), which
+      // means scrollOffset DECREASES — content top = -(topOffset+scrollOffset).
+      const deltaY = e.clientY - dragStartY.current;
+      const newOffset = Math.max(
+        0,
+        Math.min(maxScrollRef.current, dragStartOffset.current - deltaY),
+      );
+      scrollOffsetRef.current = newOffset;
+      scrollY.set(newOffset);
+      // React state (setScrollOffset) is skipped per-tick in real mode — the
+      // content wrapper's visual position there is driven entirely by the
+      // composedTop MotionValue (see the style branch below), so forcing a
+      // re-render on every pointermove tick would be pure overhead (the
+      // whole reason this pipeline exists). Instant mode DOES need it: its
+      // style write is the synchronous plain-number path (combinedTop),
+      // derived from scrollOffset state, so it wouldn't move without this.
+      if (duration === 0) {
+        setScrollOffset(newOffset);
+      }
+    },
+    [duration, scrollY],
+  );
+
+  const handleContentPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      (e.target as HTMLDivElement).releasePointerCapture(e.pointerId);
+
+      const releaseOffset = scrollOffsetRef.current;
+      // Always sync React state at release (regardless of duration) — keeps
+      // the Scrollbar prop and instant-mode style path consistent with the
+      // final drag position even though real mode skipped per-tick renders.
+      setScrollOffset(releaseOffset);
+
+      if (duration === 0) {
+        // Instant mode: inertia has no meaningful instant equivalent — just
+        // settle at the clamped release position (forecast-gate plan §2).
+        scrollY.set(releaseOffset);
+        return;
+      }
+
+      const velocity = scrollVelocity.get();
+      // NOTE: deviates from the plan's literal
+      // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
+      // that resolves internally to keyframes=[null, undefined], which
+      // finishes the animation instantly without ever running. Passing an
+      // explicit single-element keyframes array with the current value is
+      // required for inertia to actually decelerate from here.
+      const controls = animate(scrollY, [scrollY.get()], {
+        type: "inertia",
+        velocity,
+        min: 0,
+        max: maxScrollRef.current,
+        // Reuses Scene's configured spring constants for the boundary bounce
+        // so the touch-release feel matches wheel/keyboard's spring physics,
+        // rather than introducing a third unrelated set of magic numbers —
+        // judgment call: the plan named bounceStiffness/bounceDamping
+        // without pinning values.
+        bounceStiffness: stiffness,
+        bounceDamping: damping,
+      });
+      motionSeam?.registerControls(`scrollY:${name}`, controls);
+    },
+    [duration, scrollY, scrollVelocity, stiffness, damping, motionSeam, name],
+  );
+
   return (
     // isInDepthDeck is true for ALL unfocused columns, not just in-between ones.
     // Outer unfocused columns also need their SceneObjects in flow so the column
@@ -1000,6 +1110,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           transition={transition}
           onAnimationStart={animCallbacks?.onStart}
           onAnimationComplete={animCallbacks?.onEnd}
+          onPointerDown={handleContentPointerDown}
+          onPointerMove={handleContentPointerMove}
+          onPointerUp={handleContentPointerUp}
+          onPointerCancel={handleContentPointerUp}
           style={{
             position: "relative",
             // Instant mode (duration=0): the synchronous plain-number write,

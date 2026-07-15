@@ -898,6 +898,15 @@ function SceneViewport({
             height: "100%",
             overflowX: overflowsX ? "auto" : "hidden",
             overflowY: "hidden",
+            // Preserves native horizontal pan + pinch-zoom (bare "pan-x"
+            // would disable pinch-zoom — touch-action keywords are
+            // exclusive of anything not listed) while excluding vertical pan
+            // from the browser's own gesture recognition, so a vertical
+            // finger drag anywhere in this subtree is delivered as regular
+            // pointer events for SceneColumn's own 1:1 touch handlers to
+            // consume instead (spec: scene-scroll.feature "Horizontal camera
+            // pan continues to work via native scroll on touch").
+            touchAction: "pan-x pinch-zoom",
             outline: debug ? "2px solid cyan" : undefined,
             // Thin scrollbar with transparent track so it doesn't eat into content space.
             scrollbarWidth: "thin",

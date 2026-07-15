@@ -281,8 +281,9 @@ Feature: Scene Scroll
     Given a scene that overflows horizontally
     When the user performs a horizontal touch gesture on the Camera viewport
     Then the camera should pan horizontally via native overflow scrolling
-    Because the Camera viewport uses touch-action: pan-x to preserve this
-    while still allowing vertical column drag to be handled by the column
+    Because the Camera viewport uses touch-action: pan-x pinch-zoom to
+    preserve this while still allowing vertical column drag to be handled
+    by the column
 
   Scenario: The scrollbar thumb is touch-operable
     Given a vertical scrollbar is visible
