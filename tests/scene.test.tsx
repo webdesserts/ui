@@ -2,8 +2,9 @@ import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
+import { MotionSeamContext } from "../src/components/scene/motionSeam";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame, wait } from "./utils/animation";
+import { waitForAnimationFrame, wait, createMotionSeamRecorder } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1494,6 +1495,97 @@ describe("Scene debug — geometry store inspector", () => {
     const scene = getByTestId("scene").element();
     expect(scene.querySelector("[data-debug-overlay]")).not.toBeNull();
     expect(scene.querySelectorAll("[data-debug-geometry-column]").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 commit 2 feature (e): live slowMo toggle
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — live slowMo toggle", () => {
+  test("checkbox reflects the slowMo prop and toggling changes the NEXT transition's spring physics", async () => {
+    // Test-provided motion seam recorder (tests/utils/animation.ts) so the
+    // real AnimationPlaybackControls Motion computes for each cameraX
+    // animate() call is directly readable — .duration is Motion's own
+    // computed spring settle time, a precise, non-flaky way to tell fast
+    // (stiffness 300/damping 30) and slowMo (stiffness 30/damping 8) apart
+    // without racing real wall-clock animation timing.
+    const recorder = createMotionSeamRecorder();
+    const mountJsx = (leftFocused: boolean) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene debug>
+            <SceneColumn name="col-left">
+              <SceneObject name="obj-left" focused={leftFocused}>
+                <div style={{ width: 400, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-right">
+              <SceneObject name="obj-right" focused={!leftFocused}>
+                <div style={{ width: 400, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(mountJsx(true));
+    const scene = getByTestId("scene").element();
+
+    const checkbox = scene.querySelector("[data-debug-slowmo-toggle] input") as HTMLInputElement;
+    expect(checkbox).not.toBeNull();
+    expect(checkbox.checked).toBe(false); // slowMo prop defaults to false
+
+    // Real (fast) transition — record its computed duration.
+    await wait(50);
+    await rerender(mountJsx(false));
+    await waitForAnimationFrame();
+    const fastDuration = recorder.controls.get("cameraX")?.duration;
+    expect(fastDuration).toBeGreaterThan(0);
+
+    // Toggle slowMo on via the overlay checkbox — a real click, not a
+    // synthetic prop change, matching how a developer would actually use it.
+    checkbox.click();
+    await waitForAnimationFrame();
+    expect(checkbox.checked).toBe(true);
+
+    // Let the fast transition fully settle before starting a new one — the
+    // in-flight one from before the toggle is NOT retargeted (no code path
+    // does that), only a transition STARTED after the toggle picks up the
+    // new physics.
+    await wait(1000);
+    await rerender(mountJsx(true));
+    await waitForAnimationFrame();
+    const slowDuration = recorder.controls.get("cameraX")?.duration;
+    expect(slowDuration).toBeGreaterThan(0);
+    expect(slowDuration!).toBeGreaterThan(fastDuration! * 1.5);
+  });
+
+  test("does not affect layout/scroll metrics — pointer-events change is scoped to the overlay panel only", async () => {
+    // The overlay panel itself becomes pointerEvents:"auto" (F4 feature e's
+    // documented tradeoff) — but every OTHER debug element stays
+    // pointerEvents:"none", and none of this touches scrollWidth/clientWidth
+    // (the F4 commit-1 purity bar, unaffected by pointer-events either way).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]") as HTMLElement;
+    expect(window.getComputedStyle(overlay).pointerEvents).toBe("auto");
+
+    const outline = scene.querySelector("[data-debug-object-outline]") as HTMLElement;
+    expect(window.getComputedStyle(outline).pointerEvents).toBe("none");
+
+    expect(scene.scrollWidth).toBe(scene.clientWidth);
   });
 });
 

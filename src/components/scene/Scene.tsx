@@ -979,6 +979,8 @@ function SceneDebugOverlay({
   viewportRef,
   stageRef,
   motionRecorder,
+  slowMo,
+  onToggleSlowMo,
 }: {
   columnStacks: DebugColumnStackEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
@@ -988,6 +990,10 @@ function SceneDebugOverlay({
    *  instead (motionSeam.ts) — in that case the active-springs section below
    *  simply has nothing of Scene's own to read and renders nothing. */
   motionRecorder: DebugMotionRecorder | null;
+  /** F4 feature (e): the currently-effective slowMo (prop or override). */
+  slowMo: boolean;
+  /** F4 feature (e): flips Scene's internal slowMo override. */
+  onToggleSlowMo: () => void;
 }) {
   // Object list — DOM truth (queryDebugObjects), same rationale as
   // SceneObjectOutlines above. Corrected via a useLayoutEffect (mirroring
@@ -1125,9 +1131,32 @@ function SceneDebugOverlay({
         fontSize: 11,
         padding: "6px 10px",
         borderRadius: 4,
-        pointerEvents: "none",
+        // F4 feature (e) tradeoff, taken deliberately and documented rather
+        // than left as a silent side effect: every OTHER debug element
+        // (outlines, badges, stage bounds, stray-child flags) stays
+        // pointerEvents:"none" — pure observation, exactly what F4 commit 1
+        // guarantees ("Debug does not affect layout"). This ONE panel
+        // becomes pointerEvents:"auto" so its slowMo checkbox below is
+        // actually clickable, which means debug mode's bottom-right corner
+        // becomes click-opaque (mouse/touch events over the panel hit it,
+        // not whatever Scene content happens to sit underneath) — an
+        // inherent, accepted cost of having ANY interactive debug chrome at
+        // all. This does not reopen the purity bar: that bar is about
+        // layout/scroll METRICS (scrollWidth/clientWidth/rects) being
+        // identical debug on vs off, which pointer-events has zero bearing
+        // on — nothing here changes what gets MEASURED or LAID OUT, only
+        // what a click in this specific screen region hits.
+        pointerEvents: "auto",
       }}
     >
+      <label
+        data-debug-slowmo-toggle
+        style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, cursor: "pointer" }}
+      >
+        <input type="checkbox" checked={slowMo} onChange={onToggleSlowMo} />
+        slow motion
+      </label>
+
       <div style={{ fontWeight: "bold", marginBottom: 4 }}>Scene objects</div>
       {objects.map((obj) => {
         const bounds = objectBounds.find((b) => b.name === obj.name);
@@ -1289,6 +1318,7 @@ function SceneViewport({
   children,
   debugColumnStacks,
   reducedMotion,
+  onToggleSlowMo,
   onTransitionStart,
   onTransitionComplete,
   onViewportSizeChange,
@@ -1299,6 +1329,9 @@ function SceneViewport({
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
+  /** F4 feature (e): flips Scene's internal slowMo override (debug overlay
+   *  toggle only — see Scene's slowMoOverride state). */
+  onToggleSlowMo: () => void;
   /** Called when the camera pan (cameraX animate() call) starts. */
   onTransitionStart: () => void;
   /** Called when the camera pan completes (guarded against stale completions
@@ -1892,6 +1925,8 @@ function SceneViewport({
               viewportRef={viewportRef}
               stageRef={stageRef}
               motionRecorder={debugMotionRecorderRef.current}
+              slowMo={slowMo}
+              onToggleSlowMo={onToggleSlowMo}
             />
           )}
         </div>
@@ -1939,6 +1974,21 @@ export function Scene({
   // is provided, force duration=0 so all transitions are instant.
   const prefersReducedMotion = useReducedMotion() ?? false;
   const effectiveDuration = prefersReducedMotion && duration === undefined ? 0 : duration;
+
+  // F4 feature (e) live slowMo toggle: an internal override the debug
+  // overlay can flip without the consumer changing the `slowMo` prop. null
+  // means "no override, defer to the prop" — the toggle flips whatever is
+  // CURRENTLY effective, so a consumer already passing slowMo=true sees the
+  // panel start in the "on" state and can still toggle it off. Only ever
+  // read by SceneViewport/SceneColumn/SceneObject via useSceneConfig()'s
+  // `slowMo` field below (computeSceneTransition, the shared spring-params
+  // helper) — it composes for free: the transition object is recomputed
+  // every render from whatever `slowMo` currently resolves to, and Motion's
+  // animate() captures its transition argument at CALL time, so flipping
+  // this only ever affects the NEXT transition a component starts — nothing
+  // needs to reach into and retarget an in-flight spring's parameters.
+  const [slowMoOverride, setSlowMoOverride] = useState<boolean | null>(null);
+  const effectiveSlowMo = slowMoOverride ?? slowMo;
 
   // Track whether the camera pan is currently in flight (useCamera()
   // `transitioning`). Set via callbacks wired to the cameraX animate() call
@@ -2069,7 +2119,7 @@ export function Scene({
   return (
     <SceneFirstPaintContext.Provider value={firstPaintRef}>
     <SceneConfigContext.Provider
-      value={{ stiffness, damping, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo }}
+      value={{ stiffness, damping, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo: effectiveSlowMo }}
     >
       <CameraContext.Provider
         value={{
@@ -2086,6 +2136,7 @@ export function Scene({
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
+              onToggleSlowMo={() => setSlowMoOverride((prev) => !(prev ?? slowMo))}
               onTransitionStart={() => setTransitioning(true)}
               onTransitionComplete={() => setTransitioning(false)}
               onViewportSizeChange={(size) =>
