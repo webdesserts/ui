@@ -2716,6 +2716,75 @@ describe("Scene centering", () => {
     const stageLeft = parseFloat(window.getComputedStyle(stage!).left);
     expect(stageLeft).toBeLessThan(0);
   });
+
+  test("viewport height measurement uses content-box, not scrollbar-oblivious border-box (F5 item 5, H10 wobble)", async () => {
+    // Root cause (probe-confirmed via a real, space-reserving scrollbar —
+    // headless Chromium normally suppresses scrollbar rendering entirely via
+    // Playwright's own `--hide-scrollbars` default launch arg, which is why
+    // the original H10 investigation, commit b3af937, couldn't reproduce a
+    // wobble at all): the viewport's per-render useLayoutEffect measured
+    // width/height from `getBoundingClientRect()` (border-box — unaffected
+    // by the element's OWN horizontal scrollbar, which toggles on/off as
+    // focused content's width crosses the overflow boundary), while the
+    // ResizeObserver callback correctly measured `contentRect` (content-box
+    // — shrinks when that scrollbar is showing). These two mechanisms
+    // disagreed: the ResizeObserver would fire and correctly report the
+    // smaller, scrollbar-aware height, but that state update triggered a
+    // re-render whose layout effect (no deps, runs on EVERY render)
+    // immediately re-measured via `getBoundingClientRect()` and overwrote
+    // the correction back to the larger, wrong value — a race that resolved
+    // within a couple of milliseconds (invisible to per-animation-frame
+    // sampling) with the scrollbar-oblivious value always winning, silently
+    // miscentering content (marginTop and anything else derived from
+    // effectiveViewportHeight) by the scrollbar's thickness whenever one is
+    // showing.
+    //
+    // This test reproduces the underlying measurement discrepancy directly
+    // (stubbing `clientHeight` on the real viewport element to be shorter
+    // than its real `offsetHeight`, simulating a scrollbar) rather than
+    // depending on real scrollbar rendering, which would require changing
+    // the suite's global browser launch config (`ignoreDefaultArgs:
+    // ["--hide-scrollbars"]`) — out of scope here since it would affect
+    // every visual/screenshot test's baseline across the whole suite.
+    const build = () => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj" focused>
+              <div data-testid="content" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build());
+
+    const viewport = getByTestId("scene").element() as HTMLElement;
+    const wrapper = viewport.querySelector("[data-column-content]") as HTMLElement;
+    const readMarginTop = () => parseFloat(wrapper.style.marginTop || "0");
+
+    const baselineMarginTop = readMarginTop();
+    // Sanity: a real resting value to shrink from (not degenerately 0).
+    expect(baselineMarginTop).toBeGreaterThan(0);
+
+    // Simulate an 11px classic (space-reserving) horizontal scrollbar.
+    const realOffsetHeight = viewport.offsetHeight;
+    Object.defineProperty(viewport, "clientHeight", {
+      value: realOffsetHeight - 11,
+      configurable: true,
+    });
+
+    // Any rerender forces the always-runs useLayoutEffect to re-measure —
+    // it has no deps array by design (dynamic resizes must be picked up as
+    // fast as possible).
+    await rerender(build());
+
+    // Vertical centering halves the viewport-height delta: marginTop must
+    // shrink by ~5.5px (11px / 2), not stay unchanged.
+    const afterMarginTop = readMarginTop();
+    expect(baselineMarginTop - afterMarginTop).toBeCloseTo(5.5, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------

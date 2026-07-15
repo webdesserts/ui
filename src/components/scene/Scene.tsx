@@ -1454,14 +1454,47 @@ function SceneViewport({
   // corrupt useCamera()'s `viewport` rect. contentRect stays as the
   // width/height source in the ResizeObserver callback (content-box,
   // excluding border/padding) — unchanged from before this reshape.
+  //
+  // F5 item 5 fix (H10 wobble, root cause found): width/height must be
+  // CONTENT-BOX (matching the ResizeObserver callback below), not
+  // getBoundingClientRect()'s BORDER-BOX. This viewport element toggles its
+  // own `overflowX` between "auto"/"hidden" (see the stageLeft effect
+  // below) — when a horizontal scrollbar is showing, border-box height
+  // stays the element's full CSS height (a scrollbar doesn't shrink the
+  // border box), while content-box height shrinks by the scrollbar's
+  // thickness. This effect runs on EVERY render (no deps, by design, so a
+  // dynamic resize is picked up as fast as possible) — probe-confirmed
+  // (real classic/space-reserving scrollbars, which headless Chromium
+  // normally suppresses via Playwright's own `--hide-scrollbars` default
+  // arg): the ResizeObserver below correctly detects the scrollbar's
+  // content-box shrinkage and calls setViewportSize with the smaller
+  // (correct) height, but that state update itself triggers a re-render,
+  // and THIS effect — reading the unchanged, scrollbar-oblivious
+  // border-box height on every render — immediately overwrote the
+  // correction back to the larger (wrong) value within the same commit
+  // pair. The two measurement paths were fighting over two different box
+  // models faster than any per-frame sampling could catch, and the
+  // scrollbar-oblivious value always won (this effect runs on every
+  // subsequent render; the observer only fires again on a genuine future
+  // resize) — silently miscentering content (marginTop, maxScroll, and any
+  // other effectiveViewportHeight-derived value) by the scrollbar's
+  // thickness whenever one is showing. clientWidth/clientHeight are
+  // content-box by definition (matching contentRect) — computed here as
+  // the border-box rect's own float-precise width/height minus the
+  // (integer) offset-vs-client delta, rather than clientWidth/clientHeight
+  // directly, to avoid introducing a NEW, smaller oscillation from
+  // clientHeight's own integer rounding disagreeing with contentRect's
+  // subpixel-precise float on every render.
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const { top, left, width, height } = el.getBoundingClientRect();
+    const contentWidth = width - (el.offsetWidth - el.clientWidth);
+    const contentHeight = height - (el.offsetHeight - el.clientHeight);
     setViewportSize((prev) =>
-      prev.top === top && prev.left === left && prev.width === width && prev.height === height
+      prev.top === top && prev.left === left && prev.width === contentWidth && prev.height === contentHeight
         ? prev
-        : { top, left, width, height },
+        : { top, left, width: contentWidth, height: contentHeight },
     );
   });
 
