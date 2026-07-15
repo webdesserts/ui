@@ -171,6 +171,12 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     ? withinDepthInfo.anchorTop - peekOffset * withinDepthInfo.depth
     : 0;
   const topMV = useMotionValue(withinDepthTop);
+  // F4 active-springs debug panel: register the MotionValue itself, same
+  // rationale as SceneColumn's topOffsetMV/scrollY/zMV.
+  useEffect(() => {
+    motionSeam?.registerMotionValue(`withinColumnTop:${name}`, topMV);
+    return () => motionSeam?.unregisterMotionValue?.(`withinColumnTop:${name}`);
+  }, [motionSeam, topMV, name]);
   const topTargetRef = useRef(withinDepthTop);
 
   useLayoutEffect(() => {
@@ -188,6 +194,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     } else {
       const controls = animate(topMV, withinDepthTop, transition);
       motionSeam?.registerControls(`withinColumnTop:${name}`, controls);
+      motionSeam?.registerTarget?.(`withinColumnTop:${name}`, withinDepthTop);
     }
   });
 

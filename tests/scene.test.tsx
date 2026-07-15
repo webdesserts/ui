@@ -1114,6 +1114,104 @@ describe("Scene debug — layout purity (scrollWidth/scrollHeight identical on/o
 });
 
 // ---------------------------------------------------------------------------
+// F4 commit 2 feature (a): active-springs debug panel
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — active springs panel", () => {
+  test("shows a registered key with a live value while a real camera-pan transition is in flight", async () => {
+    // Real (non-zero) duration, toggling which of two columns is focused —
+    // triggers a real cameraX spring (see SceneViewport's stageLeft effect).
+    const mountJsx = (leftFocused: boolean) => (
+      <TestWrapper fullPage>
+        <Scene debug>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused={leftFocused}>
+              <div style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused={!leftFocused}>
+              <div style={{ width: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+    const { rerender, getByTestId } = await render(mountJsx(true));
+    await wait(50);
+    await rerender(mountJsx(false));
+
+    const scene = getByTestId("scene").element();
+    const cameraRow = scene.querySelector("[data-debug-spring='cameraX']");
+    expect(cameraRow).not.toBeNull();
+    const valueEl = cameraRow?.querySelector("[data-debug-spring-value]");
+    const targetEl = cameraRow?.querySelector("[data-debug-spring-target]");
+    const velocityEl = cameraRow?.querySelector("[data-debug-spring-velocity]");
+    // A real animate() call registered a target — unlike the inertia/fling
+    // case, this should never read the "—" placeholder.
+    expect(valueEl?.textContent).toMatch(/^-?\d+\.\d$/);
+    expect(targetEl?.textContent).toMatch(/^-?\d+\.\d$/);
+    expect(velocityEl?.textContent).toMatch(/^-?\d+\.\d$/);
+
+    await wait(1000); // let the spring settle before unmounting mid-flight
+    await cleanup();
+  });
+
+  test("a spring entry disappears once its owning object unmounts (no key leak)", async () => {
+    // Mirrors the fixture in "Scene debug overlay object-list staleness"
+    // above — registerMotionValue's unregister cleanup (F4) must run on the
+    // same unmount that test pins for the object list itself.
+    const build = (showSecond: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="first" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            {showSecond && (
+              <SceneObject name="second" focused={false}>
+                <div style={{ width: 100, height: 100 }} />
+              </SceneObject>
+            )}
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+    const { rerender, getByTestId } = await render(build(true));
+    const scene = getByTestId("scene").element();
+    await waitForAnimationFrame();
+    expect(scene.querySelector("[data-debug-spring='withinColumnTop:second']")).not.toBeNull();
+
+    await rerender(build(false));
+    await waitForAnimationFrame();
+    expect(scene.querySelector("[data-debug-spring='withinColumnTop:second']")).toBeNull();
+  });
+
+  test("no springs section when nothing has registered (debug on, duration=0, no motion in flight)", async () => {
+    // duration=0 never calls animate(), so nothing exercises the registration
+    // effects' animate-branch — but registerMotionValue itself is
+    // unconditional, so keys DO appear (at rest). This just pins that the
+    // section renders without throwing and lists the always-registered keys.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    await waitForAnimationFrame();
+    const cameraRow = scene.querySelector("[data-debug-spring='cameraX']");
+    expect(cameraRow).not.toBeNull();
+    expect(cameraRow?.querySelector("[data-debug-spring-target]")?.textContent).toBe("—");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 10a: Debug — remaining overlay features
 // ---------------------------------------------------------------------------
 

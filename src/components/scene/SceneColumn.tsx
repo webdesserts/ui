@@ -332,6 +332,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   const motionSeam = useMotionSeam();
   useEffect(() => {
     motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
+    return () => motionSeam?.unregisterMotionValue?.(`scrollY:${name}`);
   }, [motionSeam, scrollY, name]);
 
   // Drives scrollY in parallel with the existing scrollOffset React state at
@@ -350,6 +351,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     } else {
       const controls = animate(scrollY, target, transition);
       motionSeam?.registerControls(`scrollY:${name}`, controls);
+      motionSeam?.registerTarget?.(`scrollY:${name}`, target);
     }
   };
 
@@ -504,6 +506,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           if (current !== clamped) {
             const controls = animate(scrollY, clamped, transition);
             motionSeam?.registerControls(`scrollY:${name}`, controls);
+            motionSeam?.registerTarget?.(`scrollY:${name}`, clamped);
           }
           return;
         }
@@ -528,6 +531,11 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           bounceDamping: damping,
         });
         motionSeam?.registerControls(`scrollY:${name}`, controls);
+        // No registerTarget here (F4 active-springs panel): an inertia
+        // deceleration has no fixed destination to report — it coasts to
+        // wherever momentum runs out, only meeting the boundary spring
+        // above if it overshoots. The panel shows "—" for this key while
+        // coasting, which is the honest answer.
         return;
       }
 
@@ -1091,6 +1099,13 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // (when `top` was driven via motion's `animate={{top}}` prop). Seeded to
   // this render's topOffset so the very first commit needs no drive.
   const topOffsetMV = useMotionValue(topOffset);
+  // F4 active-springs debug panel: register the MotionValue itself (not just
+  // its controls, below) so the panel can read its live value/velocity —
+  // mirrors scrollY's identical registration effect above.
+  useEffect(() => {
+    motionSeam?.registerMotionValue(`topOffset:${name}`, topOffsetMV);
+    return () => motionSeam?.unregisterMotionValue?.(`topOffset:${name}`);
+  }, [motionSeam, topOffsetMV, name]);
   // The last target actually driven into topOffsetMV — compared against the
   // fresh per-render topOffset below to detect a real swap (vs. an unrelated
   // re-render where topOffset is unchanged).
@@ -1122,6 +1137,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     } else {
       const controls = animate(topOffsetMV, topOffset, transition);
       motionSeam?.registerControls(`topOffset:${name}`, controls);
+      motionSeam?.registerTarget?.(`topOffset:${name}`, topOffset);
     }
   });
 
@@ -1235,6 +1251,12 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // (see B14/H11-site-2, 7ca9eab) rather than shipping either a fabricated
   // defeat-check or a mechanism proven to break test determinism.
   const zMV = useMotionValue(depthZ);
+  // F4 active-springs debug panel: register the MotionValue itself, same
+  // rationale as topOffsetMV/scrollY above.
+  useEffect(() => {
+    motionSeam?.registerMotionValue(`z:${name}`, zMV);
+    return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
+  }, [motionSeam, zMV, name]);
   const zTargetRef = useRef(depthZ);
 
   useLayoutEffect(() => {
@@ -1248,6 +1270,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     } else {
       const controls = animate(zMV, depthZ, transition);
       motionSeam?.registerControls(`z:${name}`, controls);
+      motionSeam?.registerTarget?.(`z:${name}`, depthZ);
     }
   });
 

@@ -20,6 +20,25 @@ export interface MotionSeamRegistration {
   registerMotionValue: (key: string, value: MotionValue<number>) => void;
   /** Register (or update) the latest AnimationPlaybackControls for a named value. */
   registerControls: (key: string, controls: AnimationPlaybackControls | undefined) => void;
+  /**
+   * Register (or update) the target a real `animate()` call is springing a
+   * named value toward. Optional (F4 active-springs debug panel addition,
+   * not part of the original S3/S7 pinning seam) — AnimationPlaybackControls
+   * has no public API to read a target back out, so producers report it
+   * separately at the same call site that already knows it. Omitted for
+   * animations with no fixed target (e.g. an inertia/fling deceleration).
+   */
+  registerTarget?: (key: string, target: number) => void;
+  /**
+   * Unregister a named MotionValue when its owning component unmounts.
+   * Optional (same F4 addition as registerTarget) — the original S3/S7
+   * pinning seam never needed eviction (a fresh test recorder is created
+   * per test and only ever queried for specific known keys), but the F4
+   * active-springs debug panel lists EVERY currently-registered key as
+   * visible text, so a never-evicted entry for a since-unmounted object
+   * would leak that object's name into the overlay indefinitely.
+   */
+  unregisterMotionValue?: (key: string) => void;
 }
 
 export const MotionSeamContext = createContext<MotionSeamRegistration | null>(null);

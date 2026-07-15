@@ -12,9 +12,9 @@ import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffset
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
-import { useMotionSeam } from "./motionSeam";
+import { MotionSeamContext, type MotionSeamRegistration } from "./motionSeam";
 import { normalizeWheelDelta, decideWheelTargetColumn, type ScrollCommand } from "./inputController";
-import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { animate, motion, useMotionValue, useReducedMotion, type AnimationPlaybackControls, type MotionValue } from "motion/react";
 
 /**
  * Collects the focused state of each direct SceneColumn child (in order).
@@ -471,15 +471,124 @@ function SceneObjectOutlines({
  */
 const OutlineRafCallbackContext = createContext<React.MutableRefObject<(() => void) | null> | null>(null);
 
+/**
+ * Debug overlay section listing every currently-registered MotionValue on
+ * Scene's motion seam (cameraX, scrollY/topOffset/z per column,
+ * withinColumnTop per within-column depth-deck object) with its live
+ * value, target (when the driving animate() call reported one — an
+ * inertia/fling deceleration has no fixed target and reads "—"), and
+ * velocity. Registered keys are corrected via a useLayoutEffect (same
+ * commit-stale rationale as SceneDebugOverlay's own `objects` list above —
+ * a brand new key registering elsewhere doesn't otherwise trigger a
+ * re-render here) but the per-row NUMBERS are updated via a continuously
+ * running requestAnimationFrame loop that mutates each row's text nodes
+ * directly (SceneObjectOutlines' pattern) — a MotionValue changes every
+ * frame off React's own render cycle, so reading it only at commit time
+ * would show it permanently stale mid-spring. Runs for as long as this
+ * component is mounted (i.e. for as long as `debug` is enabled) rather than
+ * gating on SceneViewport's animatingRef counter, which only tracks the
+ * stage/column motion.div's own WAAPI animations — not these imperative
+ * animate(motionValue, ...) calls, which have no such correlated signal.
+ */
+function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
+  const [keys, setKeys] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const fresh = Array.from(recorder.values.keys());
+    setKeys((prev) => {
+      const same = prev.length === fresh.length && prev.every((k, i) => k === fresh[i]);
+      return same ? prev : fresh;
+    });
+  });
+
+  const valueRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const targetRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const velocityRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const updateRows = useCallback(() => {
+    for (const key of keys) {
+      const mv = recorder.values.get(key);
+      if (!mv) continue;
+      const valueEl = valueRefs.current.get(key);
+      const targetEl = targetRefs.current.get(key);
+      const velocityEl = velocityRefs.current.get(key);
+      const target = recorder.targets.get(key);
+      if (valueEl) valueEl.textContent = mv.get().toFixed(1);
+      if (targetEl) targetEl.textContent = target === undefined ? "—" : target.toFixed(1);
+      if (velocityEl) velocityEl.textContent = mv.getVelocity().toFixed(1);
+    }
+  }, [keys, recorder]);
+
+  // Paint-synchronous pass so the very first frame isn't blank before the
+  // first rAF tick below (mirrors SceneObjectOutlines' equivalent
+  // useLayoutEffect measureAndUpdate pass).
+  useLayoutEffect(() => {
+    updateRows();
+  });
+
+  useEffect(() => {
+    let rafId = requestAnimationFrame(function loop() {
+      updateRows();
+      rafId = requestAnimationFrame(loop);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [updateRows]);
+
+  if (keys.length === 0) return null;
+
+  return (
+    <>
+      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+        Active springs
+      </div>
+      {keys.map((key) => (
+        <div key={key} data-debug-spring={key}>
+          <span style={{ color: "#fbbf24" }}>{key}</span>
+          {": "}
+          <span
+            ref={(el) => {
+              if (el) valueRefs.current.set(key, el);
+              else valueRefs.current.delete(key);
+            }}
+            data-debug-spring-value
+          />
+          {" → "}
+          <span
+            ref={(el) => {
+              if (el) targetRefs.current.set(key, el);
+              else targetRefs.current.delete(key);
+            }}
+            data-debug-spring-target
+          />
+          {" (v="}
+          <span
+            ref={(el) => {
+              if (el) velocityRefs.current.set(key, el);
+              else velocityRefs.current.delete(key);
+            }}
+            data-debug-spring-velocity
+          />
+          {")"}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
 function SceneDebugOverlay({
   columnStacks,
   viewportRef,
   stageRef,
+  motionRecorder,
 }: {
   columnStacks: DebugColumnStackEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
   stageRef: React.RefObject<HTMLDivElement | null>;
+  /** Scene's own motion-seam recorder (see createDebugMotionRecorder below),
+   *  or null when a test harness supplied its own MotionSeamContext.Provider
+   *  instead (motionSeam.ts) — in that case the active-springs section below
+   *  simply has nothing of Scene's own to read and renders nothing. */
+  motionRecorder: DebugMotionRecorder | null;
 }) {
   // Object list — DOM truth (queryDebugObjects), same rationale as
   // SceneObjectOutlines above. Corrected via a useLayoutEffect (mirroring
@@ -687,8 +796,49 @@ function SceneDebugOverlay({
         {": "}
         {Math.round(clientWidth)} × {Math.round(viewport?.clientHeight ?? 0)}
       </div>
+
+      {motionRecorder && <ActiveSpringsSection recorder={motionRecorder} />}
     </div>
   );
+}
+
+/**
+ * A MotionSeamRegistration recorder Scene creates for ITSELF when `debug` is
+ * enabled and no test harness has already wrapped a MotionSeamContext.Provider
+ * around the tree (see SceneViewport's `motionSeam` derivation below) — powers
+ * the debug overlay's active-springs panel. Registration-only and
+ * observationally pure: it never drives/mutates the values or controls it
+ * receives, only stores references for later reads.
+ */
+interface DebugMotionRecorder extends MotionSeamRegistration {
+  values: Map<string, MotionValue<number>>;
+  controls: Map<string, AnimationPlaybackControls | undefined>;
+  targets: Map<string, number>;
+}
+
+function createDebugMotionRecorder(): DebugMotionRecorder {
+  const values = new Map<string, MotionValue<number>>();
+  const controls = new Map<string, AnimationPlaybackControls | undefined>();
+  const targets = new Map<string, number>();
+  return {
+    values,
+    controls,
+    targets,
+    registerMotionValue(key, value) {
+      values.set(key, value);
+    },
+    registerControls(key, playbackControls) {
+      controls.set(key, playbackControls);
+    },
+    registerTarget(key, target) {
+      targets.set(key, target);
+    },
+    unregisterMotionValue(key) {
+      values.delete(key);
+      controls.delete(key);
+      targets.delete(key);
+    },
+  };
 }
 
 /** Inner scene content — reads debug flag from config to apply outline. */
@@ -736,6 +886,25 @@ function SceneViewport({
   // Calling this kicks off the rAF loop when an animation starts.
   const outlineStartRafRef = useRef<(() => void) | null>(null);
 
+  // motionSeam: reads whatever a TEST harness has already wrapped
+  // MotionSeamContext.Provider with (S7 pinning seam — see motionSeam.ts),
+  // falling back to a Scene-owned recorder when `debug` is enabled and no
+  // test recorder is present. This powers the debug overlay's active-springs
+  // panel below without disturbing the test-pinning use case: a test's own
+  // recorder always wins when present, and production (debug=false) always
+  // resolves to null exactly as before this feature existed. The combined
+  // value is re-provided via MotionSeamContext.Provider around this
+  // component's return so descendant SceneColumns/SceneObjects (which read
+  // it via their own useMotionSeam() calls) see the same recorder Scene
+  // itself registers cameraX into, below.
+  const outerMotionSeam = useContext(MotionSeamContext);
+  const debugMotionRecorderRef = useRef<DebugMotionRecorder | null>(null);
+  if (debug && !outerMotionSeam && !debugMotionRecorderRef.current) {
+    debugMotionRecorderRef.current = createDebugMotionRecorder();
+  }
+  const motionSeam: MotionSeamRegistration | null =
+    outerMotionSeam ?? (debug ? debugMotionRecorderRef.current : null);
+
   // Stable animation callbacks provided to the stage and (via context) to
   // SceneColumns. Only active in debug mode — callbacks are a no-op when
   // the context value is null.
@@ -778,9 +947,9 @@ function SceneViewport({
   // the stage's `left` (camera pan) can be driven off React's render cycle,
   // matching SceneColumn's scrollY/composedTop seam.
   const cameraX = useMotionValue(0);
-  const motionSeam = useMotionSeam();
   useEffect(() => {
     motionSeam?.registerMotionValue("cameraX", cameraX);
+    return () => motionSeam?.unregisterMotionValue?.("cameraX");
   }, [motionSeam, cameraX]);
 
   // useCamera() `transitioning` (S6 reshape, forecast-gate adjudication #5c):
@@ -996,6 +1165,7 @@ function SceneViewport({
         onTransitionStart();
         const controls = animate(cameraX, newStageLeft, transition);
         motionSeam?.registerControls("cameraX", controls);
+        motionSeam?.registerTarget?.("cameraX", newStageLeft);
         controls.then(() => {
           if (cameraTransitionTokenRef.current === token) {
             onTransitionComplete();
@@ -1109,6 +1279,7 @@ function SceneViewport({
   }, [overflowsX]);
 
   return (
+    <MotionSeamContext.Provider value={motionSeam}>
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
       <DepthDeckContext.Provider value={stackTargetLeft}>
@@ -1274,12 +1445,14 @@ function SceneViewport({
               columnStacks={debugColumnStacks ?? []}
               viewportRef={viewportRef}
               stageRef={stageRef}
+              motionRecorder={debugMotionRecorderRef.current}
             />
           )}
         </div>
       </DepthDeckContext.Provider>
     </ViewportContext.Provider>
     </AnimationCallbackContext.Provider>
+    </MotionSeamContext.Provider>
   );
 }
 
