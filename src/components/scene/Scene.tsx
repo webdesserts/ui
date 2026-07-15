@@ -298,6 +298,255 @@ interface DebugObjectBounds {
   y: number;
 }
 
+/** Measured stage-vs-focused-span bounds for StageBoundsOutline below. */
+interface StageBoundsInfo {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  stageWidth: number;
+  focusedWidth: number;
+}
+
+/**
+ * Measures the stage's true rendered width against the union of currently
+ * focused columns' width. Returns null when there's nothing focused (no
+ * "focused span" to compare against) or when the stage doesn't exceed it
+ * (the common case — most layouts have no frozen/parked columns extending
+ * the stage beyond what's focused).
+ */
+function measureStageBounds(viewport: HTMLElement, stage: HTMLElement): StageBoundsInfo | null {
+  const focusedCols = Array.from(stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"));
+  if (focusedCols.length === 0) return null;
+
+  const focusedUnion = focusedCols.reduce(
+    (acc, col) => {
+      const rect = col.getBoundingClientRect();
+      return { left: Math.min(acc.left, rect.left), right: Math.max(acc.right, rect.right) };
+    },
+    { left: Infinity, right: -Infinity },
+  );
+  const focusedWidth = focusedUnion.right - focusedUnion.left;
+
+  const stageRect = stage.getBoundingClientRect();
+  const stageWidth = stageRect.width;
+
+  // 1px epsilon absorbs sub-pixel layout rounding noise, not real overflow.
+  if (stageWidth <= focusedWidth + 1) return null;
+
+  const vpRect = viewport.getBoundingClientRect();
+  return {
+    left: stageRect.left - vpRect.left,
+    top: stageRect.top - vpRect.top,
+    width: stageWidth,
+    height: stageRect.height,
+    stageWidth,
+    focusedWidth,
+  };
+}
+
+function stageBoundsEqual(a: StageBoundsInfo | null, b: StageBoundsInfo | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return (
+    a.left === b.left &&
+    a.top === b.top &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.stageWidth === b.stageWidth &&
+    a.focusedWidth === b.focusedWidth
+  );
+}
+
+/**
+ * F4 feature (b): draws the stage's TRUE rendered bounds — the full flex
+ * row, including any frozen/parked columns outside the focused span — with
+ * a numeric label, but ONLY when that true width exceeds the focused span.
+ * This is the CameraDebug-incident class made visible at a glance (see
+ * warnStrayChild below): a wide-but-currently-hidden stage (overflowsX
+ * false, so no scrollbar hints at it) is exactly the shape that widened
+ * scrollWidth invisibly before the F4 commit-1 purity fix — this outline
+ * exists so a developer can SEE that shape exists without needing to know
+ * to check scrollWidth themselves. The existing permanent magenta stage
+ * outline (SceneViewport's `outline: debug ? "2px solid magenta"` on the
+ * stage element itself) already technically delineates these same bounds,
+ * but it's clipped by the viewport's own overflow just like real content —
+ * the far edge of a wide stage is invisible in the current scroll position
+ * exactly when this matters most. Rendered inside the same viewport-pinned
+ * overflow:hidden clipping layer SceneObjectOutlines uses (commit 1) — this
+ * label is exactly as width-unconstrained as SceneObjectOutlines' name
+ * labels were, so it MUST stay inside that clip to avoid reopening the same
+ * purity bug.
+ */
+function StageBoundsOutline({
+  viewportRef,
+  stageRef,
+}: {
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [bounds, setBounds] = useState<StageBoundsInfo | null>(null);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    const fresh = viewport && stage ? measureStageBounds(viewport, stage) : null;
+    setBounds((prev) => (stageBoundsEqual(prev, fresh) ? prev : fresh));
+  });
+
+  if (!bounds) return null;
+
+  const hidden = Math.round(bounds.stageWidth - bounds.focusedWidth);
+
+  return (
+    <div
+      data-debug-stage-bounds
+      style={{
+        position: "absolute",
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+        border: "2px dashed orange",
+        pointerEvents: "none",
+        boxSizing: "border-box",
+        zIndex: 9997,
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          background: "orange",
+          color: "#000",
+          fontFamily: "monospace",
+          fontSize: 10,
+          padding: "0 2px",
+          lineHeight: "14px",
+        }}
+      >
+        stage {Math.round(bounds.stageWidth)}px (focused {Math.round(bounds.focusedWidth)}px, +{hidden}px hidden)
+      </span>
+    </div>
+  );
+}
+
+/** A stage child that joined the flex row without going through a SceneColumn. */
+interface StrayChildEntry {
+  key: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  typeName: string;
+}
+
+/**
+ * Finds every DIRECT DOM child of the stage lacking `data-column` — the
+ * attribute every legitimately-rendered SceneColumn carries. wrapChild
+ * (below) already folds bare SceneObjects into an implicit SceneColumn, so
+ * anything reaching the stage without `data-column` is exactly
+ * warnStrayChild's trigger condition: a child that is neither a SceneColumn
+ * nor a SceneObject, silently joining the flex row unchanged.
+ */
+function measureStrayChildren(viewport: HTMLElement, stage: HTMLElement): StrayChildEntry[] {
+  const vpRect = viewport.getBoundingClientRect();
+  const entries: StrayChildEntry[] = [];
+  Array.from(stage.children).forEach((child, i) => {
+    if (!(child instanceof HTMLElement)) return;
+    if (child.hasAttribute("data-column")) return;
+    const rect = child.getBoundingClientRect();
+    entries.push({
+      key: `stray-${i}-${child.tagName}`,
+      left: rect.left - vpRect.left,
+      top: rect.top - vpRect.top,
+      width: rect.width,
+      height: rect.height,
+      typeName: child.tagName.toLowerCase(),
+    });
+  });
+  return entries;
+}
+
+function strayChildrenEqual(a: StrayChildEntry[], b: StrayChildEntry[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (entry, i) =>
+        entry.key === b[i]?.key &&
+        entry.left === b[i]?.left &&
+        entry.top === b[i]?.top &&
+        entry.width === b[i]?.width &&
+        entry.height === b[i]?.height,
+    )
+  );
+}
+
+/**
+ * F4 feature (b): paints a red outline + label on every stray stage child
+ * (see measureStrayChildren above) — the CameraDebug-incident class made
+ * visible at a glance, pairing with warnStrayChild's console warning above.
+ * Rendered inside the same viewport-pinned clipping layer as
+ * SceneObjectOutlines/StageBoundsOutline (commit 1's purity fix) — a stray
+ * child is by definition NOT position-managed by Scene, so nothing bounds
+ * where it might render.
+ */
+function StrayChildFlags({
+  viewportRef,
+  stageRef,
+}: {
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [entries, setEntries] = useState<StrayChildEntry[]>([]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const stage = stageRef.current;
+    const fresh = viewport && stage ? measureStrayChildren(viewport, stage) : [];
+    setEntries((prev) => (strayChildrenEqual(prev, fresh) ? prev : fresh));
+  });
+
+  return (
+    <>
+      {entries.map((entry) => (
+        <div
+          key={entry.key}
+          data-debug-stray-child={entry.typeName}
+          style={{
+            position: "absolute",
+            left: entry.left,
+            top: entry.top,
+            width: entry.width,
+            height: entry.height,
+            border: "2px solid red",
+            pointerEvents: "none",
+            boxSizing: "border-box",
+            zIndex: 9998,
+          }}
+        >
+          <span
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              background: "red",
+              color: "#fff",
+              fontFamily: "monospace",
+              fontSize: 10,
+              padding: "0 2px",
+              lineHeight: "14px",
+            }}
+          >
+            stray &lt;{entry.typeName}&gt;
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 /**
  * Absolutely-positioned overlay elements that draw colored outlines around each
  * SceneObject. Rendered inside the viewport so positions are relative to it.
@@ -1435,6 +1684,8 @@ function SceneViewport({
                   animatingRef={animatingRef}
                 />
               </OutlineRafCallbackContext.Provider>
+              <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
+              <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
             </div>
           )}
           {/* Overlay is inside the scene div so tests can find it via

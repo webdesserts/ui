@@ -1212,6 +1212,144 @@ describe("Scene debug — active springs panel", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F4 commit 2 feature (b): stage-bounds + stray-child debug visualization
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — stage bounds outline", () => {
+  test("appears when frozen/parked outer columns make the stage wider than the focused span", async () => {
+    // Mirrors the "Camera stage-left centers focused region when outer
+    // columns extend the stage" fixture (Phase 4 above): 900px outer
+    // columns, previously focused to freeze their size, then unfocused —
+    // the stage (2016px including gaps) is far wider than the 200px
+    // focused span, but overflowsX stays false (native scroll doesn't
+    // reflect it) — exactly the invisible-unless-you-look shape this
+    // outline exists to surface. The 1656px scrollWidth this produces is
+    // real, PRE-EXISTING content overflow (the frozen columns themselves,
+    // clipped by overflow:hidden — see F4 commit 1's "PARKED" probe), not
+    // something this outline adds — asserted below by comparing debug on
+    // vs off for the identical layout, matching the commit-1 purity pins.
+    async function build(debug: boolean) {
+      const { rerender, getByTestId } = await render(
+        <TestWrapper fullPage>
+          <Scene duration={0} debug={debug}>
+            <SceneColumn name="col-left">
+              <SceneObject name="obj-left" focused>
+                <div style={{ width: 900, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-focused">
+              <SceneObject name="obj-focused" focused>
+                <div style={{ width: 200, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-right">
+              <SceneObject name="obj-right" focused>
+                <div style={{ width: 900, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+      await rerender(
+        <TestWrapper fullPage>
+          <Scene duration={0} debug={debug}>
+            <SceneColumn name="col-left">
+              <SceneObject name="obj-left" focused={false}>
+                <div style={{ width: 900, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-focused">
+              <SceneObject name="obj-focused" focused>
+                <div style={{ width: 200, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-right">
+              <SceneObject name="obj-right" focused={false}>
+                <div style={{ width: 900, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+      // Pre-existing rect-measurement-family settle race (reproduces
+      // identically with debug entirely absent — not a purity regression):
+      // the size-freeze + stageLeft repositioning effects can need one more
+      // frame to settle after rerender() resolves before scrollWidth reads
+      // consistently. Matches this suite's established convention of a
+      // settle wait after a rerender that changes frozen-size geometry.
+      await waitForAnimationFrame();
+      const scene = getByTestId("scene").element();
+      return { scrollWidth: scene.scrollWidth, clientWidth: scene.clientWidth, outline: scene.querySelector("[data-debug-stage-bounds]") };
+    }
+
+    const off = await build(false);
+    expect(off.outline).toBeNull();
+    await cleanup();
+
+    const on = await build(true);
+    expect(on.outline).not.toBeNull();
+    expect(on.outline?.textContent).toContain("focused 200px");
+    expect(on.scrollWidth).toBe(off.scrollWidth);
+    expect(on.clientWidth).toBe(off.clientWidth);
+  });
+
+  test("does not appear when the stage matches the focused span (no hidden content)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    expect(scene.querySelector("[data-debug-stage-bounds]")).toBeNull();
+  });
+});
+
+describe("Scene debug — stray child flags", () => {
+  test("flags a stray direct child of Scene (neither SceneColumn nor SceneObject)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <p data-testid="stray">a stray debug readout</p>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    const flag = scene.querySelector("[data-debug-stray-child='p']");
+    expect(flag).not.toBeNull();
+    expect(flag?.textContent).toContain("stray <p>");
+    warnSpy.mockRestore();
+  });
+
+  test("does not flag a legitimate SceneColumn", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    expect(scene.querySelectorAll("[data-debug-stray-child]").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 10a: Debug — remaining overlay features
 // ---------------------------------------------------------------------------
 
