@@ -6724,6 +6724,106 @@ describe("Scene padding cluster (S6)", () => {
     // guards against).
     expect(rightRect.left - middleRect.left).toBeCloseTo(0, -1);
   });
+
+  test.each([0, 4, 32])(
+    "overflow mode: both edges are inset by exactly padding=%ipx (Michael's symmetric-padding ruling)",
+    async (padding) => {
+      // Two 1000px columns (2000px total) badly overflow the 1280px viewport
+      // at every padding value tested — the overflow branch always applies.
+      const { getByTestId } = await render(
+        <TestWrapper fullPage>
+          <Scene duration={0} padding={padding}>
+            <SceneColumn name="col1">
+              <SceneObject name="obj1" focused>
+                <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col2">
+              <SceneObject name="obj2" focused>
+                <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const scene = getByTestId("scene").element() as HTMLElement;
+      const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+      const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+      const vpRect = scene.getBoundingClientRect();
+
+      // At scrollLeft=0: the leftmost focused column's left edge should be
+      // inset from the viewport's left edge by exactly `padding`.
+      expect(scene.scrollLeft).toBe(0);
+      const leftInset = col1.getBoundingClientRect().left - vpRect.left;
+      expect(leftInset).toBeCloseTo(padding, 0);
+
+      // At maximum scroll: the rightmost focused column's right edge should
+      // be inset from the viewport's right edge by exactly `padding` too —
+      // NOT flush (the pre-fix bug: the left inset was subtracted away by
+      // `newStageLeft = -focusedNaturalLeft`, while the right side already
+      // got it right via the stage's own CSS padding surviving into
+      // scrollWidth — a flush-left/padding-right mix).
+      scene.scrollLeft = scene.scrollWidth - scene.clientWidth;
+      await waitForAnimationFrame();
+      const rightInset = vpRect.right - col2.getBoundingClientRect().right;
+      expect(rightInset).toBeCloseTo(padding, 0);
+    },
+  );
+
+  test("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
+    const build = (padding: number) => (
+      <TestWrapper fullPage>
+        <Scene padding={padding}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(16));
+    await wait(500);
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const vpRect = scene.getBoundingClientRect();
+
+    const leftInsetBefore = col1.getBoundingClientRect().left - vpRect.left;
+    expect(leftInsetBefore).toBeCloseTo(16, 0);
+
+    // Change padding — the stage's CSS padding changes immediately (not
+    // itself animated), but the camera's stageLeft recompute (which the
+    // left inset depends on) goes through the normal spring transition, not
+    // an instant snap.
+    await rerender(build(32));
+
+    const readLeftInset = () => col1.getBoundingClientRect().left - vpRect.left;
+    const samples = [readLeftInset()];
+    for (const delay of [16, 100, 300]) {
+      await wait(delay);
+      samples.push(readLeftInset());
+    }
+    const allIdentical = samples.every((s) => s === samples[0]);
+    expect(allIdentical).toBe(false);
+
+    await wait(1500);
+    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+    const leftInsetAfter = col1.getBoundingClientRect().left - vpRect.left;
+    expect(leftInsetAfter).toBeCloseTo(32, 0);
+
+    scene.scrollLeft = scene.scrollWidth - scene.clientWidth;
+    await waitForAnimationFrame();
+    const rightInsetAfter = vpRect.right - col2.getBoundingClientRect().right;
+    expect(rightInsetAfter).toBeCloseTo(32, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------

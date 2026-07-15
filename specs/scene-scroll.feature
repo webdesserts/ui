@@ -218,10 +218,14 @@ Feature: Scene Scroll
     Then the column should initially show its top edge at the top of the viewport
     And the column should be centered horizontally
 
-  Scenario: Focused columns overflow horizontally — left-aligned, centered vertically
+  Scenario: Focused columns overflow horizontally — both edges inset by padding, centered vertically
     Given focused columns together exceed the viewport width but their height fits
-    Then the left edge of the leftmost column should align to the left of the viewport
+    Then the left edge of the leftmost column should be inset from the viewport's left edge by exactly the Scene's padding
+    And, at maximum horizontal scroll, the right edge of the rightmost column should be inset from the viewport's right edge by exactly the Scene's padding
     And each column should be centered vertically
+    # Both edges share the same inset — a mix (e.g. flush-left but
+    # padding-inset-right) is never valid. At padding=0 both insets are 0
+    # (flush/flush), matching the pre-existing left-aligned behavior.
 
   Scenario: Overflows both axes — top-left corner visible
     Given focused content overflows both dimensions

@@ -871,8 +871,18 @@ function SceneViewport({
       newStageLeft = (vpWidth - focusedWidth) / 2 - focusedNaturalLeft;
       newOverflowsX = false;
     } else {
-      // Focused content overflows — left-align it at the viewport's left edge.
-      newStageLeft = -focusedNaturalLeft;
+      // Focused content overflows — inset it from the viewport's left edge
+      // by exactly `padding` (Michael's symmetric-padding ruling: both
+      // edges inset by the same amount, flush/flush at padding=0, a mix is
+      // never valid). `focusedNaturalLeft` already includes the stage's own
+      // CSS left padding (the flex column sits inside the padded content
+      // box, so its rect is offset from the stage's border-box edge by that
+      // padding) — a bare `-focusedNaturalLeft` cancels the padding
+      // contribution entirely, landing the column flush at the viewport's
+      // left edge instead of inset. Adding `padding` back re-establishes
+      // the same inset the right edge already gets for free from the
+      // stage's own CSS padding surviving into native scrollWidth.
+      newStageLeft = -focusedNaturalLeft + padding;
       newOverflowsX = true;
     }
 
