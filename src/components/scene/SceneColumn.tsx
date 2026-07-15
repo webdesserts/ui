@@ -752,6 +752,44 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // distortion H11 fixed for content height, but for the frozen width/
   // height snapshot itself). useLayoutEffect fires synchronously pre-paint,
   // closing that one-frame gap.
+  //
+  // Gate-requested regression test: NOT ADDED — verified, not just assumed,
+  // that this specific timing gap is structurally unobservable through any
+  // realistic focus-change interaction in the CURRENT architecture, so a
+  // useEffect-vs-useLayoutEffect pin here would be vacuous (green either
+  // way). Root cause: Scene's own S6 registration architecture ALWAYS
+  // triggers a nested, layout-effect-driven corrective re-render on every
+  // focus change (columnRegistryRef is one-commit-stale by construction —
+  // `deriveColumnStatesFromRegistry` reads registry state populated by the
+  // PREVIOUS commit's layout effects, so the post-commit correction in
+  // Scene.tsx's `forceRegistryCorrection` check is guaranteed to mismatch
+  // and fire on literally every commit that changes any column's focused
+  // prop, not just complex multi-column cases). React's documented behavior
+  // for a state update triggered FROM a layout effect is to flush ANY
+  // pending passive effects synchronously before starting that nested
+  // render pass — which flushes THIS effect too, regardless of whether it's
+  // declared as useEffect or useLayoutEffect, because it was scheduled in
+  // the same commit whose layout effects triggered the nested update.
+  // Probe-verified across FOUR independent trigger mechanisms (a plain
+  // rerender via the test harness's act()-wrapped root.render, a raw DOM
+  // click dispatched outside act(), a `flushSync`-wrapped state update, and
+  // a truly async `setTimeout`-triggered update polled every rAF) — all
+  // four show frozenSize already correctly populated on the very first
+  // frame where `data-column-position` resolves to "in-between"/outer, with
+  // useEffect reverted (DEFEAT-CHECK SEVER'd during this verification and
+  // restored after). Cross-checked the technique itself is sound with a
+  // Scene-independent minimal component (plain useEffect + flushSync), which
+  // DID show the expected one-tick-late gap — so this is a genuine masking
+  // effect specific to Scene's architecture, not a blind spot in the
+  // verification method. This is also consistent with item 5's finding that
+  // landing this fix did NOT resolve refocus-from-depth-deck-mid-spring's
+  // non-determinism — further evidence this exact gap was never the
+  // observable mechanism in that test either. useLayoutEffect is kept
+  // anyway: it's the semantically correct hook for a synchronous freeze
+  // (defense-in-depth against a future change to the registration
+  // architecture that removes the masking correction pass), it's zero-cost,
+  // and reverting it to chase a provable-red test would trade a strictly
+  // more correct hook choice for a weaker one with no compensating benefit.
   useLayoutEffect(() => {
     if (columnFocused) {
       wasEverFocused.current = true;
@@ -946,13 +984,41 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Never-focused columns measure their content wrapper directly.
   let effectiveContentHeight = columnFocused ? contentHeight : frozenContentHeight;
   if (effectiveContentHeight === 0 && contentWrapperRef.current) {
-    // offsetHeight (not getBoundingClientRect().height, H11): this wrapper
-    // sits inside the outer column's own translateZ/scale transform (depth-
-    // deck treatment, or an in-flight layout-FLIP correction on first focus
-    // — see remeasureGeometry's matching fix below) — getBoundingClientRect
-    // would report a perspective-projected/scaled size, not the true laid-
-    // out height. offsetHeight is a layout metric, immune to transforms
-    // applied to the element or any ancestor.
+    // offsetHeight (not getBoundingClientRect().height, H11), kept as
+    // defensive-only and NOT provably reachable at paint (gate-requested
+    // follow-up investigated, documented below) — this wrapper sits inside
+    // the outer column's own translateZ/scale transform (depth-deck
+    // treatment, or an in-flight layout-FLIP correction on first focus —
+    // see remeasureGeometry's matching fix, which HAS a proven paint-time
+    // effect), so IN PRINCIPLE getBoundingClientRect() could report a
+    // perspective-projected/scaled size here too, while offsetHeight (a
+    // layout metric, immune to transforms on the element or any ancestor)
+    // would not.
+    //
+    // In practice: extensively probe-verified (render-by-render
+    // instrumentation, multiple trigger shapes — mount, an unrelated prop
+    // change forcing a fresh render post-settle, a permanently-never-
+    // focused deck card) that this specific branch never observably reaches
+    // paint with a distorted value in this codebase's rendering pipeline.
+    // The raw DOM values genuinely DO diverge at rest (confirmed via a
+    // direct, non-render-time measurement: a settled depth-1 deck card's
+    // wrapper read 266.67px via getBoundingClientRect() vs the true 300px
+    // via offsetHeight) — but SceneColumn's OWN render-time code never
+    // catches that distortion: the outer column's z-transform is applied by
+    // Motion's `animate` prop via Motion's OWN internal update cycle,
+    // running AFTER React's commit, so by the time ANY subsequent React
+    // render synchronously reads this DOM (which is when this branch
+    // executes), the transform structurally reads back as its
+    // NOT-YET-(re)applied state (effectively z:0) — not the settled,
+    // distorting value. This held across every trigger shape tried,
+    // including forcing a fresh render well after the transform had
+    // visually settled. offsetHeight is kept anyway (harmless, zero
+    // marginal cost, and correct IF this timing relationship ever changes —
+    // e.g. a future Motion version, or a change to how z is driven), but a
+    // useEffect-vs-useLayoutEffect-style red/green pin is not available
+    // here the way it is for remeasureGeometry's sibling fix — there is no
+    // reachable interaction path where reverting this line is provably
+    // observable.
     effectiveContentHeight = contentWrapperRef.current.offsetHeight;
   }
   // Centers within effectiveViewportHeight (padding-subtracted, same basis
