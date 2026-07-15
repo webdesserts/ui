@@ -732,9 +732,29 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // after each render (useLayoutEffect fires before the browser paints). This
   // ensures `lastObservedSize` is always fresh and doesn't depend on the async
   // ResizeObserver firing before focus is lost.
+  //
+  // F7 item 1 fix (a third missed gBCR site in the same H11 projection-
+  // contamination class, above): offsetWidth/offsetHeight, NOT
+  // getBoundingClientRect(). `columnFocused` (a plain prop) flips the
+  // instant React processes the focus click, but the column's own zMV
+  // (depth-deck translateZ) is a MotionValue — it hasn't moved yet on this
+  // exact commit, the very first one where columnFocused is newly true.
+  // getBoundingClientRect() on THIS commit still reads the column under
+  // its OLD, fully-settled depth-deck perspective projection (probe-
+  // confirmed: a column previously frozen at depth-1 read 226.34px here
+  // instead of its true 254px — 254 * (800/900) ≈ 226.34, the exact
+  // depth-1 projection factor). That wrong value gets frozen via
+  // setFrozenSize below, and if the column later re-enters the depth deck
+  // (e.g. a quick focus/unfocus double-click, interrupting before the real
+  // spring finishes), the frozen size is PROJECTED AGAIN by the depth-deck
+  // transform on render — 226.34 * (800/900) ≈ 201.2 — a compounding
+  // foreshortening, observed as the column settling ~12px too high.
+  // offsetWidth/offsetHeight are layout metrics, immune to any transform
+  // on the element or its ancestors, matching H11's established pattern.
   useLayoutEffect(() => {
     if (columnFocused && colRef.current) {
-      const { width, height } = colRef.current.getBoundingClientRect();
+      const width = colRef.current.offsetWidth;
+      const height = colRef.current.offsetHeight;
       if (width > 0 || height > 0) {
         lastObservedSize.current = { width, height };
       }
@@ -767,7 +787,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       scrollOffsetStore.set(name, {
         offset: scrollOffsetRef.current,
         focusedKey: lastActiveFocusedKeyRef.current,
-        contentHeightAtSave: contentWrapperRef.current?.getBoundingClientRect().height ?? 0,
+        // F7 item 1 fix: offsetHeight, not getBoundingClientRect() — same
+        // projection-contamination class as the lastObservedSize snapshot
+        // sites above. This runs on the FIRST commit where columnFocused
+        // just went false; if that unfocus interrupts a still-in-flight
+        // refocus (Michael's quick focus/unfocus repro), the column's zMV
+        // hasn't yet settled back to its unfocused target and this read
+        // would otherwise capture a partially-projected height.
+        contentHeightAtSave: contentWrapperRef.current?.offsetHeight ?? 0,
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -872,8 +899,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       );
       const colEl = colRef.current;
       if (colEl) {
-        const rect = colEl.getBoundingClientRect();
-        lastObservedSize.current = { width: rect.width, height: rect.height };
+        // F7 item 1 fix: offsetWidth/offsetHeight, not getBoundingClientRect()
+        // — same projection-contamination class as the per-render snapshot
+        // effect above (this is the SAME lastObservedSize this ResizeObserver
+        // callback also writes to). columnFocusedRef.current being true only
+        // means the column's Z *target* is 0 — its zMV can still be mid-flight
+        // back from a depth-deck transform (e.g. a rapid refocus, this
+        // ResizeObserver callback firing before that spring settles).
+        lastObservedSize.current = { width: colEl.offsetWidth, height: colEl.offsetHeight };
       }
       // Fingerprint bail-out (forecast-gate adjudication): only force a
       // re-render when the geometry actually changed.

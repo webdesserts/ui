@@ -869,6 +869,129 @@ describe("SceneColumn unfocused freeze", () => {
     expect(window.getComputedStyle(col1).position).toBe("relative");
     expect(window.getComputedStyle(col2).position).toBe("relative");
   });
+
+  test("a quick refocus/unfocus double-click freezes the true (un-projected) size, not a depth-deck-perspective-contaminated one (F7 item 1)", async () => {
+    // Michael's exact repro (F5 item 4, now root-caused): a column that's
+    // already unfocused and settled into the depth deck, then a QUICK
+    // focus/unfocus double-click — the second click interrupts the first's
+    // still-in-flight zMV spring back toward 0. Real dev-app probe measured
+    // a 100%-consistent ~12px displacement across every interrupt gap
+    // tried (60-500ms).
+    //
+    // Root cause, CORRECTED after this pin was found vacuous (gate review):
+    // of the three sites fixed (the per-render `lastObservedSize` snapshot
+    // effect, the shared ResizeObserver callback, and `contentHeightAtSave`),
+    // only the ResizeObserver callback is reachable through THIS specific
+    // interrupt shape — probe-confirmed by instrumenting all three read
+    // sites directly. On the exact commit `columnFocused` flips true, Motion's
+    // `layout` FLIP (item 2's mechanism) recomposes the column's ENTIRE
+    // transform for its own position:absolute->relative correction and — at
+    // that instant — the composed string has no Z component at all, even
+    // though `zMV.get()` genuinely still reads -100 unmoved; the snapshot
+    // effect and `contentHeightAtSave` both fire on that SAME commit, so a
+    // `getBoundingClientRect()` read there is (at least in this codebase's
+    // current `layout`-FLIP-on-refocus shape) never actually contaminated —
+    // an original zero-wait-double-rerender reproduction is genuinely
+    // vacuous, not just under-covered. The REAL exposure needs the zMV
+    // spring to have started moving (a `wait(100)` is enough) so the
+    // ResizeObserver's callback — decoupled from React's commit timing,
+    // firing on its own schedule once the layout size genuinely changed —
+    // reads the column mid-flight (probe-confirmed: `zMV.get()` -99.64,
+    // transform a real `matrix3d(...)` with a nonzero Z, `getBoundingClientRect()`
+    // reporting a projected ~427x711 against the true 480x800). That
+    // contaminated read gets frozen via `setFrozenSize` if the interrupting
+    // unfocus lands after it; re-entering the depth deck then projects the
+    // already-wrong frozen size a SECOND time — the compounding
+    // foreshortening this item describes. Same class as H11 (SceneColumn.tsx's
+    // own established `offsetHeight`-not-`getBoundingClientRect()` pattern
+    // for exactly this transform-contamination problem).
+    //
+    // Matches the live dev-app demo's own asymmetric column widths (Nav
+    // 160px / Article 480px / Sidebar 160px) rather than three equal-width
+    // columns — verified empirically that this shape is not what
+    // discriminates (the equal-width version reproduces the same
+    // ResizeObserver-mid-flight contamination identically); kept for
+    // fidelity to the exact repro Michael reported.
+    //
+    // Defeat-check receipt (gate-requested): severing all three sites back
+    // to getBoundingClientRect() goes red (711.812 vs 800 expected — the
+    // once-projected value). Severing each site ALONE: the ResizeObserver
+    // callback (site C) alone is SUFFICIENT to go red on its own (711.653 vs
+    // 800), matching the diagnosis above — it's the only one of the three
+    // actually reachable through this interrupt shape. The snapshot effect
+    // (site A) alone and `contentHeightAtSave` (site B) alone both stay
+    // green in isolation — A because `layout` FLIP masks Z on that commit as
+    // described above, B because `contentHeightAtSave` isn't consumed by
+    // either assertion below (it feeds unfocused-column vertical centering,
+    // a separate concern). All three sites are still fixed in source (the
+    // H11 pattern is the right general defense even where this specific
+    // pin can't currently observe sites A/B), but this test's actual
+    // discriminating power rests on site C.
+    function BasicFocusDemo() {
+      const [articleFocused, setArticleFocused] = useState(true);
+      return (
+        <TestWrapper fullPage>
+          <button data-testid="toggle-article" onClick={() => setArticleFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene>
+            <SceneColumn name="nav">
+              <SceneObject name="nav-panel" focused style={{ width: 160, height: "100%" }}>
+                <div style={{ width: "100%", height: "100%" }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="article">
+              <SceneObject
+                name="article-panel"
+                focused={articleFocused}
+                style={{ width: 480, height: "100%" }}
+                onActivate={() => setArticleFocused(true)}
+              >
+                <div data-testid="article-content" style={{ width: "100%", height: "100%" }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="sidebar">
+              <SceneObject name="sidebar-panel" focused style={{ width: 160, height: "100%" }}>
+                <div style={{ width: "100%", height: "100%" }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<BasicFocusDemo />);
+    await wait(600);
+    const toggleBtn = getByTestId("toggle-article").element() as HTMLElement;
+
+    // Unfocus — settle fully into the depth deck (Z reaches -100, depth-1).
+    toggleBtn.click();
+    await wait(600);
+
+    const articleCol = getByTestId("article-content").element().closest("[data-column]") as HTMLElement;
+
+    // The interrupt: refocus (starts the zMV spring back toward 0), a real
+    // 100ms gap (long enough for the ResizeObserver callback to fire while
+    // zMV is still mid-flight — see comment above), then unfocus again,
+    // re-freezing whatever `lastObservedSize` currently holds.
+    toggleBtn.click();
+    await wait(100);
+    toggleBtn.click();
+
+    // Let everything settle back into the depth deck.
+    await wait(600);
+
+    // Frozen size must be the TRUE 800px (TestWrapper's fullPage default
+    // height), not the once-projected ~711px a stale getBoundingClientRect()
+    // read would have captured.
+    expect(parseFloat(articleCol.style.height)).toBeCloseTo(800, -1);
+
+    // Rendered height is the true size projected ONCE by the depth deck's
+    // own perspective (800 * 800/900 ≈ 711.1), not projected TWICE (a buggy
+    // ~711px frozen size projected again would render ~632px).
+    const projectedOnce = 800 * (800 / 900);
+    expect(articleCol.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
