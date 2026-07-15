@@ -179,11 +179,25 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   }, [motionSeam, topMV, name]);
   const topTargetRef = useRef(withinDepthTop);
 
+  // F5 item 1 fix: UNCONDITIONAL across all branches (focused / within-
+  // depth-deck / other-unfocused-not-sandwiched) — the same class of bug H8
+  // fixed for opacity/z/filter above, but for `top`. This used to early-
+  // return while `!withinDepthInfo`, on the theory that topMV "is simply not
+  // read from `style` otherwise, so a stale value is harmless" — but the
+  // style binding below used to be gated the SAME way (only applied while
+  // `withinDepthInfo && withinDepth`), so when Middle ejects from the depth
+  // deck by becoming focused, `top` disappears from the style object
+  // entirely. Motion's MotionValue-bound style write is imperative (it sets
+  // the DOM style property directly, bypassing React's own style diffing),
+  // so removing the `top` key from `style` does NOT clear the
+  // previously-written inline value — probe-confirmed: Middle stayed
+  // permanently offset at its last depth-deck `top` (e.g. 66.876px),
+  // rendering inside Bottom's box, hidden behind it. withinDepthTop already
+  // resolves to 0 when `!withinDepthInfo` (see its declaration above), so
+  // driving toward it unconditionally — and binding `top` unconditionally in
+  // `style` below — gives every branch somewhere real to animate back to,
+  // the same fix shape H8 applied to opacity/z/filter.
   useLayoutEffect(() => {
-    // Only drive while actually in the depth deck this render — topMV is
-    // simply not read from `style` otherwise, so a stale value the rest of
-    // the time is harmless.
-    if (!withinDepthInfo) return;
     if (withinDepthTop === topTargetRef.current) return;
     topTargetRef.current = withinDepthTop;
 
@@ -291,14 +305,18 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       className={className}
       style={{
         ...inColumnStyle,
+        // F5 item 1 fix: bound UNCONDITIONALLY (not gated on
+        // `withinDepthInfo && withinDepth`) — see the driving useLayoutEffect
+        // above for why a conditional binding here left a stale depth-deck
+        // `top` permanently in place once an object ejects from the depth
+        // deck. Harmless on the focused/other-unfocused branches: both use
+        // `position: relative` (in flow), where `top: 0` is a no-op.
         // Instant mode (duration=0): synchronous plain-number write — same
         // rationale as SceneColumn's `top`/`z` bindings (relying on
         // motion's rAF-batched style binding for a synchronous
         // instant-mode write would depend on undocumented
         // same-frame-ordering internals).
-        ...(withinDepthInfo && withinDepth
-          ? { top: duration === 0 ? withinDepthTop : topMV }
-          : {}),
+        top: duration === 0 ? withinDepthTop : topMV,
         ...style,
       }}
       onClick={!focused ? onActivate : undefined}

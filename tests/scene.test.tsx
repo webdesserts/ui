@@ -6872,6 +6872,116 @@ describe("SceneColumn within-column depth deck", () => {
     expect(parseInt(objC.style.top)).toBeCloseTo(200, -1);
     expect(parseInt(objB.style.top)).toBeCloseTo(200, -1);
   });
+
+  test("focusing a sandwiched depth-deck object mid-flight settles into the open slot, not frozen at a stale depth-deck position (F5 item 1)", async () => {
+    // Top + Bottom focused, Middle sandwiched (depth-deck). A REAL, in-flight
+    // spring is engineered on Middle's within-column `top` (growing Top's
+    // height shifts the anchor Middle peeks above), then Middle is focused
+    // WHILE that spring is still running — reproducing the real repro shape
+    // (probe-confirmed on the dev app: by the time a user can click, a
+    // residual in-flight spring is essentially always present) more reliably
+    // than a clean "already at rest" transition, which a duration=0 initial
+    // mount + isolated `rerender()` doesn't naturally leave mid-flight.
+    //
+    // Root cause reproduced here: `topMV` (bound imperatively via
+    // `style.top`, not React's declarative `animate` prop — see H8's own
+    // comment on this file for why) had an ACTIVE animate() call in flight
+    // when `withinDepthInfo` became falsy. The driving effect early-returned
+    // (not sandwiched — nothing redirects topMV toward 0) and the `top` key
+    // disappeared from `style` entirely (the binding was previously gated on
+    // `withinDepthInfo && withinDepth`). Motion's in-flight WAAPI/JS
+    // animation for that DOM property keeps writing until it completes,
+    // ignoring that the style prop stopped referencing it — so `top` froze
+    // at whatever value it held the instant the binding vanished, which can
+    // land anywhere (including well past Bottom's own position, as below).
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" objectGap={8}>
+            <SceneObject name="top" focused>
+              <div data-testid="content-top" style={{ width: 300, height: 100 }}>Top</div>
+            </SceneObject>
+            <SceneObject name="middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 100 }}>Middle</div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="content-bottom" style={{ width: 300, height: 100 }}>Bottom</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const middle = getByTestId("content-middle").element().closest("[data-scene-id]") as HTMLElement;
+    // Sanity: Middle starts in the depth deck with a nonzero stale-prone `top`.
+    expect(middle.getAttribute("data-within-column-depth")).not.toBeNull();
+
+    // Grow Top with a REAL spring (no duration override) — Middle's anchor
+    // (Bottom's offsetTop) shifts a lot, starting a genuine in-flight
+    // animate() on topMV.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col" objectGap={8}>
+            <SceneObject name="top" focused>
+              <div data-testid="content-top" style={{ width: 300, height: 500 }}>Top</div>
+            </SceneObject>
+            <SceneObject name="middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 100 }}>Middle</div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="content-bottom" style={{ width: 300, height: 100 }}>Bottom</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    // A couple of real frames — enough for the spring to be genuinely in
+    // flight, well short of settling.
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // Interrupt: focus Middle while the depth-anchor spring is mid-flight.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col" objectGap={8}>
+            <SceneObject name="top" focused>
+              <div data-testid="content-top" style={{ width: 300, height: 500 }}>Top</div>
+            </SceneObject>
+            <SceneObject name="middle" focused>
+              <div data-testid="content-middle" style={{ width: 300, height: 100 }}>Middle</div>
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="content-bottom" style={{ width: 300, height: 100 }}>Bottom</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // Let everything fully settle (default stiffness/damping settle well
+    // within a few hundred ms — 1000ms leaves a wide margin).
+    await wait(1000);
+
+    const top = getByTestId("content-top").element().closest("[data-scene-id]") as HTMLElement;
+    const bottom = getByTestId("content-bottom").element().closest("[data-scene-id]") as HTMLElement;
+
+    expect(middle.getAttribute("data-focused")).toBe("true");
+    expect(middle.getAttribute("data-within-column-depth")).toBeNull();
+
+    const topRect = top.getBoundingClientRect();
+    const middleRect = middle.getBoundingClientRect();
+    const bottomRect = bottom.getBoundingClientRect();
+
+    // Middle occupies the open slot between Top and Bottom (with the 8px
+    // gap on both sides), not pinned at Bottom's box.
+    expect(middleRect.top).toBeCloseTo(topRect.bottom + 8, 0);
+    expect(bottomRect.top).toBeCloseTo(middleRect.bottom + 8, 0);
+
+    // No overlap between Middle and Bottom.
+    expect(middleRect.bottom).toBeLessThanOrEqual(bottomRect.top + 0.5);
+  });
 });
 
 // ---------------------------------------------------------------------------
