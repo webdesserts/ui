@@ -447,13 +447,33 @@ function SceneDebugOverlay({
   viewportRef: React.RefObject<HTMLDivElement | null>;
   stageRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  // Object list — DOM truth (queryDebugObjects), same rationale as
+  // SceneObjectOutlines above. Corrected via a useLayoutEffect (mirroring
+  // SceneObjectOutlines' renderedObjects pattern), NOT computed inline
+  // during render: a during-render query reads the DOM as of the END of
+  // the PREVIOUS commit (React applies THIS commit's mutations only after
+  // the whole tree has rendered), and unlike SceneObjectOutlines — whose
+  // own state update triggers its own self-correcting re-render —
+  // SceneDebugOverlay has no other re-render trigger of its own, so an
+  // idle scene would otherwise show a mount/unmount stale by exactly one
+  // commit indefinitely.
+  const [objects, setObjects] = useState<DebugObjectEntry[]>([]);
+  useLayoutEffect(() => {
+    const currentViewport = viewportRef.current;
+    if (!currentViewport) return;
+    const fresh = queryDebugObjects(currentViewport);
+    setObjects((prev) => {
+      const same =
+        prev.length === fresh.length &&
+        prev.every((p, i) => p.name === fresh[i]?.name && p.focused === fresh[i]?.focused);
+      return same ? prev : fresh;
+    });
+  });
+
   // Read current scroll state from column DOM attributes. This is debug-only
   // so reading from the DOM directly is acceptable.
   const columnScrollStates: DebugColumnScroll[] = [];
   const viewport = viewportRef.current;
-  // Object list — DOM truth (queryDebugObjects), same rationale as
-  // SceneObjectOutlines above.
-  const objects: DebugObjectEntry[] = viewport ? queryDebugObjects(viewport) : [];
   if (viewport) {
     const columns = viewport.querySelectorAll("[data-column]");
     columns.forEach((col) => {

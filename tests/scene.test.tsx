@@ -1267,6 +1267,55 @@ describe("Scene debug — per-column scroll state in overlay", () => {
   });
 });
 
+describe("Scene debug overlay object-list staleness (S6 gate fix)", () => {
+  test("overlay object list reflects a mount/unmount in the SAME commit, with no other re-render trigger", async () => {
+    // Single column, single always-focused object — deliberately avoids the
+    // S6 registry correction re-render (a SECOND column classified
+    // outer-left/right would trigger Scene's own correction effect, masking
+    // this component's own staleness). The overlay's object-list query
+    // (queryDebugObjects, during render) reads the DOM as of the END of the
+    // PREVIOUS commit — unlike SceneObjectOutlines (which self-corrects via
+    // its own layout-effect-triggered pre-paint re-render), the overlay had
+    // no correction mechanism, so nothing else in this minimal tree ever
+    // gives it a chance to see the mutation.
+    const build = (showSecond: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="first" focused>
+              <div data-testid="first-content" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            {showSecond && (
+              <SceneObject name="second" focused={false}>
+                <div data-testid="second-content" style={{ width: 100, height: 100 }} />
+              </SceneObject>
+            )}
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(false));
+    const scene = getByTestId("scene").element();
+
+    let overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay?.textContent).not.toContain("second");
+
+    // Mount — no waitForAnimationFrame()/extra tick between this and the
+    // assertion, matching the bug's own condition ("no other re-render
+    // trigger"): if this needs an extra frame to settle, the bug is still
+    // present in a milder form.
+    await rerender(build(true));
+    overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay?.textContent).toContain("second");
+
+    // Unmount.
+    await rerender(build(false));
+    overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay?.textContent).not.toContain("second");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Phase 2: Vertical swap within a column
 // ---------------------------------------------------------------------------
