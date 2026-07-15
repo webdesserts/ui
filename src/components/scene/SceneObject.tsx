@@ -52,6 +52,12 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   const column = useContext(ColumnContext);
   const { peekOffset } = useSceneConfig();
 
+  // D3: an unfocused object with an onActivate handler doubles as a
+  // keyboard-reachable activation control (Enter/Space), not just a mouse
+  // click target — gated on onActivate presence so a plain non-activatable
+  // unfocused object never becomes an unexpected tab stop.
+  const activatable = !focused && Boolean(onActivate);
+
   // Register this object's DOM element with the parent SceneColumn so the
   // column can track it. useLayoutEffect fires bottom-up (children before
   // parent), ensuring registration happens before the column's own
@@ -79,7 +85,20 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
     const focusable = outerRef.current.querySelector<HTMLElement>(
       "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
     );
-    focusable?.focus();
+    // D5: preventScroll avoids the browser auto-scrolling an ancestor to
+    // reveal the newly focused element — the camera owns horizontal
+    // positioning itself (see Scene.tsx's DELTA-2 fix for the scrollLeft
+    // corruption a native scroll-into-view causes when it isn't prevented).
+    // Fallback: with no focusable descendant, focus the outer wrapper
+    // itself — its permanent tabIndex={-1} baseline (below) makes it
+    // programmatically focusable without adding a stray tab stop, and is
+    // self-contained (no cross-component dependency on D2's conditional
+    // content-wrapper tabindex).
+    if (focusable) {
+      focusable.focus({ preventScroll: true });
+    } else {
+      outerRef.current.focus({ preventScroll: true });
+    }
   }, [focused]);
 
   // Within-column depth deck: this object is sandwiched between two focused
@@ -142,6 +161,21 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
       data-scene-id={name}
       data-focused={String(focused)}
       {...(withinDepthInfo ? { "data-within-column-depth": String(withinDepthInfo.depth) } : {})}
+      // D5 fallback focus target: -1 by default (programmatically focusable
+      // via the effect above, never a Tab stop); D3 promotes it to a real
+      // tab stop (0) when activatable.
+      tabIndex={activatable ? 0 : -1}
+      {...(activatable
+        ? {
+            role: "button" as const,
+            onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              // preventDefault on Space so the page doesn't also scroll.
+              if (e.key === " ") e.preventDefault();
+              onActivate?.();
+            },
+          }
+        : {})}
       style={{ ...inColumnStyle, ...style }}
       onClick={!focused ? onActivate : undefined}
     >

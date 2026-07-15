@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from "react";
+import { mapScrollKeyToCommand, type ScrollCommand } from "./inputController";
 
 export interface ScrollbarProps {
   /** Current scroll offset in px (0 = top). */
@@ -9,6 +10,18 @@ export interface ScrollbarProps {
   trackHeight: number;
   /** Called when the user drags the scrollbar thumb. Receives new scroll offset. */
   onScroll: (offset: number) => void;
+  /**
+   * id of the scrollable region this scrollbar controls (D4 — threaded from
+   * SceneColumn's content wrapper id, rendered as the thumb's aria-controls).
+   */
+  controlsId?: string;
+  /**
+   * Applies a scroll command via the same input-controller command path
+   * (SceneColumn's applyScrollCommand) used by wheel/keyboard/touch (D4 —
+   * the thumb's own keyboard operations reuse it rather than duplicating
+   * the write logic).
+   */
+  onCommand?: (cmd: ScrollCommand) => void;
 }
 
 /**
@@ -19,7 +32,14 @@ export interface ScrollbarProps {
  * Positioned at the column's right edge by the parent (absolute positioning
  * is applied externally, not here).
  */
-export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: ScrollbarProps) {
+export function Scrollbar({
+  scrollOffset,
+  maxScroll,
+  trackHeight,
+  onScroll,
+  controlsId,
+  onCommand,
+}: ScrollbarProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   // Thumb height: proportional to the ratio of visible area to total content.
@@ -35,6 +55,34 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
   const dragStartY = useRef<number>(0);
   const dragStartOffset = useRef<number>(0);
   const isDragging = useRef<boolean>(false);
+
+  // D4 keyboard ops: a NATIVE listener (not a React onKeyDown prop) is
+  // required for e.stopPropagation() to actually prevent SceneColumn's own
+  // column-level keydown listener from ALSO firing. Both listeners are
+  // native `addEventListener` calls on real DOM ancestors of the thumb, and
+  // native bubbling reaches the thumb's own listener before it ever reaches
+  // an ancestor's — a React synthetic onKeyDown here would fire too late
+  // (React delegates at the root, the outermost ancestor in the bubble
+  // path), so its stopPropagation() couldn't undo an ancestor's native
+  // listener that already ran (probe-confirmed: without this, ArrowDown
+  // scrolled by -80 instead of -40 — both the thumb's command AND the
+  // column's own keydown handler applied).
+  const thumbRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = thumbRef.current;
+    if (!el) return;
+
+    const handler = (e: KeyboardEvent) => {
+      const cmd = mapScrollKeyToCommand(e.key, e.shiftKey, trackHeight);
+      if (!cmd) return;
+      onCommand?.(cmd);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, [trackHeight, onCommand]);
 
   const handleThumbPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -114,11 +162,14 @@ export function Scrollbar({ scrollOffset, maxScroll, trackHeight, onScroll }: Sc
           own touch-action: pan-x pinch-zoom would otherwise let the browser
           claim a horizontal drag that starts here). */}
       <div
+        ref={thumbRef}
         role="scrollbar"
         aria-orientation="vertical"
         aria-valuemin={0}
         aria-valuemax={maxScroll}
         aria-valuenow={scrollOffset}
+        aria-controls={controlsId}
+        tabIndex={0}
         onPointerDown={handleThumbPointerDown}
         onPointerMove={handleThumbPointerMove}
         onPointerUp={handleThumbPointerUp}

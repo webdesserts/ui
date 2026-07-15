@@ -4129,6 +4129,136 @@ describe("SceneObject click-to-focus", () => {
     const innerWrapper = getByTestId("content").element().parentElement;
     expect(innerWrapper?.hasAttribute("inert")).toBe(true);
   });
+
+  test("D3: an unfocused SceneObject with onActivate has role=button and tabIndex=0 on the outer wrapper", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false} onActivate={() => {}}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    expect(outer.getAttribute("role")).toBe("button");
+    expect(outer.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("D3: an unfocused SceneObject WITHOUT onActivate has no role=button and a permanent tabIndex=-1 (D5 fallback baseline)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    expect(outer.hasAttribute("role")).toBe(false);
+    expect(outer.getAttribute("tabindex")).toBe("-1");
+  });
+
+  test("D3: pressing Enter on an unfocused SceneObject's outer wrapper (with onActivate) fires onActivate", async () => {
+    let activated = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    outer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(activated).toBe(true);
+  });
+
+  test("D3: pressing Space on an unfocused SceneObject's outer wrapper (with onActivate) fires onActivate and preventDefault is called", async () => {
+    let activated = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+              <div data-testid="content">content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    const notPrevented = outer.dispatchEvent(
+      new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
+    );
+    expect(activated).toBe(true);
+    // preventDefault WAS called (Space must not also scroll the page).
+    expect(notPrevented).toBe(false);
+  });
+
+  test("DELTA-2: tab-focusing a parked (offscreen) column's D3 activation wrapper leaves the camera's horizontal framing unchanged, and Enter still activates it normally", async () => {
+    // Regression for the browser's native scroll-into-view-on-focus, which
+    // (unguarded) drags the viewport's native scrollLeft out from under the
+    // camera's own stageLeft pan (probe-confirmed: 0 -> 782 with stageLeft
+    // unchanged). Layout: three 400px columns in a 500px viewport, only "a"
+    // focused — "c" is parked well outside the visible region.
+    let activated = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene duration={0}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="c">
+            <SceneObject name="c-obj" focused={false} onActivate={() => { activated = true; }}>
+              <div data-testid="content-c" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const cWrapper = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+
+    expect(scene.scrollLeft).toBe(0);
+    const stageLeftBefore = stage.style.left;
+
+    cWrapper.focus();
+    await waitForAnimationFrame();
+
+    expect(document.activeElement).toBe(cWrapper);
+    // The camera's own pan target is untouched...
+    expect(stage.style.left).toBe(stageLeftBefore);
+    // ...and the DELTA-2 fix restored native scrollLeft to 0 (the browser's
+    // scroll-into-view is undone within the same synchronous focusin tick).
+    expect(scene.scrollLeft).toBe(0);
+
+    // Enter still activates it normally.
+    cWrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(activated).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4201,6 +4331,72 @@ describe("SceneObject keyboard focus management", () => {
       </TestWrapper>,
     )).resolves.not.toThrow();
   });
+
+  test("D5: fallback — no focusable descendant focuses the outer wrapper itself", async () => {
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content">no buttons here</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content">no buttons here</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    expect(document.activeElement).toBe(outer);
+  });
+
+  test("D5: focus-on-activate calls .focus() with preventScroll: true", async () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      const { rerender, getByTestId } = await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused={false}>
+                <button data-testid="btn-in-panel">action</button>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+      focusSpy.mockClear();
+
+      await rerender(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <button data-testid="btn-in-panel">action</button>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+      );
+
+      const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+      expect(document.activeElement).toBe(btn);
+      expect(focusSpy).toHaveBeenCalledTimes(1);
+      expect(focusSpy).toHaveBeenCalledWith(expect.objectContaining({ preventScroll: true }));
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4229,9 +4425,31 @@ describe("SceneColumn scroll accessibility", () => {
     expect(contentWrapper.getAttribute("role")).toBe("region");
   });
 
-  test("focused column content wrapper has tabindex=0", async () => {
+  test("focused AND scrollable column content wrapper has tabindex=0", async () => {
     // tabindex=0 allows keyboard users to focus the scrollable region directly
-    // and use keyboard shortcuts to scroll it.
+    // and use keyboard shortcuts to scroll it. D2: tabIndex is added
+    // ADDITIONALLY only when the column is scrollable — fixture must overflow
+    // the 800px viewport for maxScroll > 0.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ height: 1200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("D2: focused but NON-scrollable column content wrapper has NO tabindex (negative sibling)", async () => {
+    // A focused column whose content fits the viewport has nothing for
+    // keyboard scroll shortcuts to do — it must not become a tab stop.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -4246,7 +4464,28 @@ describe("SceneColumn scroll accessibility", () => {
 
     const content = getByTestId("content").element();
     const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
-    expect(contentWrapper.getAttribute("tabindex")).toBe("0");
+    expect(contentWrapper.hasAttribute("tabindex")).toBe(false);
+  });
+
+  test("D2: an UNFOCUSED column's content wrapper has no role=region (role/aria-label gated on columnFocused)", async () => {
+    // An offscreen/frozen column has nothing a screen reader should announce
+    // as a navigable region.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ height: 200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper.hasAttribute("role")).toBe(false);
+    expect(contentWrapper.hasAttribute("aria-label")).toBe(false);
   });
 
   test("focused column content wrapper has aria-label based on column name", async () => {
@@ -4266,6 +4505,26 @@ describe("SceneColumn scroll accessibility", () => {
     const content = getByTestId("content").element();
     const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("aria-label")).toBe("nav content");
+  });
+
+  test("D2/D4: content wrapper has a stable id derived from the column name, regardless of focus/scrollability", async () => {
+    // D4's Scrollbar thumb references this id via aria-controls — it must
+    // exist unconditionally so the reference is never dangling.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="nav">
+            <SceneObject name="panel" focused={false}>
+              <div data-testid="content" style={{ height: 200 }}>content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element();
+    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    expect(contentWrapper.id).toBe("scene-column-content-nav");
   });
 });
 
@@ -5378,6 +5637,88 @@ describe("Scrollbar ARIA", () => {
     expect(parseFloat(thumb?.getAttribute("aria-valuemax") ?? "")).toBeGreaterThan(0);
     expect(thumb?.getAttribute("aria-valuenow")).toBe("0"); // starts at top
     expect(thumb?.getAttribute("aria-orientation")).toBe("vertical");
+  });
+
+  test("D4: scrollbar thumb has tabindex=0", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement | null;
+    expect(thumb?.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("D4: scrollbar thumb has aria-controls pointing to the content wrapper's stable id", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement | null;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    expect(thumb?.getAttribute("aria-controls")).toBe(contentWrapper.id);
+    expect(contentWrapper.id).toBe("scene-column-content-col");
+  });
+
+  test("D4: pressing ArrowDown while the scrollbar thumb has focus scrolls the column (keyboard ops through the shared command path)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
+
+    // A scroll to -40 alone doesn't discriminate D4's OWN handler from a
+    // fallback where the event simply bubbles unhandled to SceneColumn's
+    // generic column-level keydown listener (isInteractiveElement
+    // deliberately does not exempt role="scrollbar" — DELTA-1 — so that
+    // fallback would ALSO scroll the column by 40 if the thumb's handler
+    // didn't stop propagation first). Spy on `document` to prove propagation
+    // was actually stopped AT THE THUMB — this only happens if the thumb's
+    // own listener ran and called stopPropagation() before the event could
+    // reach any ancestor, including past the column entirely.
+    const documentKeydownSpy = vi.fn();
+    document.addEventListener("keydown", documentKeydownSpy);
+
+    thumb.focus();
+    const notPrevented = thumb.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+    document.removeEventListener("keydown", documentKeydownSpy);
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-40);
+    // The thumb's own handler owns this key — it preventDefaults.
+    expect(notPrevented).toBe(false);
+    // Propagation was stopped at the thumb — document never saw the event.
+    expect(documentKeydownSpy).not.toHaveBeenCalled();
   });
 });
 

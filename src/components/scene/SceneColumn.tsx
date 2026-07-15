@@ -1018,6 +1018,11 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   const isScrollable = columnFocused && maxScroll > 0;
 
+  // D2/D4: stable id for the content wrapper, unconditional (not gated on
+  // focus/scrollability) so the Scrollbar thumb (D4) always has a valid
+  // aria-controls target to reference regardless of when it renders.
+  const contentWrapperId = `scene-column-content-${name}`;
+
   // -------------------------------------------------------------------------
   // Touch pan (1:1 finger tracking + release inertia)
   //
@@ -1165,14 +1170,21 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             viewport. When content overflows, marginTop is 0 (top-aligned).
             display: flex + flex-direction: column lets gap apply between
             focused objects in multi-focus stacking.
-            role="region" + tabindex=0 + aria-label mark this as a navigable
-            scrollable landmark for screen reader and keyboard users. */}
+            D2: role="region" + aria-label mark this as a navigable landmark
+            only while focused (an offscreen/frozen column has nothing a
+            screen reader should announce as a region); tabIndex={0} is
+            added ADDITIONALLY only when scrollable — a focused-but-fitting
+            column has no keyboard scroll behavior to offer, so it isn't a
+            tab stop. Every column content wrapper still gets a stable id
+            (D4's aria-controls target) regardless of focus/scrollability. */}
         <motion.div
           ref={contentWrapperRef}
           data-column-content
-          role="region"
-          aria-label={`${name} content${isScrollable ? ", scrollable" : ""}`}
-          tabIndex={0}
+          id={contentWrapperId}
+          {...(columnFocused
+            ? { role: "region" as const, "aria-label": `${name} content${isScrollable ? ", scrollable" : ""}` }
+            : {})}
+          {...(isScrollable ? { tabIndex: 0 } : {})}
           initial={false}
           animate={{ marginTop }}
           transition={transition}
@@ -1206,6 +1218,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             scrollOffset={scrollOffset}
             maxScroll={maxScroll}
             trackHeight={viewportHeight}
+            controlsId={contentWrapperId}
             onScroll={(newOffset) => {
               // Pointer-drag reports an absolute target offset (computed from
               // track/thumb geometry), not a delta — expressed as a scrollBy
@@ -1214,6 +1227,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
               // other scroll source.
               applyScrollCommand({ type: "scrollBy", delta: newOffset - scrollOffsetRef.current });
             }}
+            onCommand={applyScrollCommand}
           />
         )}
       </motion.div>

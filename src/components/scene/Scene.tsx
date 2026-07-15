@@ -891,6 +891,32 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, [scrollCommandRegistry]);
 
+  // DELTA-2 (S5 a11y probe): the browser auto-scrolls the viewport
+  // horizontally to bring a newly tab-focused element into view — this
+  // bypasses the camera's own stageLeft pan entirely and corrupts scrollLeft
+  // (probe-confirmed: tab-focusing a parked column's D3 activation wrapper
+  // jumped scrollLeft from 0 to 782 with the stage's own `left` unchanged).
+  // When the viewport is NOT natively scrollable (overflowsX === false — the
+  // camera is the sole horizontal-position owner via stageLeft), scrollLeft
+  // must always be 0; re-assert it on every focusin to undo the browser's
+  // own scroll-into-view. Scoped to overflowsX === false: when the viewport
+  // IS natively scrollable (focused content itself overflows), the user's
+  // scroll position is legitimately under their own control and this effect
+  // intentionally leaves it alone — see the worker report's Noticed section
+  // for the known residual gap where a parked column sits beyond an
+  // ALREADY-overflowing focused region.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || overflowsX) return;
+
+    const handler = () => {
+      if (el.scrollLeft !== 0) el.scrollLeft = 0;
+    };
+
+    el.addEventListener("focusin", handler);
+    return () => el.removeEventListener("focusin", handler);
+  }, [overflowsX]);
+
   return (
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
