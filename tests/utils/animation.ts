@@ -109,6 +109,151 @@ export function wait(ms: number): Promise<void> {
 }
 
 /**
+ * Monkey-patches `Element.prototype.animate` so any native WAAPI `Animation`
+ * created while installed is paused and jumped to `fraction` (0-1) of its
+ * own duration as soon as it's created — via a microtask queued the instant
+ * `element.animate()` is called (see the inline comment on the `pin` closure
+ * below for why a microtask, not an inline synchronous pause, is required).
+ *
+ * Why this exists: `freezeAnimationsAt` requires the animation to already
+ * be visible in `getAnimations()`, which for motion/react's declarative
+ * `animate` prop (SceneObject's opacity/filter/translateZ depth treatment)
+ * is NOT synchronous with React's commit. Probe-confirmed at source
+ * (instrumented this exact patch point and timestamped it against
+ * `rerender()`): motion/react defers the real `element.animate()` call to
+ * its OWN internal requestAnimationFrame-scheduled frame loop, decoupled
+ * from React's layout effects — `container.getAnimations()` reports 0
+ * animations immediately after `await rerender()` resolves, and only
+ * becomes non-empty after motion's own scheduler runs (one real animation
+ * frame later, under light load). A single `await waitForAnimationFrame()`
+ * then `freezeAnimationsAt` (this file's previous pattern for
+ * unfocus-sync-mid-spring and refocus-from-depth-deck-mid-spring) has to
+ * guess correctly how many frames motion needs, and is wrong under load:
+ * `requestAnimationFrame` callbacks are throttled to the browser's
+ * paint/vsync cycle, which is exactly what concurrent GPU/compositor
+ * contention from other browser instances can delay — if motion's real
+ * call lands on a later frame than the guess, `getAnimations()` is still
+ * empty when freeze runs (nothing to freeze — the transition silently
+ * captures as fully-settled). This is the same class of race
+ * `pinAllRegisteredAnimations` (called after a wait) is exposed to on the
+ * rAF/MotionValue seam side — see `createMotionSeamRecorder`'s
+ * `pinFraction` param, the equivalent fix for that side.
+ *
+ * This helper needs no such guess: Motion calls the real, unpatched
+ * `Element.prototype.animate` to create the animation regardless of which
+ * frame it lands on, so intercepting that exact call point means every
+ * animation is captured and pinned before it has ticked even once,
+ * independent of scheduling delay. The caller still has to wait for motion
+ * to actually get around to calling it (this doesn't eliminate that wait)
+ * — but unlike the previous pattern, waiting LONGER than strictly necessary
+ * is now harmless: once captured, an animation is paused for good and
+ * can't progress further no matter how many additional frames the caller
+ * waits afterward. Pair with `waitForAnimationsToSettle` to wait exactly as
+ * long as needed (and no more) rather than guessing a fixed frame count.
+ *
+ * Returns the paused Animations (same shape `freezeAnimationsAt` returns)
+ * so `unfreezeAnimations()` works unchanged, plus `restore()` to remove the
+ * patch. `restore()` MUST be called — this mutates a prototype shared by
+ * every element on the page, including subsequent tests in the same file.
+ */
+export function pinWaapiAnimationsOnCreate(fraction: number): {
+  animations: Animation[];
+  restore: () => void;
+} {
+  const animations: Animation[] = [];
+  const pinOne = (anim: Animation) => {
+    anim.pause();
+    const timing = anim.effect?.getComputedTiming();
+    const delay = (timing?.delay ?? 0) as number;
+    const duration = (timing?.activeDuration ?? 0) as number;
+    anim.currentTime = delay + duration * Math.max(0, Math.min(1, fraction));
+  };
+  const original = Element.prototype.animate;
+  Element.prototype.animate = function (
+    this: Element,
+    keyframes: Parameters<typeof original>[0],
+    options: Parameters<typeof original>[1],
+  ): Animation {
+    const anim = original.call(this, keyframes, options);
+    animations.push(anim);
+    // Deferred to a microtask, not pinned synchronously inline: probe-
+    // confirmed at source (instrumented this exact call and read the
+    // resulting playState back) that motion/react does its OWN
+    // post-creation setup on the returned Animation SYNCHRONOUSLY, in the
+    // same call stack that invoked element.animate() — including
+    // (re-)starting playback, which silently overwrote a synchronous
+    // pause()+currentTime set made here before returning. A microtask runs
+    // after all of that same-task synchronous code finishes but still
+    // before the browser's next paint or animation-timeline tick, so it
+    // wins the race against motion's own setup without introducing any
+    // real wall-clock window of the kind this whole helper exists to
+    // eliminate (document.timeline.currentTime — what an Animation's
+    // currentTime measures against — only advances once per rendering
+    // frame, not per microtask).
+    //
+    // Tried and REVERTED: (1) re-applying the pin on every polled frame
+    // (`repin`) and (2) additionally neutering `.play()` to make the pause
+    // irreversible. Both were built to chase a residual, lower-frequency
+    // flake specifically on refocus-from-depth-deck-mid-spring (the test
+    // that also drives motion's `layout` FLIP, not just declarative
+    // animate-prop values) — but A/B stress runs showed each layered
+    // "improvement" made the full-file pass rate WORSE (95% -> 69% -> 70%
+    // -> 60% across the four variants, same methodology each time), not
+    // better. The likely mechanism: repeatedly touching an Animation
+    // motion/react still considers live (via renewed pause() calls, or by
+    // making its own `.play()` a no-op) appears to confuse motion's
+    // internal progress tracking, which then computes visibly wrong
+    // downstream values (e.g. the camera pan target) — worse than the
+    // occasional one-shot-pin race it was meant to fix. Left at the
+    // single-microtask-hop version, which is the empirically best-performing
+    // one measured. See this item's Worker report for the full
+    // investigation and the still-open residual flake on
+    // refocus-from-depth-deck-mid-spring specifically.
+    void Promise.resolve().then(() => pinOne(anim));
+    return anim;
+  };
+  return {
+    animations,
+    restore() {
+      Element.prototype.animate = original;
+    },
+  };
+}
+
+/**
+ * Waits (polling real animation frames, bounded) until `getCount()` stops
+ * increasing for `stableFrames` consecutive frames, or `maxFrames` is
+ * reached. Pairs with `pinWaapiAnimationsOnCreate` / `createMotionSeamRecorder`'s
+ * `pinFraction`: since every animation is paused-and-pinned the instant
+ * it's CREATED (not the instant this helper notices it), waiting longer
+ * than strictly necessary here is always safe — nothing progresses further
+ * while paused. That's what makes this non-racy where a fixed single
+ * `waitForAnimationFrame()` isn't: this only needs to wait AT LEAST long
+ * enough for every expected animation to register, with no penalty for
+ * waiting longer under heavier load.
+ */
+export async function waitForAnimationsToSettle(
+  getCount: () => number,
+  options: { stableFrames?: number; maxFrames?: number } = {},
+): Promise<number> {
+  const { stableFrames = 3, maxFrames = 60 } = options;
+  let stableStreak = 0;
+  let lastCount = getCount();
+  for (let i = 0; i < maxFrames; i++) {
+    await waitForAnimationFrame();
+    const count = getCount();
+    if (count === lastCount) {
+      stableStreak++;
+      if (stableStreak >= stableFrames) return count;
+    } else {
+      stableStreak = 0;
+    }
+    lastCount = count;
+  }
+  return lastCount;
+}
+
+/**
  * Run a callback while a locator's element is in CSS :active state.
  *
  * Uses Playwright's `click({ delay })` to hold mousedown, then runs the
@@ -144,8 +289,28 @@ export const animationScreenshotOptions = {
  * around a render tree with this as the `value` to capture Scene's rAF-driven
  * motion pipeline (camera pan `cameraX`, column strip scroll `scrollY:<name>`)
  * for deterministic inspection.
+ *
+ * @param pinFraction When supplied, `registerControls` pauses and jumps the
+ * newly-registered AnimationPlaybackControls to this fraction (0-1) of its
+ * own duration SYNCHRONOUSLY, at registration time — see
+ * `pinWaapiAnimationsOnCreate`'s doc comment for the full rationale (that
+ * helper is this same "pin at creation, not at some later checked moment"
+ * idea applied to WAAPI instead of the rAF/MotionValue seam). Every
+ * `registerControls` call site in production fires synchronously inside the
+ * same effect that calls `animate()` (confirmed at source across Scene.tsx
+ * and SceneColumn.tsx's cameraX/scrollY/topOffset/z tracks and
+ * SceneObject.tsx's withinColumnTop — all useLayoutEffects, none gated
+ * behind a later tick), so this closes the wall-clock window
+ * `pinAllRegisteredAnimations` (called later, after `await rerender()`
+ * resolves, optionally after an additional `waitForAnimationFrame()`) is
+ * exposed to under concurrent suite load: nothing can progress the real
+ * spring between "it exists" and "it's paused" because there is no gap.
+ * Omit (or pass `undefined`) to preserve the original store-only behavior —
+ * needed by callers that re-scrub the SAME controls to many different
+ * fractions across a sampling loop (e.g. `samplePaintOrder`), which a
+ * one-shot pin-at-registration can't support.
  */
-export function createMotionSeamRecorder(): MotionSeamRegistration & {
+export function createMotionSeamRecorder(pinFraction?: number): MotionSeamRegistration & {
   values: Map<string, MotionValue<number>>;
   controls: Map<string, AnimationPlaybackControls | undefined>;
 } {
@@ -159,6 +324,10 @@ export function createMotionSeamRecorder(): MotionSeamRegistration & {
     },
     registerControls(key, playbackControls) {
       controls.set(key, playbackControls);
+      if (pinFraction !== undefined && playbackControls) {
+        playbackControls.pause();
+        playbackControls.time = pinFraction * playbackControls.duration;
+      }
     },
   };
 }
