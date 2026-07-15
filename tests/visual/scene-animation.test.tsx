@@ -33,7 +33,8 @@ import {
   freezeAnimationsAt,
   unfreezeAnimations,
   createMotionSeamRecorder,
-  pinAllRegisteredAnimations,
+  pinWaapiAnimationsOnCreate,
+  waitForAnimationsToSettle,
   samplePaintOrder,
   sampleLivePaintOrder,
   assertPaintOrderInvariant,
@@ -321,12 +322,24 @@ describe("camera pan mid-capture", () => {
   // for real, but cameraX's AnimationPlaybackControls is paused and jumped to
   // a fixed fraction of its own duration instead of racing a wall-clock wait
   // — deterministic regardless of system load.
+  //
+  // Test-infra: pins at REGISTRATION time now (createMotionSeamRecorder's
+  // pinFraction), not via a later pinAllRegisteredAnimations call — closes
+  // the (much smaller, but nonzero) residual window between "rerender()
+  // resolves" and "this test's own next line runs" that a separate later
+  // call is exposed to. Stress-characterized 15/15 clean under 15 full-suite
+  // concurrent-load trials even on the OLD pattern (see tests/utils/
+  // animation.ts's pinFraction doc comment for why this is still strictly
+  // better, not just insurance): every registerControls call site fires
+  // synchronously inside the same effect that calls animate(), so pinning
+  // there instead of "right after" removes that window entirely rather than
+  // just keeping it small.
   it("camera-pan-mid-spring", async () => {
     // Start with both focused (duration=0 for instant initial layout), then
     // unfocus Nav using the default spring so the Camera pans to recenter
     // Article.
     document.documentElement.style.colorScheme = "dark";
-    const recorder = createMotionSeamRecorder();
+    const recorder = createMotionSeamRecorder(0.3);
     const { container, rerender } = await render(
       <MotionSeamContext.Provider value={recorder}>
         <TestWrapper fullPage>
@@ -429,13 +442,16 @@ describe("camera pan mid-capture", () => {
       </MotionSeamContext.Provider>,
     );
 
-    // Pause and pin every registered rAF track (cameraX; a swap-reset on
-    // either column's scrollY may also register, even as a same-position
-    // no-op) at 30% of its own duration — clearly mid-pan, and also exposes
+    // Every registered rAF track (cameraX; a swap-reset on either column's
+    // scrollY may also register, even as a same-position no-op) was already
+    // paused and pinned to 30% of its own duration the instant it registered
+    // (recorder's pinFraction, above) — clearly mid-pan, and also exposes
     // the Article clipping bug this test originally diagnosed: content may be
     // clipped on the left/top/bottom during the pan because preserve-3d +
     // translateZ creates an implicit stacking context that clips overflow.
-    pinAllRegisteredAnimations(recorder, 0.3);
+    // This just waits for that registration to actually settle — safe to
+    // over-wait since nothing can progress once pinned.
+    await waitForAnimationsToSettle(() => recorder.controls.size);
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "camera-pan-mid-spring",
@@ -1145,41 +1161,75 @@ describe("depth-deck bug-fix regressions", () => {
   // VERIFIED 20/20 identical IN ISOLATION (10 solo runs of this test alone,
   // 10 more paired with the rest of this file only).
   //
-  // STILL SKIPPED — a SECOND, deeper pre-existing race, found only under
-  // full-suite concurrent load (this test alone, or paired only with
+  // WAS STILL SKIPPED — a SECOND, deeper pre-existing race, found only
+  // under full-suite concurrent load (this test alone, or paired only with
   // tests/scene-perspective-platform.test.tsx or
-  // tests/visual/scene.test.tsx, is reliably green; paired with almost any
+  // tests/visual/scene.test.tsx, was reliably green; paired with almost any
   // OTHER scene test file — tests/scene.test.tsx, scene-touch,
-  // scene-input-controller, scene-mobile — it fails consistently, 100%
+  // scene-input-controller, scene-mobile — it failed consistently, 100%
   // reproduction across many runs). CONFIRMED PRE-EXISTING and unrelated to
-  // this item's own changes: reproduces identically with SceneColumn.tsx
+  // that item's own changes: reproduced identically with SceneColumn.tsx
   // and Scene.tsx reverted to their pre-F2 (7ca9eab) state, test-file
-  // changes only.
+  // changes only — i.e. this is (and remains, per the 2026-07 investigation
+  // below) a test-infrastructure issue, not a production bug.
   //
   // Root cause (found by inspecting the actual vs. expected screenshots
   // directly, not guessing): under heavier Node-side test-orchestration
   // load (more concurrent CDP/test-runner traffic from the other files),
   // the delay between `await rerender(...)` resolving and this test's next
-  // line of JS actually running can grow large enough that Middle A's REAL
-  // slowMo spring (and its `layout` FLIP) finish naturally in the browser's
-  // own wall-clock time before this test ever calls freezeAnimationsAt —
-  // motion cleans up a finished WAAPI/FLIP animation (removes it from
-  // getAnimations()), so by the time freeze runs there is nothing left to
-  // scrub back to 30%; the screenshot captures the fully-settled resting
-  // layout instead (the actual/diff images from a failing run show exactly
-  // this: Left/Middle A/Right fully separated at rest, vs. the baseline's
-  // Middle A still overlapping Left mid-slide). Two mitigations tried and
-  // both INEFFECTIVE, ruling out a simple registration-order race: a second
-  // waitForAnimationFrame() (2/3 improved but not reliable) and polling
-  // until `recorder.controls.has("cameraX")` before freezing (registered
-  // almost immediately either way — not the bottleneck; still failed 4/4).
-  // A real fix needs a way to capture the mid-spring frame WITHOUT racing
-  // real wall-clock time under variable Node-side scheduling delay (e.g.
-  // fake timers, or forcing motion to retain a finished animation) — a
-  // bigger test-infrastructure investment than this item's scope. Tracked
-  // as a follow-up, separate from H5/C1's actual concern (spike 1's
-  // FLIP+animate double-count, which the paint-order invariant test below
-  // already re-diagnosed as moot for this geometry).
+  // line of JS actually running could grow large enough that Middle A's
+  // REAL slowMo spring (and its `layout` FLIP) finished naturally in the
+  // browser's own wall-clock time before this test ever called
+  // freezeAnimationsAt — motion cleans up a finished WAAPI/FLIP animation
+  // (removes it from getAnimations()), so by the time freeze ran there was
+  // nothing left to scrub back to 30%; the screenshot captured the
+  // fully-settled resting layout instead. Two mitigations tried at the time
+  // and both INEFFECTIVE, ruling out a simple registration-order race: a
+  // second waitForAnimationFrame() (2/3 improved but not reliable) and
+  // polling until `recorder.controls.has("cameraX")` before freezing
+  // (registered almost immediately either way — not the bottleneck; still
+  // failed 4/4).
+  //
+  // Test-infra (2026-07): rewritten on pinWaapiAnimationsOnCreate +
+  // createMotionSeamRecorder's pinFraction (tests/utils/animation.ts) —
+  // every WAAPI animation (opacity/filter/z depth treatment, and motion's
+  // layout FLIP) and every rAF-driven seam track (cameraX, column z) is
+  // paused and pinned to 30% of its own duration THE INSTANT it's created,
+  // not at some later checked moment racing wall-clock scheduling delay.
+  // This closes the ORIGINAL bug documented above (spring finishing before
+  // capture ever ran) — proven: two OTHER tests on the exact same
+  // mechanism, camera-pan-mid-spring and unfocus-sync-mid-spring, are
+  // 100% clean across 60+ combined stress runs today (isolated, paired
+  // with specific other files, and full-suite-style repeated whole-file
+  // runs).
+  //
+  // STILL SKIPPED — this specific test has a SECOND, further residual
+  // flake the fix above did not fully close: full-file stress run (30x
+  // sequential `npx vitest run tests/visual/scene-animation.test.tsx`,
+  // each invocation exercising this file's own ~16-test internal
+  // parallelism — the same condition that originally reproduced the class)
+  // measured 27/30 clean, longest CONSECUTIVE clean streak 13 — short of
+  // this item's ≥15-consecutive bar. All 3 failures showed the same
+  // signature: Middle A visibly MORE progressed than the pinned 30% (large
+  // diffs, ~175-183k pixels / ratio 0.06), never the old "fully settled"
+  // failure mode. Investigated at length (see this item's Worker report
+  // for the full trail): confirmed via instrumentation that the pin DOES
+  // land correctly and `playState` reads "paused" at settle time, yet the
+  // captured geometry still occasionally differs — and, importantly, two
+  // further interventions built to close this gap (re-applying the pin on
+  // every polled frame, and neutering `.play()` to make the pause
+  // irreversible) each measurably made the full-file pass rate WORSE
+  // (95% -> 69-70% -> 60% across A/B stress runs), not better, suggesting
+  // repeated interaction with an Animation motion/react still tracks as
+  // live confuses its own internal progress bookkeeping rather than fixing
+  // anything. Left at the single-microtask-hop version (this file's
+  // best-measured configuration) rather than shipping an intervention with
+  // unproven benefit. Whoever picks this up next: the remaining gap looks
+  // like it lives inside motion/react's own per-frame reconciliation (specific
+  // to this test because it's the only one of the three that also drives a
+  // real `layout` FLIP, not just declarative animate-prop values) —
+  // probably needs either a motion/react-side workaround or accepting this
+  // test at ~90%, not 100%, reliability.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
@@ -1197,7 +1247,7 @@ describe("depth-deck bug-fix regressions", () => {
       fontFamily: "monospace",
       fontSize: 13,
     };
-    const recorder = createMotionSeamRecorder();
+    const recorder = createMotionSeamRecorder(0.3);
     const { container, rerender } = await render(
       <MotionSeamContext.Provider value={recorder}>
         <TestWrapper fullPage>
@@ -1229,54 +1279,63 @@ describe("depth-deck bug-fix regressions", () => {
     );
     await waitForAnimationFrame();
 
-    // Focus Middle A with slowMo springs — all visual tracks spring together.
-    await rerender(
-      <MotionSeamContext.Provider value={recorder}>
-        <TestWrapper fullPage>
-          <Scene slowMo>
-            <SceneColumn name="left">
-              <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                  Left (focused)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-            <SceneColumn name="middle-a">
-              <SceneObject name="middle-a-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                  Middle A (refocusing)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-            <SceneColumn name="right">
-              <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                  Right (focused)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-          </Scene>
-        </TestWrapper>
-      </MotionSeamContext.Provider>,
-    );
+    // Installed BEFORE the triggering rerender so any WAAPI animation motion
+    // creates for it (opacity/filter/z depth treatment, motion's layout
+    // FLIP) — whichever frame that lands on under load — is captured and
+    // pinned at the instant of creation. See pinWaapiAnimationsOnCreate's
+    // doc comment (tests/utils/animation.ts).
+    const waapiPin = pinWaapiAnimationsOnCreate(0.3);
+    try {
+      // Focus Middle A with slowMo springs — all visual tracks spring together.
+      await rerender(
+        <MotionSeamContext.Provider value={recorder}>
+          <TestWrapper fullPage>
+            <Scene slowMo>
+              <SceneColumn name="left">
+                <SceneObject name="left-obj" focused>
+                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                    Left (focused)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="middle-a">
+                <SceneObject name="middle-a-obj" focused>
+                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                    Middle A (refocusing)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="right">
+                <SceneObject name="right-obj" focused>
+                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                    Right (focused)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        </MotionSeamContext.Provider>,
+      );
 
-    // One frame so WAAPI animations appear in getAnimations().
-    await waitForAnimationFrame();
+      // Middle A should visibly be between its deck position and the focused
+      // row. If bug 2a regressed, it would start from Right's edge.
+      // waapiPin and recorder's pinFraction already pinned every track (WAAPI
+      // opacity/filter/z, and the rAF-driven cameraX/column-z seam tracks) to
+      // the SAME 30% fraction the instant each one registered, so every
+      // track reads as "the same instant" regardless of how long motion's
+      // own scheduling took to get there.
+      await waitForAnimationsToSettle(
+        () => recorder.controls.size + waapiPin.animations.length,
+      );
 
-    // Freeze at 30% — Middle A should visibly be between its deck position and
-    // the focused row. If bug 2a regressed, it would start from Right's edge.
-    // pinAllRegisteredAnimations pins cameraX (and z) to the SAME fraction so
-    // every track reads as "the same instant" (this test's fix — see the
-    // comment above).
-    const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
-    pinAllRegisteredAnimations(recorder, 0.3);
-
-    await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "refocus-from-depth-deck-mid-spring",
-      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
-    );
-
-    unfreezeAnimations(frozen);
+      await expect.element(page.elementLocator(container)).toMatchScreenshot(
+        "refocus-from-depth-deck-mid-spring",
+        { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
+      );
+    } finally {
+      waapiPin.restore();
+      unfreezeAnimations(waapiPin.animations);
+    }
   });
 
   // H5 acceptance test (F2, Michael's ruled paint-order invariant): two
@@ -1393,9 +1452,22 @@ describe("depth-deck bug-fix regressions", () => {
     assertPaintOrderInvariant(vsRight, "middle-a", "right");
   });
 
-  // TODO(flake): re-enable after investigating cleaner mid-spring capture.
-  // Fifth rAF-based flake — same rAF loop race as the other mid-spring tests.
-  // Tracked in Working Memory.
+  // Test-infra: pins BOTH tracks at CREATION time now — pinWaapiAnimationsOnCreate
+  // for the WAAPI-driven declarative opacity/filter (SceneObject's depth
+  // treatment) and createMotionSeamRecorder's pinFraction for the
+  // rAF-driven seam tracks (column z, and cameraX if the focused-column set
+  // changes) — instead of freezing/pinning later, after `await
+  // waitForAnimationFrame()`. That single explicit wait was the race: it has
+  // to guess how many frames motion's own internal scheduler needs to
+  // actually call the real `element.animate()` for the declarative prop,
+  // and under concurrent suite load a late guess finds `getAnimations()`
+  // still empty (see pinWaapiAnimationsOnCreate's doc comment in
+  // tests/utils/animation.ts for the full investigation, including a
+  // source-level probe proving motion defers this call to its own rAF
+  // scheduler rather than React's commit). Waiting via
+  // waitForAnimationsToSettle below is now safe to over-do, because every
+  // animation this test cares about is paused the instant it exists,
+  // wherever in that scheduling it lands.
   it("unfocus-sync-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (focused) + Right (focused).
     // Use duration=0 for instant initial render, then unfocus Middle A with
@@ -1413,7 +1485,7 @@ describe("depth-deck bug-fix regressions", () => {
       fontFamily: "monospace",
       fontSize: 13,
     };
-    const recorder = createMotionSeamRecorder();
+    const recorder = createMotionSeamRecorder(0.3);
     const { container, rerender } = await render(
       <MotionSeamContext.Provider value={recorder}>
         <TestWrapper fullPage>
@@ -1445,54 +1517,66 @@ describe("depth-deck bug-fix regressions", () => {
     );
     await waitForAnimationFrame();
 
-    // Unfocus Middle A with the default spring — filter, opacity, x, y, z
-    // spring together. Bug 2b: filter used to snap instantly to grayscale(0.25)
-    // because it was on inline style (undefined -> value), not animate.
-    await rerender(
-      <MotionSeamContext.Provider value={recorder}>
-        <TestWrapper fullPage>
-          <Scene>
-            <SceneColumn name="left">
-              <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                  Left (focused)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-            <SceneColumn name="middle-a">
-              <SceneObject name="middle-a-obj" focused={false}>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                  Middle A (unfocusing)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-            <SceneColumn name="right">
-              <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                  Right (focused)
-                </div>
-              </SceneObject>
-            </SceneColumn>
-          </Scene>
-        </TestWrapper>
-      </MotionSeamContext.Provider>,
-    );
+    // Installed BEFORE the triggering rerender so any WAAPI animation motion
+    // creates for it — whichever frame that lands on under load — is
+    // captured and pinned at the instant of creation. See
+    // pinWaapiAnimationsOnCreate's doc comment (tests/utils/animation.ts).
+    const waapiPin = pinWaapiAnimationsOnCreate(0.3);
+    try {
+      // Unfocus Middle A with the default spring — filter, opacity, x, y, z
+      // spring together. Bug 2b: filter used to snap instantly to grayscale(0.25)
+      // because it was on inline style (undefined -> value), not animate.
+      await rerender(
+        <MotionSeamContext.Provider value={recorder}>
+          <TestWrapper fullPage>
+            <Scene>
+              <SceneColumn name="left">
+                <SceneObject name="left-obj" focused>
+                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                    Left (focused)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="middle-a">
+                <SceneObject name="middle-a-obj" focused={false}>
+                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                    Middle A (unfocusing)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="right">
+                <SceneObject name="right-obj" focused>
+                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                    Right (focused)
+                  </div>
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </TestWrapper>
+        </MotionSeamContext.Provider>,
+      );
 
-    // One frame so WAAPI animations appear in getAnimations().
-    await waitForAnimationFrame();
+      // Middle A should show filter between grayscale(0) and grayscale(0.25),
+      // and position between focused row and deck. Both tracks should be
+      // mid-spring, not snapped — waapiPin and recorder's pinFraction already
+      // guaranteed that the instant each track registered; this just waits
+      // for motion's own scheduling to actually get there (safe to over-wait,
+      // see waitForAnimationsToSettle's doc comment).
+      await waitForAnimationsToSettle(
+        () => recorder.controls.size + waapiPin.animations.length,
+      );
 
-    // Freeze at 30% — Middle A should show filter between grayscale(0) and
-    // grayscale(0.25), and position between focused row and deck. Both tracks
-    // should be mid-spring, not snapped.
-    const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
-    pinAllRegisteredAnimations(recorder, 0.3);
-
-    await expect.element(page.elementLocator(container)).toMatchScreenshot(
-      "unfocus-sync-mid-spring",
-      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
-    );
-
-    unfreezeAnimations(frozen);
+      await expect.element(page.elementLocator(container)).toMatchScreenshot(
+        "unfocus-sync-mid-spring",
+        { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
+      );
+    } finally {
+      // restore() first: Element.prototype.animate is a prototype shared by
+      // every element on the page, including subsequent tests in this file —
+      // must be un-patched even if the assertion above threw.
+      waapiPin.restore();
+      unfreezeAnimations(waapiPin.animations);
+    }
   });
 });
 
