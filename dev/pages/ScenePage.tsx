@@ -10,8 +10,8 @@ function CameraDebug() {
   const camera = useCamera();
   return (
     <p className="text-xs text-text-muted font-mono">
-      Camera: {Math.round(camera.bounds.left)},{Math.round(camera.bounds.top)}{" "}
-      {Math.round(camera.bounds.width)}x{Math.round(camera.bounds.height)}
+      Camera: {Math.round(camera.viewport.left)},{Math.round(camera.viewport.top)}{" "}
+      {Math.round(camera.viewport.width)}x{Math.round(camera.viewport.height)}
       {camera.transitioning && " (moving)"}
     </p>
   );

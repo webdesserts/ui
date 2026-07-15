@@ -21,6 +21,14 @@ export interface SceneObjectProps {
    */
   style?: React.CSSProperties;
   /**
+   * className applied to the outer wrapper div, alongside `style` and
+   * SceneObject's own in-column positioning styles — not in place of them.
+   * An inline style always wins over a same-property class at React's
+   * commit time (e.g. a `!`-marked Tailwind utility is required to visibly
+   * override a property SceneObject sets inline, such as `position`).
+   */
+  className?: string;
+  /**
    * How this column's scroll position resets when this object becomes the
    * newly-focused object after a within-column swap (the A2 swap-reset
    * model — a swap always resets deterministically, it never inherits the
@@ -47,7 +55,7 @@ export interface SceneObjectProps {
  *   <ArticlePanel />
  * </SceneObject>
  */
-export function SceneObject({ name, focused, children, onActivate, style }: SceneObjectProps) {
+export function SceneObject({ name, focused, children, onActivate, style, className }: SceneObjectProps) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const column = useContext(ColumnContext);
   const { peekOffset } = useSceneConfig();
@@ -182,6 +190,7 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
             },
           }
         : {})}
+      className={className}
       style={{ ...inColumnStyle, ...style }}
       onClick={!focused ? onActivate : undefined}
     >

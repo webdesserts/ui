@@ -3,7 +3,7 @@ import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame } from "./utils/animation";
+import { waitForAnimationFrame, wait } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -4995,7 +4995,7 @@ describe("Scene reduced motion", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 9c/9d: useCamera hook
+// Phase 9c/9d + S6: useCamera hook
 // ---------------------------------------------------------------------------
 
 import { useCamera } from "../src";
@@ -5006,16 +5006,22 @@ function CameraReader() {
   return (
     <div
       data-testid="camera-reader"
-      data-bounds-width={camera.bounds.width}
-      data-bounds-height={camera.bounds.height}
+      data-viewport-top={camera.viewport.top}
+      data-viewport-left={camera.viewport.left}
+      data-viewport-width={camera.viewport.width}
+      data-viewport-height={camera.viewport.height}
+      data-target-top={camera.target.top}
+      data-target-left={camera.target.left}
+      data-target-width={camera.target.width}
+      data-target-height={camera.target.height}
       data-transitioning={String(camera.transitioning)}
     />
   );
 }
 
 describe("useCamera", () => {
-  test("useCamera reports viewport bounds width and height", async () => {
-    // bounds should reflect the scene viewport element dimensions.
+  test("useCamera reports viewport rect width and height", async () => {
+    // viewport should reflect the scene viewport element dimensions.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -5032,13 +5038,84 @@ describe("useCamera", () => {
     await waitForAnimationFrame();
 
     const reader = getByTestId("camera-reader").element() as HTMLElement;
-    const width = parseFloat(reader.getAttribute("data-bounds-width") ?? "0");
-    const height = parseFloat(reader.getAttribute("data-bounds-height") ?? "0");
+    const width = parseFloat(reader.getAttribute("data-viewport-width") ?? "0");
+    const height = parseFloat(reader.getAttribute("data-viewport-height") ?? "0");
 
     // The viewport fills the TestWrapper fullPage container, so dimensions
     // should be non-zero. We can't assert exact pixels, but must be > 0.
     expect(width).toBeGreaterThan(0);
     expect(height).toBeGreaterThan(0);
+  });
+
+  test("useCamera reports the viewport's real page-relative rect (S6, forecast-gate adjudication #2)", async () => {
+    // A zero-size marker (no margin/padding) establishes a reference point in
+    // the SAME parent as a sibling wrapper with a KNOWN padding offset —
+    // padding (unlike margin) never collapses, so the gap between the
+    // marker and anything rendered inside the padded wrapper is EXACTLY the
+    // padding value, regardless of the browser's own default spacing.
+    // Asserting viewport.top/left EQUAL that offset (not merely non-zero)
+    // proves position comes from getBoundingClientRect(), not
+    // ResizeObserverEntry.contentRect (padding-box-relative, ~0 always —
+    // the one-keystroke-away wrong extension this test guards against).
+    const { getByTestId } = await render(
+      <div>
+        <div data-testid="offset-marker" style={{ width: 0, height: 0 }} />
+        <div style={{ paddingTop: 40, paddingLeft: 20 }}>
+          <TestWrapper fullPage>
+            <Scene duration={0}>
+              <SceneColumn name="col">
+                <SceneObject name="panel" focused>
+                  <div data-testid="content" style={{ width: 200, height: 150 }} />
+                </SceneObject>
+              </SceneColumn>
+              <CameraReader />
+            </Scene>
+          </TestWrapper>
+        </div>
+      </div>,
+    );
+
+    await waitForAnimationFrame();
+
+    const markerRect = (getByTestId("offset-marker").element() as HTMLElement).getBoundingClientRect();
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+    const top = parseFloat(reader.getAttribute("data-viewport-top") ?? "-1");
+    const left = parseFloat(reader.getAttribute("data-viewport-left") ?? "-1");
+
+    expect(top - markerRect.top).toBeCloseTo(40, 0);
+    expect(left - markerRect.left).toBeCloseTo(20, 0);
+  });
+
+  test("useCamera target bounds equal focused content bounds inflated by Scene's padding", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={24}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <CameraReader />
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const column = content.closest("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+    const targetTop = parseFloat(reader.getAttribute("data-target-top") ?? "0");
+    const targetLeft = parseFloat(reader.getAttribute("data-target-left") ?? "0");
+    const targetWidth = parseFloat(reader.getAttribute("data-target-width") ?? "0");
+    const targetHeight = parseFloat(reader.getAttribute("data-target-height") ?? "0");
+
+    expect(targetTop).toBeCloseTo(columnRect.top - 24, 0);
+    expect(targetLeft).toBeCloseTo(columnRect.left - 24, 0);
+    expect(targetWidth).toBeCloseTo(columnRect.width + 48, 0);
+    expect(targetHeight).toBeCloseTo(columnRect.height + 48, 0);
   });
 
   test("useCamera reports transitioning=false when no animation is in flight", async () => {
@@ -5060,6 +5137,167 @@ describe("useCamera", () => {
     const reader = getByTestId("camera-reader").element() as HTMLElement;
     // After initial render with duration=0, no animation should be in flight.
     expect(reader.getAttribute("data-transitioning")).toBe("false");
+  });
+
+  test("useCamera transitioning toggles true then false across a real camera pan", async () => {
+    // A real (non-instant) camera pan, wired directly to the cameraX
+    // animate() call (S6) rather than Motion's onLayoutAnimationStart/
+    // onLayoutAnimationComplete, which never fire for this element (no
+    // `layout` prop). Stiff/low-damping spring settles quickly and
+    // predictably, keeping the test bounded.
+    const build = (rightFocused: boolean) => (
+      <TestWrapper fullPage>
+        <Scene stiffness={2000} damping={100}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={!rightFocused}>
+              <div style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused={rightFocused}>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <CameraReader />
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(false));
+    // Mount itself pans the camera from stageLeft's initial 0 to the real
+    // centered position — that initial pan must settle before the toggle
+    // below is a clean, isolated true->false observation.
+    await wait(500);
+
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+    expect(reader.getAttribute("data-transitioning")).toBe("false");
+
+    // Toggle focus -- triggers a real camera pan.
+    await rerender(build(true));
+    await waitForAnimationFrame();
+    expect(reader.getAttribute("data-transitioning")).toBe("true");
+
+    await wait(1500);
+    expect(reader.getAttribute("data-transitioning")).toBe("false");
+  });
+
+  test("rapid re-focus mid-pan keeps transitioning=true until the newer pan settles (stale-completion guard)", async () => {
+    // Three columns so focus can move a->b, then (before the first pan
+    // settles) b->c -- a second, distinct cameraX animate() invocation that
+    // supersedes the first. Regression coverage for the observable
+    // requirement: transitioning must stay true across a rapid retarget and
+    // only flip false once the LATEST pan truly settles.
+    //
+    // Honest note on the token guard specifically (defeat-checked at
+    // implementation time via a trace instrumented into the effect): in the
+    // currently-installed motion version, a superseded animate() call's
+    // `.then()` never fires at all when a later animate() call retargets
+    // the SAME MotionValue (only the final, non-superseded call's `.then()`
+    // resolved in a traced run) -- so this exact scenario doesn't currently
+    // exercise the token comparison's false branch. The guard is kept as a
+    // defensive measure matching the forecast-gate adjudication's
+    // prescribed shape (protects against a future motion version, or a
+    // different retrigger path, where a stale completion DOES fire) but is
+    // not provably discriminating for THIS specific code line today.
+    const build = (focused: "a" | "b" | "c") => (
+      <TestWrapper fullPage>
+        <Scene stiffness={40} damping={12}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused={focused === "a"}>
+              <div style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={focused === "b"}>
+              <div style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="c">
+            <SceneObject name="c-obj" focused={focused === "c"}>
+              <div style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <CameraReader />
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build("a"));
+    await waitForAnimationFrame();
+    const reader = getByTestId("camera-reader").element() as HTMLElement;
+
+    // Start pan 1 (a -> b).
+    await rerender(build("b"));
+    await waitForAnimationFrame();
+    expect(reader.getAttribute("data-transitioning")).toBe("true");
+
+    // Before pan 1 settles, retarget (b -> c) -- pan 2 supersedes pan 1.
+    await wait(60);
+    await rerender(build("c"));
+    await waitForAnimationFrame();
+
+    // Immediately after retargeting: must still be transitioning, and must
+    // NOT flip false prematurely while pan 2 is still running (the window
+    // where an unguarded stale pan-1 `.then()` would incorrectly fire).
+    await wait(60);
+    expect(reader.getAttribute("data-transitioning")).toBe("true");
+
+    // Once pan 2 has had time to fully settle, transitioning must be false.
+    await wait(2000);
+    expect(reader.getAttribute("data-transitioning")).toBe("false");
+  });
+});
+
+describe("Scene className (S6)", () => {
+  test("SceneColumn className is applied to the outer element and can override an inline-set property via !important", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <style>{`.scene-column-test-override { flex-basis: 333px !important; }`}</style>
+        <Scene duration={0}>
+          <SceneColumn name="col" className="scene-column-test-override">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const column = content.closest("[data-column]") as HTMLElement;
+
+    expect(column.className).toContain("scene-column-test-override");
+    // A real !important override wins over SceneColumn's own inline
+    // flex-basis (set via style={{ flex: "0 1 auto" }}).
+    const style = window.getComputedStyle(column);
+    expect(style.flexBasis).toBe("333px");
+  });
+
+  test("SceneObject className is applied to the outer element and can override an inline-set property via !important", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <style>{`.scene-object-test-override { opacity: 1 !important; }`}</style>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="focused-obj" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+            <SceneObject name="unfocused-obj" focused={false} className="scene-object-test-override">
+              <div data-testid="content" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const content = getByTestId("content").element() as HTMLElement;
+    const obj = content.closest("[data-scene-id]") as HTMLElement;
+
+    expect(obj.className).toContain("scene-object-test-override");
+    // A real !important override wins over SceneObject's own inline
+    // opacity (unfocused, not-in-depth-deck objects get opacity: 0.8).
+    const style = window.getComputedStyle(obj);
+    expect(style.opacity).toBe("1");
   });
 });
 

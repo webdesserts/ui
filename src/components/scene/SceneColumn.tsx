@@ -244,6 +244,16 @@ export interface SceneColumnProps {
   children: React.ReactNode;
   /** Gap (in px) between focused objects in this column's flex stack. Defaults to 0. */
   objectGap?: number;
+  /**
+   * className applied to the column's outer element (the same element
+   * SceneColumn's own layout/animation styles are applied to). Merged
+   * alongside those inline styles, not in place of them — an inline style
+   * always wins over a same-property class at React's commit time (e.g. a
+   * `!`-marked Tailwind utility is required to visibly override an
+   * animatable property SceneColumn sets inline, such as `opacity` or
+   * `transform`).
+   */
+  className?: string;
 }
 
 /**
@@ -269,7 +279,7 @@ export interface SceneColumnProps {
  *   </SceneObject>
  * </SceneColumn>
  */
-export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
+export function SceneColumn({ name, children, objectGap = 0, className }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
   const { duration, stiffness, damping, padding, slowMo, peekOffset } = useSceneConfig();
@@ -1195,6 +1205,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         onAnimationComplete={animCallbacks?.onEnd}
         onLayoutAnimationStart={animCallbacks?.onStart}
         onLayoutAnimationComplete={animCallbacks?.onEnd}
+        className={className}
         style={columnStyle}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.

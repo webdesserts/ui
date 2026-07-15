@@ -11,5 +11,5 @@ export { TextInput } from "./components/TextInput";
 export type { TextInputProps } from "./components/TextInput";
 export { cn } from "./utils/cn";
 export { Scene, SceneObject, SceneColumn, useCamera, useSceneConfig } from "./components/scene";
-export type { SceneProps, SceneObjectProps, SceneColumnProps, CameraState, SceneConfig } from "./components/scene";
+export type { SceneProps, SceneObjectProps, SceneColumnProps, CameraState, CameraRect, SceneConfig } from "./components/scene";
 export type { Point, Size, Rect, Bounds } from "./utils/bounds";

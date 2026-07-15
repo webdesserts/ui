@@ -2,7 +2,7 @@ import React, { createContext, isValidElement, useCallback, useContext, useEffec
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
-import { CameraContext } from "./useCamera";
+import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
@@ -626,23 +626,27 @@ function SceneViewport({
   onTransitionStart,
   onTransitionComplete,
   onViewportSizeChange,
+  onTargetChange,
 }: {
   children: React.ReactNode;
   /** Unfocused column stacking info for the debug overlay. */
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
-  /** Called when a layout animation starts. */
+  /** Called when the camera pan (cameraX animate() call) starts. */
   onTransitionStart: () => void;
-  /** Called when all layout animations complete. */
+  /** Called when the camera pan completes (guarded against stale completions
+   *  from a superseded animate() call — see cameraTransitionTokenRef below). */
   onTransitionComplete: () => void;
   /** Called whenever the viewport dimensions change. */
   onViewportSizeChange: (size: ViewportDimensions) => void;
+  /** Called whenever the focused content's target bounds are (re)measured. */
+  onTargetChange: (target: CameraRect) => void;
 }) {
   const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ width: 0, height: 0 });
+  const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ top: 0, left: 0, width: 0, height: 0 });
   const scrollCommandRegistry = useContext(ScrollCommandRegistryContext);
 
   // Counter tracking how many Motion animations are currently in flight.
@@ -701,21 +705,40 @@ function SceneViewport({
     motionSeam?.registerMotionValue("cameraX", cameraX);
   }, [motionSeam, cameraX]);
 
+  // useCamera() `transitioning` (S6 reshape, forecast-gate adjudication #5c):
+  // a monotonic token identifying the CURRENT cameraX animate() call. Each
+  // new invocation increments it and captures its own value; the returned
+  // controls' `.then()` only fires onTransitionComplete if its captured
+  // token still matches the current one — guarding against a superseded
+  // animation's completion firing AFTER a newer retarget has already
+  // started (a rapid re-focus mid-pan must not report transitioning=false
+  // while the newer pan is still in flight).
+  const cameraTransitionTokenRef = useRef(0);
+
   // Tracks the previous focused-column-name set (joined, DOM order) so the
   // stageLeft effect below can detect when the focused layout actually
   // changes — the trigger for resetting native horizontal scroll (B1).
   const prevFocusedNamesRef = useRef("");
 
-  // Measure viewport dimensions synchronously on first render so columns have
-  // valid values immediately (useLayoutEffect fires before paint, before
-  // ResizeObserver callbacks). ResizeObserver keeps the values current for
-  // dynamic viewport resizes.
+  // Measure viewport dimensions (and page-relative position) synchronously
+  // on first render so columns have valid values immediately (useLayoutEffect
+  // fires before paint, before ResizeObserver callbacks). ResizeObserver
+  // keeps the values current for dynamic viewport resizes.
+  //
+  // Position ALWAYS comes from getBoundingClientRect() (forecast-gate
+  // adjudication #2) — ResizeObserverEntry.contentRect.top/left are
+  // padding-box-relative (≈0 always), not page-relative, and would silently
+  // corrupt useCamera()'s `viewport` rect. contentRect stays as the
+  // width/height source in the ResizeObserver callback (content-box,
+  // excluding border/padding) — unchanged from before this reshape.
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
-    const { width, height } = el.getBoundingClientRect();
+    const { top, left, width, height } = el.getBoundingClientRect();
     setViewportSize((prev) =>
-      prev.width === width && prev.height === height ? prev : { width, height },
+      prev.top === top && prev.left === left && prev.width === width && prev.height === height
+        ? prev
+        : { top, left, width, height },
     );
   });
 
@@ -727,8 +750,11 @@ function SceneViewport({
       const entry = entries[0];
       if (entry) {
         const { width, height } = entry.contentRect;
+        const { top, left } = el.getBoundingClientRect();
         setViewportSize((prev) =>
-          prev.width === width && prev.height === height ? prev : { width, height },
+          prev.top === top && prev.left === left && prev.width === width && prev.height === height
+            ? prev
+            : { top, left, width, height },
         );
       }
     });
@@ -790,7 +816,8 @@ function SceneViewport({
     }
 
     if (focusedCols.length === 0) {
-      // No focused columns — keep stage at current position (camera stays still).
+      // No focused columns — keep stage at current position (camera stays
+      // still), and leave the useCamera() target at its last measured value.
       return;
     }
 
@@ -823,6 +850,33 @@ function SceneViewport({
     setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
     setOverflowsX((prev) => (prev === newOverflowsX ? prev : newOverflowsX));
 
+    // useCamera() target rect (S6 reshape): the union of every focused
+    // column's page-relative bounds, inflated by Scene's padding on every
+    // side — matches the "focused object dimensions plus padding" target
+    // definition. Unions ALL focusedCols (not just first/last, which are
+    // stage-relative horizontal extremes only) so top/bottom are correct
+    // even if a future change breaks the current align-items: stretch
+    // assumption that every focused column already spans the full stage
+    // height.
+    const focusedUnion = focusedCols.reduce(
+      (acc, col) => {
+        const rect = col.getBoundingClientRect();
+        return {
+          top: Math.min(acc.top, rect.top),
+          left: Math.min(acc.left, rect.left),
+          right: Math.max(acc.right, rect.right),
+          bottom: Math.max(acc.bottom, rect.bottom),
+        };
+      },
+      { top: Infinity, left: Infinity, right: -Infinity, bottom: -Infinity },
+    );
+    onTargetChange({
+      top: focusedUnion.top - padding,
+      left: focusedUnion.left - padding,
+      width: focusedUnion.right - focusedUnion.left + padding * 2,
+      height: focusedUnion.bottom - focusedUnion.top + padding * 2,
+    });
+
     // Drive cameraX in parallel (S3 motion pipeline seam), gated on an actual
     // change to avoid restarting a spring toward its own current target on
     // every render (this effect runs unconditionally every render). duration=0
@@ -830,12 +884,24 @@ function SceneViewport({
     // semantics differ from animate(...,{duration:0})); otherwise `animate()`
     // retargets the in-flight spring, matching the old animate={{left}} prop's
     // per-render retarget behavior.
+    //
+    // useCamera() transitioning (forecast-gate adjudication #5c): the token
+    // captured at invocation guards onTransitionComplete against a
+    // superseded animation's `.then()` firing after a newer retarget has
+    // already started (e.g. a rapid re-focus mid-pan).
     if (stageLeftChanged) {
       if (duration === 0) {
         cameraX.set(newStageLeft);
       } else {
+        const token = ++cameraTransitionTokenRef.current;
+        onTransitionStart();
         const controls = animate(cameraX, newStageLeft, transition);
         motionSeam?.registerControls("cameraX", controls);
+        controls.then(() => {
+          if (cameraTransitionTokenRef.current === token) {
+            onTransitionComplete();
+          }
+        });
       }
     }
   });
@@ -986,8 +1052,14 @@ function SceneViewport({
             ref={stageRef}
             data-stage
             initial={false}
-            onLayoutAnimationStart={onTransitionStart}
-            onLayoutAnimationComplete={onTransitionComplete}
+            // onTransitionStart/onTransitionComplete (useCamera()
+            // `transitioning`) are wired directly to the cameraX animate()
+            // call in the stageLeft effect above, not to Motion's own
+            // onLayoutAnimationStart/onLayoutAnimationComplete — those only
+            // fire for a `layout`-prop-driven FLIP animation, which this
+            // element doesn't have (S6 reshape; the props were already dead
+            // wiring for the camera pan specifically since S3 moved `left`
+            // off the `animate` prop — see motionSeam.ts).
             onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
             onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
             style={{
@@ -1085,12 +1157,19 @@ export function Scene({
   const prefersReducedMotion = useReducedMotion() ?? false;
   const effectiveDuration = prefersReducedMotion && duration === undefined ? 0 : duration;
 
-  // Track whether a layout animation is currently in flight.
+  // Track whether the camera pan is currently in flight (useCamera()
+  // `transitioning`). Set via callbacks wired to the cameraX animate() call
+  // in SceneViewport's stageLeft effect.
   const [transitioning, setTransitioning] = useState(false);
 
-  // Track viewport bounds for useCamera() consumers. Updated via callback from
-  // SceneViewport whenever the viewport element is measured.
-  const [viewportBounds, setViewportBounds] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  // Track the camera viewport's rect for useCamera() consumers. Updated via
+  // callback from SceneViewport whenever the viewport element is measured.
+  const [viewportBounds, setViewportBounds] = useState<CameraRect>({ top: 0, left: 0, width: 0, height: 0 });
+
+  // Track the focused content's target bounds for useCamera() consumers.
+  // Updated via callback from SceneViewport's stageLeft effect; retains its
+  // last value when nothing is focused (see useCamera.tsx's CameraState doc).
+  const [targetBounds, setTargetBounds] = useState<CameraRect>({ top: 0, left: 0, width: 0, height: 0 });
 
   // Mutable map of saved scroll offsets per column name. SceneColumn saves its
   // scroll offset when losing focus and restores it when regaining focus.
@@ -1211,7 +1290,8 @@ export function Scene({
     >
       <CameraContext.Provider
         value={{
-          bounds: viewportBounds,
+          viewport: viewportBounds,
+          target: targetBounds,
           transitioning,
         }}
       >
@@ -1227,9 +1307,16 @@ export function Scene({
               onTransitionComplete={() => setTransitioning(false)}
               onViewportSizeChange={(size) =>
                 setViewportBounds((prev) =>
-                  prev.width === size.width && prev.height === size.height
+                  prev.top === size.top && prev.left === size.left && prev.width === size.width && prev.height === size.height
                     ? prev
-                    : { top: 0, left: 0, width: size.width, height: size.height },
+                    : { top: size.top, left: size.left, width: size.width, height: size.height },
+                )
+              }
+              onTargetChange={(target) =>
+                setTargetBounds((prev) =>
+                  prev.top === target.top && prev.left === target.left && prev.width === target.width && prev.height === target.height
+                    ? prev
+                    : target,
                 )
               }
             >
