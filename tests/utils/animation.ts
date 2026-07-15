@@ -22,6 +22,9 @@
  * Call the returned `restore()` function after freezing to remove the override.
  */
 
+import type { AnimationPlaybackControls, MotionValue } from "motion/react";
+import type { MotionSeamRegistration } from "@/src/components/scene/motionSeam";
+
 /**
  * Wait for CSS transitions to start on an element after a state change.
  * Transitions don't exist on the element until the next frame.
@@ -132,3 +135,78 @@ export async function whilePressed(
 export const animationScreenshotOptions = {
   screenshotOptions: { animations: "allow" as const },
 };
+
+/**
+ * A MotionSeamRegistration that records every registered MotionValue and
+ * AnimationPlaybackControls into Maps instead of a live test harness — wrap
+ * `MotionSeamContext.Provider` (imported directly from its internal path,
+ * `@/src/components/scene/motionSeam` — it's not part of the public barrel)
+ * around a render tree with this as the `value` to capture Scene's rAF-driven
+ * motion pipeline (camera pan `cameraX`, column strip scroll `scrollY:<name>`)
+ * for deterministic inspection.
+ */
+export function createMotionSeamRecorder(): MotionSeamRegistration & {
+  values: Map<string, MotionValue<number>>;
+  controls: Map<string, AnimationPlaybackControls | undefined>;
+} {
+  const values = new Map<string, MotionValue<number>>();
+  const controls = new Map<string, AnimationPlaybackControls | undefined>();
+  return {
+    values,
+    controls,
+    registerMotionValue(key, value) {
+      values.set(key, value);
+    },
+    registerControls(key, playbackControls) {
+      controls.set(key, playbackControls);
+    },
+  };
+}
+
+/**
+ * Pauses a registered rAF-driven animation and jumps it to `fraction` (0–1)
+ * of its total duration, for a deterministic mid-animation screenshot.
+ * Motion's rAF loop only advances a PLAYING animation — pausing stops it from
+ * continuing to write over the frame we're about to capture, which is what
+ * made the wait()-based captures these replace non-deterministic (motion's
+ * loop kept writing during the capture window under suite load).
+ *
+ * Throws if `key` was never registered — animate() (and therefore
+ * registerControls) only runs when the transition actually retargets the
+ * value (e.g. duration !== 0 and the target changed), so a caller that
+ * expected a transition to start and got nothing here has a real setup bug,
+ * not a timing race.
+ */
+export function pinAnimationAt(
+  recorder: { controls: Map<string, AnimationPlaybackControls | undefined> },
+  key: string,
+  fraction: number,
+): void {
+  const controls = recorder.controls.get(key);
+  if (!controls) {
+    throw new Error(`pinAnimationAt: no AnimationPlaybackControls registered for "${key}"`);
+  }
+  controls.pause();
+  controls.time = fraction * controls.duration;
+}
+
+/**
+ * Pauses and pins every rAF-driven animation registered on the seam so far,
+ * at the same `fraction` (0–1) of each one's own duration. Use this (instead
+ * of naming individual keys with `pinAnimationAt`) when a transition may
+ * drive more than one MotionValue at once (e.g. the stage's `cameraX` pan
+ * alongside a column's `scrollY:<name>` swap-reset) and every track should
+ * read as "the same instant" in the capture — silently skips any key whose
+ * animation never registered (a transition that didn't actually retarget
+ * that value, e.g. a swap-reset resolving to an unchanged offset).
+ */
+export function pinAllRegisteredAnimations(
+  recorder: { controls: Map<string, AnimationPlaybackControls | undefined> },
+  fraction: number,
+): void {
+  for (const controls of recorder.controls.values()) {
+    if (!controls) continue;
+    controls.pause();
+    controls.time = fraction * controls.duration;
+  }
+}

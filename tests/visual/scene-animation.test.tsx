@@ -25,12 +25,15 @@ import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 import { Scene, SceneColumn, SceneObject } from "@/src";
+import { MotionSeamContext } from "@/src/components/scene/motionSeam";
 import {
   wait,
   animationScreenshotOptions,
   waitForAnimationFrame,
   freezeAnimationsAt,
   unfreezeAnimations,
+  createMotionSeamRecorder,
+  pinAllRegisteredAnimations,
 } from "../utils/animation";
 
 afterEach(() => {
@@ -308,120 +311,129 @@ describe("camera pan mid-capture", () => {
     await expect.element(page.elementLocator(container)).toMatchScreenshot();
   });
 
-  // TODO(flake): re-enable after investigating cleaner mid-spring capture.
-  // Stage `left` is driven by motion's rAF loop (not WAAPI), so the page
-  // never reaches pixel-stability for toMatchScreenshot's check. Tracked in
-  // Working Memory alongside layout-flip-frozen-at-50pct.
-  it.skip("camera-pan-mid-spring", async () => {
+  // S7: was TODO(flake)-skipped — stage `left` is driven by motion's rAF
+  // loop (not WAAPI), so a wait()-based capture never reached pixel-stability
+  // under suite load. Rewritten on the motionSeam pinnable pipeline (probe-
+  // verified 10x pixel-identical before landing): the transition still runs
+  // for real, but cameraX's AnimationPlaybackControls is paused and jumped to
+  // a fixed fraction of its own duration instead of racing a wall-clock wait
+  // — deterministic regardless of system load.
+  it("camera-pan-mid-spring", async () => {
     // Start with both focused (duration=0 for instant initial layout), then
-    // unfocus Nav using default spring so the Camera pans to recenter Article.
-    // The `left` spring on the stage is rAF-based — wait() is the only capture
-    // strategy available. High tolerance accommodates frame-timing variance.
+    // unfocus Nav using the default spring so the Camera pans to recenter
+    // Article.
     document.documentElement.style.colorScheme = "dark";
+    const recorder = createMotionSeamRecorder();
     const { container, rerender } = await render(
-      <TestWrapper fullPage>
-        <Scene duration={0}>
-          <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused>
-              <div
-                style={{
-                  width: 160,
-                  height: 300,
-                  background: "rgba(244,114,182,0.4)",
-                  border: "2px solid rgba(244,114,182,0.8)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontSize: 14,
-                }}
-              >
-                Nav
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
-              <div
-                style={{
-                  width: 400,
-                  height: 300,
-                  background: "rgba(52,211,153,0.4)",
-                  border: "2px solid rgba(52,211,153,0.8)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontSize: 14,
-                }}
-              >
-                Article
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="nav">
+              <SceneObject name="nav-panel" focused>
+                <div
+                  style={{
+                    width: 160,
+                    height: 300,
+                    background: "rgba(244,114,182,0.4)",
+                    border: "2px solid rgba(244,114,182,0.8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    fontSize: 14,
+                  }}
+                >
+                  Nav
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="article">
+              <SceneObject name="article-panel" focused>
+                <div
+                  style={{
+                    width: 400,
+                    height: 300,
+                    background: "rgba(52,211,153,0.4)",
+                    border: "2px solid rgba(52,211,153,0.8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    fontSize: 14,
+                  }}
+                >
+                  Article
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
     await waitForAnimationFrame();
 
-    // Unfocus Nav with slow-mo spring physics — stage left springs rightward (~800ms to settle).
+    // Unfocus Nav with the default spring — the stage `left` (cameraX) springs
+    // rightward to recenter on Article. registerControls fires synchronously
+    // inside the same effect that starts the animation.
     await rerender(
-      <TestWrapper fullPage>
-        <Scene slowMo>
-          <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused={false}>
-              <div
-                style={{
-                  width: 160,
-                  height: 300,
-                  background: "rgba(244,114,182,0.4)",
-                  border: "2px solid rgba(244,114,182,0.8)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontSize: 14,
-                }}
-              >
-                Nav
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
-              <div
-                style={{
-                  width: 400,
-                  height: 300,
-                  background: "rgba(52,211,153,0.4)",
-                  border: "2px solid rgba(52,211,153,0.8)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontSize: 14,
-                }}
-              >
-                Article
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene>
+            <SceneColumn name="nav">
+              <SceneObject name="nav-panel" focused={false}>
+                <div
+                  style={{
+                    width: 160,
+                    height: 300,
+                    background: "rgba(244,114,182,0.4)",
+                    border: "2px solid rgba(244,114,182,0.8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    fontSize: 14,
+                  }}
+                >
+                  Nav
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="article">
+              <SceneObject name="article-panel" focused>
+                <div
+                  style={{
+                    width: 400,
+                    height: 300,
+                    background: "rgba(52,211,153,0.4)",
+                    border: "2px solid rgba(52,211,153,0.8)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    fontSize: 14,
+                  }}
+                >
+                  Article
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
 
-    // Wait 250ms — ~30% through the slow-mo spring, clearly mid-pan. Also exposes
-    // the Article clipping bug: content may be clipped on the left/top/bottom
-    // during the pan because preserve-3d + translateZ creates an implicit stacking
-    // context that clips overflow.
-    await wait(250);
+    // Pause and pin every registered rAF track (cameraX; a swap-reset on
+    // either column's scrollY may also register, even as a same-position
+    // no-op) at 30% of its own duration — clearly mid-pan, and also exposes
+    // the Article clipping bug this test originally diagnosed: content may be
+    // clipped on the left/top/bottom during the pan because preserve-3d +
+    // translateZ creates an implicit stacking context that clips overflow.
+    pinAllRegisteredAnimations(recorder, 0.3);
 
-    // Looser tolerance than WAAPI tests — rAF-based `left` spring still has
-    // some frame-timing variance even with slow-mo springs.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "camera-pan-mid-spring",
       { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.05 } },
@@ -474,10 +486,30 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 
   // TODO(flake): re-enable after investigating cleaner mid-spring capture.
   // Intermittently fails toMatchScreenshot's pixel-stability check because
-  // motion's rAF loop keeps writing during the freeze window. Two structural
-  // fix attempts (computed-style baking, !important override) both failed.
-  // Tracked in Working Memory — revisit alongside Playwright `animations:"disabled"`
-  // option and deterministic spring-progress capture.
+  // S7: attempted the motionSeam pinnable rewrite and REVERTED — this
+  // specific fixture's animation genuinely can't be pinned to anything
+  // resembling "mid-FLIP". Instrumented directly: for a lone column with no
+  // siblings toggling unfocused->focused, `container.getAnimations({subtree:
+  // true})` returns EMPTY at 0/1/2 frames — there is no freezable WAAPI
+  // animation here at all (freezeAnimationsAt's own doc-comment anticipated
+  // this: "If no WAAPI animations are found, frozen is empty and the
+  // screenshot shows the fully-settled state"). The motionSeam DOES register
+  // two rAF controls (scrollY:content at duration 0 — a same-position no-op;
+  // cameraX at duration ~1.25s — real, since a lone focused column's target
+  // bounds still shift off the pre-focus stage position), but pinning cameraX
+  // at fraction 0.5 produced a screenshot pixel-identical to a real 1500ms
+  // settle (verified against a throwaway comparison test) — motion's spring
+  // decay means "50% of reported duration" is already visually converged, not
+  // the "halfway between offscreen and centered" this test's name and intent
+  // describe. There is no fraction of cameraX's timeline that reproduces what
+  // this test was written to show (a WAAPI positional correction), because
+  // that correction doesn't exist for this fixture — the position change here
+  // is an instant CSS layout snap, not an animation. Kept skipped rather than
+  // ship a "passing" test that always captures the settled state under a
+  // misleading name. See plans/Scene Assessment 2026-07-14 fix plan (S7 line)
+  // for the sibling captures this reasoning does NOT apply to (the
+  // depth-deck tests below have a real, documented WAAPI filter/opacity
+  // track — Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
   it.skip("layout-flip-frozen-at-50pct", async () => {
     // Start unfocused (duration=0), then focus with default spring. motion's
     // layout FLIP uses WAAPI for the positional correction, so we can freeze
@@ -557,12 +589,15 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
     unfreezeAnimations(frozen);
   });
 
-  // TODO(flake): re-enable after investigating cleaner mid-spring capture.
-  // Third rAF-based flake — same root cause as camera-pan-mid-spring and
-  // layout-flip-frozen-at-50pct: motion's rAF loop keeps writing during the
-  // freeze window, so toMatchScreenshot's pixel-stability check can't settle.
-  // Flipped from intermittent to deterministic after Commit 4 added more
-  // animated tracks. Tracked in Working Memory.
+  // S7: NOT converted, same fixture/reasoning as layout-flip-frozen-at-50pct
+  // above (see its comment for the full instrumented finding) — this test's
+  // premise is "capture the rAF-based portion of the FLIP transition", but
+  // there is no rAF-based positional track for a lone unfocused->focused
+  // column (getAnimations() empty at 0/1/2 frames; the one real rAF track
+  // that DOES register, cameraX, converges visually well before any fraction
+  // of its reported duration that would still look "mid-flight"). A wait()
+  // here captures the same settled state camera-pan-mid-spring's approach
+  // would produce, just non-deterministically. Kept skipped.
   it.skip("layout-flip-mid-spring-wait", async () => {
     // Alternative timed-wait approach for comparison. Captures the FLIP
     // animation at ~100ms using only wait() — useful to see how the rAF-based
@@ -892,10 +927,31 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
 // ---------------------------------------------------------------------------
 
 describe("depth-deck bug-fix regressions", () => {
-  // TODO(flake): re-enable after investigating cleaner mid-spring capture.
-  // Fourth rAF-based flake — uses freezeAnimationsAt but motion's rAF loop
-  // still races toMatchScreenshot's stability check under suite load.
-  // Tracked in Working Memory.
+  // S7: attempted the motionSeam pinnable rewrite and REVERTED — unlike the
+  // layout-flip tests above, this fixture DOES have real freezable content
+  // (instrumented probe confirmed 2 genuine WAAPI animations, opacity +
+  // filter, registering after 1 frame — Bug 2b's fix — plus a real ~1s
+  // cameraX rAF track), so freezeAnimationsAt + pinAllRegisteredAnimations
+  // froze/pinned those tracks correctly. But Middle A's POSITION was still
+  // non-deterministic across runs even after pinning every registered
+  // track — a diff between two otherwise-identical runs showed Middle A at
+  // two different vertical offsets (~144k-170k differing pixels). Traced to
+  // a likely cause in SceneColumn.tsx: inBetweenY (the in-between column's
+  // vertical centering offset) is computed from `colHeight`, which falls
+  // back to `frozenSize?.height` — and frozenSize is set by `setFrozenSize`
+  // inside a PASSIVE useEffect (fires one paint after the commit, not a
+  // useLayoutEffect), both on entering AND clearing (re-focusing clears it
+  // via `setFrozenSize(null)`). This is the SAME mechanism as the already-
+  // documented B14 finding in plans/Scene Assessment 2026-07-14 ("Freeze
+  // applied one paint late... can also freeze mid-FLIP projected dimensions
+  // on rapid toggling") — a real, pre-existing PRODUCTION timing gap, not a
+  // test-only artifact. Tried both a single frame and a rect-stability
+  // polling loop (up to 20 frames) before freezing; neither reliably
+  // converged, consistent with the position depending on exactly when a
+  // passive effect lands relative to the freeze call rather than on elapsed
+  // frame count. A real fix belongs in SceneColumn.tsx (e.g. useLayoutEffect
+  // for setFrozenSize, per B14) — out of scope for this test-infrastructure
+  // slice. Kept skipped; flagging B14 as the blocking production item.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
@@ -989,12 +1045,12 @@ describe("depth-deck bug-fix regressions", () => {
   // TODO(flake): re-enable after investigating cleaner mid-spring capture.
   // Fifth rAF-based flake — same rAF loop race as the other mid-spring tests.
   // Tracked in Working Memory.
-  it.skip("unfocus-sync-mid-spring", async () => {
+  it("unfocus-sync-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (focused) + Right (focused).
     // Use duration=0 for instant initial render, then unfocus Middle A with
-    // slowMo springs. Freeze at 30% and snapshot. Filter should be partway
-    // between grayscale(0) and grayscale(0.25), proving bug 2b is fixed —
-    // if filter still snapped instantly it would already be at grayscale(0.25).
+    // the default spring. Filter should be partway between grayscale(0) and
+    // grayscale(0.25), proving bug 2b is fixed — if filter still snapped
+    // instantly it would already be at grayscale(0.25).
     document.documentElement.style.colorScheme = "dark";
     const panelStyle: React.CSSProperties = {
       width: 250,
@@ -1006,64 +1062,69 @@ describe("depth-deck bug-fix regressions", () => {
       fontFamily: "monospace",
       fontSize: 13,
     };
+    const recorder = createMotionSeamRecorder();
     const { container, rerender } = await render(
-      <TestWrapper fullPage>
-        <Scene duration={0}>
-          <SceneColumn name="left">
-            <SceneObject name="left-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                Left (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="middle-a">
-            <SceneObject name="middle-a-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                Middle A (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="right">
-            <SceneObject name="right-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                Right (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
     await waitForAnimationFrame();
 
-    // Unfocus Middle A with slowMo springs — filter, opacity, x, y, z spring
-    // together. Bug 2b: filter used to snap instantly to grayscale(0.25) because
-    // it was on inline style (undefined → value), not animate.
+    // Unfocus Middle A with the default spring — filter, opacity, x, y, z
+    // spring together. Bug 2b: filter used to snap instantly to grayscale(0.25)
+    // because it was on inline style (undefined -> value), not animate.
     await rerender(
-      <TestWrapper fullPage>
-        <Scene slowMo>
-          <SceneColumn name="left">
-            <SceneObject name="left-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
-                Left (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="middle-a">
-            <SceneObject name="middle-a-obj" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
-                Middle A (unfocusing)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="right">
-            <SceneObject name="right-obj" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
-                Right (focused)
-              </div>
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
+      <MotionSeamContext.Provider value={recorder}>
+        <TestWrapper fullPage>
+          <Scene>
+            <SceneColumn name="left">
+              <SceneObject name="left-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  Left (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle-a">
+              <SceneObject name="middle-a-obj" focused={false}>
+                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  Middle A (unfocusing)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  Right (focused)
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </MotionSeamContext.Provider>,
     );
 
     // One frame so WAAPI animations appear in getAnimations().
@@ -1073,6 +1134,7 @@ describe("depth-deck bug-fix regressions", () => {
     // grayscale(0.25), and position between focused row and deck. Both tracks
     // should be mid-spring, not snapped.
     const frozen = freezeAnimationsAt(container as HTMLElement, 0.3, { subtree: true });
+    pinAllRegisteredAnimations(recorder, 0.3);
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "unfocus-sync-mid-spring",
