@@ -58,14 +58,20 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
   // unfocused object never becomes an unexpected tab stop.
   const activatable = !focused && Boolean(onActivate);
 
-  // Register this object's DOM element with the parent SceneColumn so the
-  // column can track it. useLayoutEffect fires bottom-up (children before
-  // parent), ensuring registration happens before the column's own
-  // useLayoutEffect reads the registered elements.
+  // Register this object's DOM element and focus state with the parent
+  // SceneColumn so the column can track it. useLayoutEffect fires bottom-up
+  // (children before parent), ensuring registration happens before the
+  // column's own useLayoutEffect reads the registered elements.
+  //
+  // Unconditional per-render (no deps array, S6 registration architecture,
+  // Medium-2): a focus-only change must be reflected in the registry the
+  // SAME commit — gating on [column, name] would only refire on remount,
+  // leaving the column's registeredObjectFocusRef stale until some later,
+  // unrelated re-render.
   useLayoutEffect(() => {
     if (!column || !outerRef.current) return;
-    return column.register(name, outerRef.current);
-  }, [column, name]);
+    return column.register(name, outerRef.current, focused);
+  });
 
   // When this object transitions from unfocused to focused, move keyboard
   // focus to the first focusable element inside it so keyboard users land

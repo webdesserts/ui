@@ -5,6 +5,7 @@ import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING,
 import { CameraContext } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
+import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
@@ -51,6 +52,29 @@ function collectColumnFocusStates(
   });
 
   return result;
+}
+
+/**
+ * Derives column focus-state entries from the column registry, sorted by
+ * true DOM order via compareDocumentPosition — NOT registration/insertion
+ * order, which can differ from DOM order (e.g. a column mounting later than
+ * one it's rendered before). This is the registry-derived counterpart to
+ * collectColumnFocusStates (the prop-walk seed): unlike the seed, it doesn't
+ * depend on the shape of Scene's `children` prop, so it stays correct
+ * through Fragment wrapping, custom components that return a SceneColumn,
+ * etc. — see the S6 registration architecture (seed-then-correct) below.
+ */
+function deriveColumnStatesFromRegistry(
+  registry: Map<string, RegisteredColumn>,
+): Array<{ name: string; focused: boolean }> {
+  return Array.from(registry.entries())
+    .sort(([, a], [, b]) => {
+      const position = a.element.compareDocumentPosition(b.element);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    })
+    .map(([name, { focused }]) => ({ name, focused }));
 }
 
 /**
@@ -202,30 +226,19 @@ function wrapChild(child: React.ReactNode): React.ReactNode {
 }
 
 /**
- * Walks the children tree and collects all SceneObject name + focused pairs.
- * Used by the debug overlay to list all registered objects without needing a
- * separate registration context.
+ * Reads the debug overlay's object list straight from the DOM — every
+ * `[data-scene-id]` element under the viewport, with its `data-focused`
+ * attribute — rather than walking Scene's `children` prop tree. DOM truth is
+ * immune by construction to Fragment wrapping, custom components that return
+ * a SceneObject/SceneColumn, or any other composition that a shallow prop
+ * walk can be fooled by (the same rationale as the S6 column registry
+ * below), and it's what actually rendered — the only thing worth debugging.
  */
-function collectObjectEntries(children: React.ReactNode): DebugObjectEntry[] {
-  const entries: DebugObjectEntry[] = [];
-
-  React.Children.forEach(children, (child) => {
-    if (!isValidElement(child)) return;
-
-    if (child.type === SceneObject) {
-      const props = child.props as SceneObjectProps;
-      entries.push({ name: props.name, focused: props.focused });
-    } else if ((child.props as { children?: React.ReactNode }).children) {
-      // Recurse into SceneColumns and other wrappers
-      entries.push(
-        ...collectObjectEntries(
-          (child.props as { children?: React.ReactNode }).children,
-        ),
-      );
-    }
-  });
-
-  return entries;
+function queryDebugObjects(viewport: HTMLElement): DebugObjectEntry[] {
+  return Array.from(viewport.querySelectorAll<HTMLElement>("[data-scene-id]")).map((el) => ({
+    name: el.getAttribute("data-scene-id") ?? "",
+    focused: el.getAttribute("data-focused") === "true",
+  }));
 }
 
 /** Per-column scroll state read from DOM data attributes for the debug overlay. */
@@ -258,11 +271,9 @@ interface DebugObjectBounds {
  *    (no setState) so Motion animations are tracked without triggering re-renders.
  */
 function SceneObjectOutlines({
-  objects,
   viewportRef,
   animatingRef,
 }: {
-  objects: DebugObjectEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
   /** Counter incremented on animation start, decremented on end. rAF loop
    *  runs while this is > 0. Owned by SceneViewport. */
@@ -270,29 +281,35 @@ function SceneObjectOutlines({
 }) {
   // Outline div refs, keyed by object name. Direct DOM mutation during rAF.
   const outlineRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  // Track which object names we've rendered outlines for. Used to detect when
-  // the objects list changes and we need to re-render the outlines.
-  const [renderedNames, setRenderedNames] = useState<string[]>([]);
+  // Track which objects (name + focused) we've rendered outlines for — DOM
+  // truth via queryDebugObjects, re-derived every render by the layout
+  // effect below. Used to detect when the object list (or its focus state)
+  // changes and we need to re-render the outline divs.
+  const [renderedObjects, setRenderedObjects] = useState<DebugObjectEntry[]>([]);
 
-  // When the objects list changes (objects added/removed), re-render the
-  // outline divs by updating renderedNames. This is the only React state
-  // update — position/size changes go through direct DOM mutation.
   useLayoutEffect(() => {
-    const names = objects.map((o) => o.name);
-    setRenderedNames((prev) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const objects = queryDebugObjects(viewport);
+    setRenderedObjects((prev) => {
       const same =
-        prev.length === names.length && prev.every((n, i) => n === names[i]);
-      return same ? prev : names;
+        prev.length === objects.length &&
+        prev.every((p, i) => p.name === objects[i]?.name && p.focused === objects[i]?.focused);
+      return same ? prev : objects;
     });
-  }, [objects]);
+  });
 
-  // Shared measurement helper: measure each object and mutate its outline div.
+  // Shared measurement helper: measure each object and mutate its outline
+  // div. Re-queries the DOM directly (rather than reading renderedObjects
+  // state) so it's always accurate for THIS pass, matching the old
+  // always-fresh `objects` prop — renderedObjects itself lags by one commit
+  // when it changes (the state-update-in-layout-effect pattern above).
   const measureAndUpdate = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
     const vpRect = viewport.getBoundingClientRect();
 
-    for (const obj of objects) {
+    for (const obj of queryDebugObjects(viewport)) {
       const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
       const outlineDiv = outlineRefs.current.get(obj.name);
       if (!el || !outlineDiv) continue;
@@ -303,7 +320,7 @@ function SceneObjectOutlines({
       outlineDiv.style.width = `${rect.width}px`;
       outlineDiv.style.height = `${rect.height}px`;
     }
-  }, [objects, viewportRef]);
+  }, [viewportRef]);
 
   // Measure on every React render (catches layout changes, focus state changes).
   useLayoutEffect(() => {
@@ -361,8 +378,7 @@ function SceneObjectOutlines({
 
   return (
     <>
-      {renderedNames.map((name) => {
-        const focused = objects.find((o) => o.name === name)?.focused ?? false;
+      {renderedObjects.map(({ name, focused }) => {
         const borderColor = focused ? "green" : "gray";
         return (
           <div
@@ -418,12 +434,10 @@ const OutlineRafCallbackContext = createContext<React.MutableRefObject<(() => vo
 
 /** Debug overlay rendered inside the Scene when `debug` is enabled. */
 function SceneDebugOverlay({
-  objects,
   columnStacks,
   viewportRef,
   stageRef,
 }: {
-  objects: DebugObjectEntry[];
   columnStacks: DebugColumnStackEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
   stageRef: React.RefObject<HTMLDivElement | null>;
@@ -432,6 +446,9 @@ function SceneDebugOverlay({
   // so reading from the DOM directly is acceptable.
   const columnScrollStates: DebugColumnScroll[] = [];
   const viewport = viewportRef.current;
+  // Object list — DOM truth (queryDebugObjects), same rationale as
+  // SceneObjectOutlines above.
+  const objects: DebugObjectEntry[] = viewport ? queryDebugObjects(viewport) : [];
   if (viewport) {
     const columns = viewport.querySelectorAll("[data-column]");
     columns.forEach((col) => {
@@ -604,7 +621,6 @@ function SceneDebugOverlay({
 /** Inner scene content — reads debug flag from config to apply outline. */
 function SceneViewport({
   children,
-  debugObjects,
   debugColumnStacks,
   reducedMotion,
   onTransitionStart,
@@ -612,7 +628,6 @@ function SceneViewport({
   onViewportSizeChange,
 }: {
   children: React.ReactNode;
-  debugObjects: DebugObjectEntry[] | null;
   /** Unfocused column stacking info for the debug overlay. */
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
@@ -1007,10 +1022,9 @@ function SceneViewport({
           {/* Object outlines: absolutely positioned colored borders for each
               SceneObject. Rendered outside the stage so positions are relative
               to the viewport, not the panning stage. */}
-          {debug && debugObjects && (
+          {debug && (
             <OutlineRafCallbackContext.Provider value={outlineStartRafRef}>
               <SceneObjectOutlines
-                objects={debugObjects}
                 viewportRef={viewportRef}
                 animatingRef={animatingRef}
               />
@@ -1019,9 +1033,8 @@ function SceneViewport({
           {/* Overlay is inside the scene div so tests can find it via
               scene.querySelector('[data-debug-overlay]'). position:fixed
               ensures it doesn't participate in flex layout. */}
-          {debug && debugObjects && (
+          {debug && (
             <SceneDebugOverlay
-              objects={debugObjects}
               columnStacks={debugColumnStacks ?? []}
               viewportRef={viewportRef}
               stageRef={stageRef}
@@ -1066,7 +1079,6 @@ export function Scene({
   peekOffset = DEFAULT_PEEK_OFFSET,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
-  const debugObjects = debug ? collectObjectEntries(children) : null;
 
   // Detect prefers-reduced-motion. When active and no explicit duration prop
   // is provided, force duration=0 so all transitions are instant.
@@ -1101,11 +1113,77 @@ export function Scene({
     firstPaintRef.current = false;
   }, []);
 
-  // Compute position classifications for all columns so SceneColumn can
-  // animate unfocused columns offscreen or into a depth deck.
-  const columnStates = collectColumnFocusStates(wrappedChildren ?? []);
+  // S6 registration architecture: columns self-register their aggregate
+  // focus state and DOM element here, bottom-up (object -> column -> scene,
+  // all pre-paint via useLayoutEffect — see SceneColumn's own registration
+  // effect), instead of relying purely on walking the `children` prop tree.
+  // The prop walk breaks for Fragment-wrapped columns, columns returned from
+  // a custom component, or objects nested inside a plain wrapper div —
+  // registration doesn't depend on tree shape, only on the DOM elements that
+  // actually mount (context/refs resolve regardless of wrapping).
+  const columnRegistryRef = useRef<Map<string, RegisteredColumn>>(new Map());
+  // Forces a synchronous pre-paint re-render when the registry disagrees
+  // with what the just-committed render used (see the correction effect
+  // below). The value itself is never read.
+  const [, forceRegistryCorrection] = useState(0);
+
+  const registerColumn = useCallback<RegisterColumn>((name, registration) => {
+    const existing = columnRegistryRef.current.get(name);
+    // Warns unconditionally (no NODE_ENV gate — this package has no Node
+    // types dependency and ships a single build) whenever a DIFFERENT
+    // element claims an already-registered name; a consumer error (two
+    // SceneColumns sharing a name), not something that fires from this
+    // component's own unregister+reregister churn (cleanup always deletes
+    // its own entry before the next registration call for the same name).
+    if (existing && existing.element !== registration.element) {
+      console.warn(
+        `Scene: duplicate column name "${name}" — a different element already registered under this name.`,
+      );
+    }
+    columnRegistryRef.current.set(name, registration);
+    return () => {
+      if (columnRegistryRef.current.get(name) === registration) {
+        columnRegistryRef.current.delete(name);
+      }
+    };
+  }, []);
+
+  // Seed-then-correct (forecast-gate adjudication #1): the prop-walk seed is
+  // used ONLY before any column has ever registered (the very first render).
+  // After bootstrap, render always derives from the registry — re-seeding
+  // from the prop walk on every render would infinite-loop on the wrapper
+  // cases the registry exists to fix (the seed is PERMANENTLY wrong for
+  // them, so re-deriving it every render never converges).
+  const columnStates =
+    columnRegistryRef.current.size > 0
+      ? deriveColumnStatesFromRegistry(columnRegistryRef.current)
+      : collectColumnFocusStates(wrappedChildren ?? []);
   const columnPositions = computeColumnPositions(columnStates);
   const stackDepths = computeStackDepths(columnStates);
+
+  // Fingerprint of the column states THIS render actually used, captured
+  // during render (mirrors SceneColumn's lastActiveFocusedKeyRef pattern) so
+  // the correction effect below can compare against it after all descendant
+  // SceneColumns have re-registered for this commit.
+  const columnStatesFingerprintRef = useRef("");
+  columnStatesFingerprintRef.current = columnStates.map((c) => `${c.name}:${c.focused}`).join(",");
+
+  // Post-commit correction (forecast-gate adjudication #1): runs after every
+  // descendant SceneColumn has registered for this commit (useLayoutEffect
+  // ordering is bottom-up — children's effects fire before this one, since
+  // this is declared in the outermost Scene component). If the registry
+  // disagrees with what this render used, bump state to force a synchronous
+  // re-render before paint, this time reading the now-fresh registry.
+  // Ordinary case: registry already matches what this render used -> no
+  // bump, no extra render. Wrapper case: pass-1 is wrong (matching today's
+  // pre-fix behavior), pass-2 corrects invisibly before paint.
+  useLayoutEffect(() => {
+    const derived = deriveColumnStatesFromRegistry(columnRegistryRef.current);
+    const fingerprint = derived.map((c) => `${c.name}:${c.focused}`).join(",");
+    if (fingerprint !== columnStatesFingerprintRef.current) {
+      forceRegistryCorrection((v) => v + 1);
+    }
+  });
 
   // Build debug column stacking info from position and depth maps.
   const debugColumnStacks: DebugColumnStackEntry[] | null = debug
@@ -1139,10 +1217,10 @@ export function Scene({
       >
         <ScrollOffsetStoreContext.Provider value={scrollOffsetStore}>
         <ScrollCommandRegistryContext.Provider value={scrollCommandRegistry}>
+        <ColumnRegistryContext.Provider value={registerColumn}>
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
             <SceneViewport
-              debugObjects={debugObjects}
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
               onTransitionStart={() => setTransitioning(true)}
@@ -1159,6 +1237,7 @@ export function Scene({
             </SceneViewport>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
+        </ColumnRegistryContext.Provider>
         </ScrollCommandRegistryContext.Provider>
         </ScrollOffsetStoreContext.Provider>
       </CameraContext.Provider>

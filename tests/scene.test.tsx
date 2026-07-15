@@ -36,6 +36,19 @@ function parseTranslateX(transform: string): number {
   return parseFloat(match[1]!);
 }
 
+/** Custom component that returns a SceneColumn — used to prove Scene's
+ *  column classification doesn't depend on SceneColumn being a DIRECT child
+ *  of Scene's `children` prop (S6 registration architecture). */
+function RightColumnWrapper() {
+  return (
+    <SceneColumn name="right">
+      <SceneObject name="right-obj" focused>
+        <div data-testid="right-content" style={{ width: 200, height: 150 }} />
+      </SceneObject>
+    </SceneColumn>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // SceneObject
 // ---------------------------------------------------------------------------
@@ -243,6 +256,227 @@ describe("Scene auto-wrapping", () => {
       el = el.parentElement;
     }
     expect(columnCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S6: registration architecture — column classification is derived from a
+// runtime registry (self-registration via useLayoutEffect + DOM refs), not
+// from walking Scene's `children` prop tree. The prop walk breaks whenever a
+// SceneColumn is Fragment-wrapped, returned from a custom component, or a
+// SceneObject is nested inside a plain wrapper div — none of that changes
+// the REACT TREE position (context/refs still resolve correctly), only the
+// shallow JSX shape a prop walk sees.
+// ---------------------------------------------------------------------------
+
+describe("Scene registration architecture (S6)", () => {
+  test("a column wrapped in a Fragment still participates in classification", async () => {
+    // "right" (focused) is wrapped in a Fragment. A prop-walk-only
+    // implementation skips it entirely (child.type is the Fragment symbol,
+    // not SceneColumn) — "left" would then see nothing focused and stay
+    // unclassified (position: null) instead of outer-left.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <>
+            <SceneColumn name="right">
+              <SceneObject name="right-obj" focused>
+                <div data-testid="right-content" style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </SceneColumn>
+          </>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
+    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+  });
+
+  test("a column returned from a custom component still participates in classification", async () => {
+    // Same failure mode as the Fragment case: child.type is the wrapper
+    // function component, not SceneColumn, so a prop walk skips "right"
+    // entirely.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <RightColumnWrapper />
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
+    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+  });
+
+  test("a column containing a div-wrapped focused object still classifies as focused (column-level only)", async () => {
+    // "right-obj" is wrapped in a plain div inside its SceneColumn. Scope is
+    // deliberately narrow (forecast-gate adjudication #4): only "right"'s
+    // COLUMN-LEVEL classification (and therefore "left"'s position) is
+    // claimed correct here — "right"'s own internal focused styling is out
+    // of scope and is not asserted by this test.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <div>
+              <SceneObject name="right-obj" focused>
+                <div data-testid="right-content" style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </div>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
+    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+  });
+
+  test("a focus-only toggle on a div-wrapped object updates column registration in the same commit", async () => {
+    // Medium-2 (forecast-gate adjudication #3): the registration effect must
+    // be unconditional per-render so a focus-only prop change (no `name` or
+    // context-reference change) is reflected the same commit — not gated
+    // behind [column, name] deps, which would only refire on remount.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <div>
+              <SceneObject name="right-obj" focused={false}>
+                <div data-testid="right-content" style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </div>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
+    expect(left.getAttribute("data-column-position")).toBeNull();
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused={false}>
+              <div data-testid="left-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <div>
+              <SceneObject name="right-obj" focused>
+                <div data-testid="right-content" style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            </div>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+  });
+
+  test("column classification respects true DOM order, not registration order (J1)", async () => {
+    const { getByTestId, rerender } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused={false}>
+              <div data-testid="a-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused>
+              <div data-testid="b-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const aCol = getByTestId("a-content").element().closest("[data-column]") as HTMLElement;
+    const bCol = getByTestId("b-content").element().closest("[data-column]") as HTMLElement;
+
+    // Manipulate the DOM directly (outside React) to physically move "b"
+    // before "a" — real document order changes without React's own
+    // reconciliation touching these nodes (which always fires registration
+    // effects in tree order, matching normal DOM insertion — insufficient on
+    // its own to prove the derivation sorts by DOM position rather than
+    // trusting incidental registration/Map-insertion order).
+    aCol.parentElement!.insertBefore(bCol, aCol);
+
+    // Force a fresh registration pass via an unrelated Scene prop change —
+    // registration effects are unconditional per-render (Medium-2) so they
+    // refire and re-derive classification from the (now DOM-reordered)
+    // registry.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0} columnGap={4}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused={false}>
+              <div data-testid="a-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused>
+              <div data-testid="b-content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // "b" (focused) now comes first in true DOM order, "a" (unfocused)
+    // second -> "a" should classify as outer-RIGHT (after the focused
+    // column). Registration/insertion order (a registered before b,
+    // unaffected by the DOM move) would wrongly keep "a" at outer-left.
+    expect(aCol.getAttribute("data-column-position")).toBe("outer-right");
+  });
+
+  test("registerColumn warns when a different element claims an existing column name (J2)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="dup">
+            <SceneObject name="dup-obj-1" focused>
+              <div data-testid="content-1" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="dup">
+            <SceneObject name="dup-obj-2" focused={false}>
+              <div data-testid="content-2" style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy.mock.calls.some((args) => String(args[0]).includes("dup"))).toBe(true);
+    warnSpy.mockRestore();
   });
 });
 

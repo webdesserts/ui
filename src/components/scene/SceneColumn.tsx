@@ -13,6 +13,7 @@ import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
+import { ColumnRegistryContext } from "./ColumnRegistryContext";
 import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
@@ -47,8 +48,14 @@ export interface WithinColumnDepthInfo {
 }
 
 interface ColumnRegistration {
-  /** Register a SceneObject's outer element. Returns an unregister function. */
-  register: (name: string, el: HTMLElement) => () => void;
+  /**
+   * Register a SceneObject's outer element and focus state. Returns an
+   * unregister function. `focused` feeds the column's OWN registration with
+   * Scene (S6 registration architecture) — it's tracked separately from this
+   * column's internal deriveObjectStates prop walk (scope pin: column-level
+   * classification only, see SceneColumn's own registration effect below).
+   */
+  register: (name: string, el: HTMLElement, focused: boolean) => () => void;
   /**
    * Whether the parent column is in the depth deck (in-between, unfocused).
    * When true, unfocused SceneObjects stay in flow (position: relative) so the
@@ -330,6 +337,12 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
+  // Registered SceneObjects' focus state — parallel to registeredEls,
+  // populated via the SAME register() call (S6 registration architecture).
+  // Used ONLY to compute this column's aggregate focused state for its own
+  // registration with Scene below; the existing geometry/freeze pipeline
+  // (deriveColumnFocused/deriveObjectStates prop walk) is untouched.
+  const registeredObjectFocusRef = useRef<Map<string, boolean>>(new Map());
   // Single measurement layer: every registered object's offsetTop/height,
   // relative to the content wrapper. Bulk-remeasured (a) synchronously after
   // every render via useLayoutEffect and (b) asynchronously by a shared
@@ -886,15 +899,34 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // shared ResizeObserver's membership — newly registered elements join the
   // single measurement layer immediately (or are picked up by the mount
   // effect's initial sweep if the observer hasn't been created yet).
-  const register = useCallback((objName: string, el: HTMLElement) => {
+  const register = useCallback((objName: string, el: HTMLElement, focused: boolean) => {
     registeredEls.current.set(objName, el);
+    registeredObjectFocusRef.current.set(objName, focused);
     resizeObserverRef.current?.observe(el);
     return () => {
       resizeObserverRef.current?.unobserve(el);
       registeredEls.current.delete(objName);
+      registeredObjectFocusRef.current.delete(objName);
       geometryStore.current.delete(objName);
     };
   }, []);
+
+  // This column's own registration with Scene's column registry (S6
+  // registration architecture) — reports its aggregate focused state
+  // (derived from registeredObjectFocusRef, which reflects EVERY registered
+  // SceneObject regardless of intermediate div wrapping) and DOM element.
+  // Unconditional per-render (no deps): must reflect a focus-only toggle on
+  // a registered object in the SAME commit, and by the time this runs,
+  // registeredObjectFocusRef is already fresh — SceneObject's own
+  // registration effect (bottom-up, children before parents) has already
+  // run for this commit.
+  const registerColumnWithScene = useContext(ColumnRegistryContext);
+  useLayoutEffect(() => {
+    const el = colRef.current;
+    if (!el || !registerColumnWithScene) return;
+    const focused = Array.from(registeredObjectFocusRef.current.values()).some(Boolean);
+    return registerColumnWithScene(name, { focused, element: el });
+  });
 
   // Debug outline tracking: notify the animation counter in SceneViewport when
   // this column's motion animations start or end. The rAF loop in
