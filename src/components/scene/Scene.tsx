@@ -10,7 +10,8 @@ import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
-import { motion, useReducedMotion } from "motion/react";
+import { useMotionSeam } from "./motionSeam";
+import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
 
 /**
  * Collects the focused state of each direct SceneColumn child (in order).
@@ -655,6 +656,26 @@ function SceneViewport({
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
 
+  // duration=0 → instant transitions for tests; otherwise use configured spring.
+  // slowMo → lazier spring parameters for animation snapshot testing. Declared
+  // early (rather than inline near its original JSX use) so the stageLeft
+  // effect below can drive cameraX with it.
+  const transition =
+    duration === 0
+      ? { duration: 0 }
+      : slowMo
+        ? { type: "spring" as const, stiffness: 30, damping: 8 }
+        : { type: "spring" as const, stiffness, damping };
+
+  // S3 motion pipeline: cameraX mirrors stageLeft (above) as a MotionValue so
+  // the stage's `left` (camera pan) can be driven off React's render cycle,
+  // matching SceneColumn's scrollY/composedTop seam.
+  const cameraX = useMotionValue(0);
+  const motionSeam = useMotionSeam();
+  useEffect(() => {
+    motionSeam?.registerMotionValue("cameraX", cameraX);
+  }, [motionSeam, cameraX]);
+
   // Tracks the previous focused-column-name set (joined, DOM order) so the
   // stageLeft effect below can detect when the focused layout actually
   // changes — the trigger for resetting native horizontal scroll (B1).
@@ -773,8 +794,25 @@ function SceneViewport({
       newOverflowsX = true;
     }
 
+    const stageLeftChanged = stageLeft !== newStageLeft;
     setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
     setOverflowsX((prev) => (prev === newOverflowsX ? prev : newOverflowsX));
+
+    // Drive cameraX in parallel (S3 motion pipeline seam), gated on an actual
+    // change to avoid restarting a spring toward its own current target on
+    // every render (this effect runs unconditionally every render). duration=0
+    // uses `.set()` directly (forecast-gate adjudication #1 — async completion
+    // semantics differ from animate(...,{duration:0})); otherwise `animate()`
+    // retargets the in-flight spring, matching the old animate={{left}} prop's
+    // per-render retarget behavior.
+    if (stageLeftChanged) {
+      if (duration === 0) {
+        cameraX.set(newStageLeft);
+      } else {
+        const controls = animate(cameraX, newStageLeft, transition);
+        motionSeam?.registerControls("cameraX", controls);
+      }
+    }
   });
 
   // Measure the rightmost focused column's left edge relative to the stage
@@ -841,13 +879,6 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, []);
 
-  const transition =
-    duration === 0
-      ? { duration: 0 }
-      : slowMo
-        ? { type: "spring" as const, stiffness: 30, damping: 8 }
-        : { type: "spring" as const, stiffness, damping };
-
   return (
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
@@ -893,8 +924,6 @@ function SceneViewport({
             ref={stageRef}
             data-stage
             initial={false}
-            animate={{ left: stageLeft }}
-            transition={transition}
             onLayoutAnimationStart={onTransitionStart}
             onLayoutAnimationComplete={onTransitionComplete}
             onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
@@ -902,11 +931,15 @@ function SceneViewport({
             style={{
               position: "absolute",
               top: 0,
-              // Only set left in style for instant mode (duration=0, tests).
-              // For real animations, animate={{ left }} springs from previous
-              // position. Setting both style.left AND animate.left causes an
-              // instant jump (style applies synchronously, defeating the spring).
-              ...(duration === 0 ? { left: stageLeft } : {}),
+              // Instant mode (duration=0): the synchronous plain-number
+              // write, unchanged from before S3 (forecast-gate adjudication
+              // #1) — left is NOT MotionValue-driven here.
+              // Real animation: left is the cameraX MotionValue, driven by
+              // the stageLeft effect above off React's render cycle (no more
+              // `animate` prop on this element — onAnimationStart/Complete
+              // above are now dead wiring for the camera pan specifically;
+              // debug-overlay staleness is accepted, see motionSeam.ts).
+              ...(duration === 0 ? { left: stageLeft } : { left: cameraX }),
               height: "100%",
               display: "flex",
               flexDirection: "row",

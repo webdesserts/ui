@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { motion } from "motion/react";
+import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { useSceneConfig } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
@@ -18,6 +18,7 @@ import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
+import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
@@ -272,6 +273,48 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   const stackDepth = stackDepths.get(name) ?? 0;
   const firstPaintRef = useContext(SceneFirstPaintContext);
 
+  // duration=0 → instant transitions for tests; otherwise use configured spring.
+  // slowMo → lazier spring parameters for animation snapshot testing.
+  // Declared early (rather than inline near its original JSX use) so the
+  // motion pipeline below (driveScrollYRef) can close over it.
+  const transition =
+    duration === 0
+      ? { duration: 0 }
+      : slowMo
+        ? { type: "spring" as const, stiffness: 30, damping: 8 }
+        : { type: "spring" as const, stiffness, damping };
+
+  // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
+  // so the content wrapper's `top` can be driven off React's render cycle —
+  // touch pan (commit 2) needs 1:1 per-frame writes without forcing a
+  // re-render on every pointermove. scrollY represents the JS scroll amount
+  // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
+  // for inertia's min/max in commit 2.
+  const scrollY = useMotionValue(0);
+  const motionSeam = useMotionSeam();
+  useEffect(() => {
+    motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
+  }, [motionSeam, scrollY, name]);
+
+  // Drives scrollY in parallel with the existing scrollOffset React state at
+  // every write site below (wheel/keyboard/swap-reset/scrollbar). duration=0
+  // uses `.set()` directly (NOT animate(...,{duration:0}) — async completion
+  // semantics differ, forecast-gate adjudication #1); otherwise `animate()`
+  // retargets the in-flight spring exactly like the old animate={{top}} prop
+  // did on every tick (the "spring-chase" feel). Stored in a ref (mirroring
+  // this file's viewportHeightRef/maxScrollRef pattern) so the stable-closure
+  // effects below (wheel, keyboard — subscribed once via `[]` deps) always
+  // call the latest version instead of a stale one captured at mount.
+  const driveScrollYRef = useRef<(target: number) => void>(() => {});
+  driveScrollYRef.current = (target: number) => {
+    if (duration === 0) {
+      scrollY.set(target);
+    } else {
+      const controls = animate(scrollY, target, transition);
+      motionSeam?.registerControls(`scrollY:${name}`, controls);
+    }
+  };
+
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
   // Single measurement layer: every registered object's offsetTop/height,
@@ -343,6 +386,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       const clamped = Math.min(scrollOffsetRef.current, maxScroll);
       scrollOffsetRef.current = clamped;
       setScrollOffset(clamped);
+      driveScrollYRef.current(clamped);
     }
   }, [maxScroll]);
 
@@ -361,6 +405,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       );
       scrollOffsetRef.current = newOffset;
       setScrollOffset(newOffset);
+      driveScrollYRef.current(newOffset);
     };
 
     el.addEventListener("columnscroll", handler);
@@ -419,12 +464,14 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           // Scroll to top: set offset to 0
           scrollOffsetRef.current = 0;
           setScrollOffset(0);
+          driveScrollYRef.current(0);
           e.preventDefault();
           return;
         case "End":
           // Scroll to bottom
           scrollOffsetRef.current = maxScrollRef.current;
           setScrollOffset(maxScrollRef.current);
+          driveScrollYRef.current(maxScrollRef.current);
           e.preventDefault();
           return;
         default:
@@ -438,6 +485,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         );
         scrollOffsetRef.current = newOffset;
         setScrollOffset(newOffset);
+        driveScrollYRef.current(newOffset);
         e.preventDefault();
       }
     };
@@ -706,6 +754,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
     scrollOffsetRef.current = nextOffset;
     setScrollOffset(nextOffset);
+    driveScrollYRef.current(nextOffset);
     // Keep the store's offset/key in sync so a LATER swap within the same
     // focused session compares against the truly-latest arrangement, not a
     // stale entry from before this column was even refocused (contentHeightAtSave
@@ -719,6 +768,29 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused, focusedObjectKey]);
+
+  // Imperative data-scroll-offset attribute writer (forecast-gate adjudication
+  // #2): mirrors SceneObjectOutlines' direct-DOM-mutation pattern rather than
+  // React-rendering the attribute from scrollOffset state — scrollY changes
+  // per-frame during a fling/wheel chase and must not force a re-render on
+  // every tick just to keep this debug/overlay-read attribute current. Syncs
+  // immediately on mount and on every columnFocused flip (re-subscribing with
+  // a fresh closure), then stays current via the scrollY change subscription.
+  useEffect(() => {
+    const el = colRef.current;
+    if (!el) return;
+
+    const sync = (latest: number) => {
+      if (columnFocused) {
+        el.setAttribute("data-scroll-offset", String(latest));
+      } else {
+        el.removeAttribute("data-scroll-offset");
+      }
+    };
+
+    sync(scrollY.get());
+    return scrollY.on("change", sync);
+  }, [columnFocused, scrollY]);
 
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0
@@ -749,15 +821,6 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     };
   }, []);
 
-  // duration=0 → instant transitions for tests; otherwise use configured spring.
-  // slowMo → lazier spring parameters for animation snapshot testing.
-  const transition =
-    duration === 0
-      ? { duration: 0 }
-      : slowMo
-        ? { type: "spring" as const, stiffness: 30, damping: 8 }
-        : { type: "spring" as const, stiffness, damping };
-
   // Debug outline tracking: notify the animation counter in SceneViewport when
   // this column's motion animations start or end. The rAF loop in
   // SceneObjectOutlines runs while the counter is > 0. Only active in debug
@@ -767,8 +830,22 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // The combined vertical offset applied to the content wrapper:
   // - topOffset: vertical swap offset (bring focused object into view)
   // - scrollOffset: JS scroll state (driven by wheel events)
-  // Both are subtracted so positive values slide the content up.
+  // Both are subtracted so positive values slide the content up. Used only
+  // for the instant-mode (duration=0) synchronous style write below — see
+  // composedTop for the real-animation equivalent.
   const combinedTop = -(topOffset + scrollOffset);
+
+  // Real-animation equivalent of combinedTop: a MotionValue derived from
+  // scrollY (the live, per-tick value) composed with topOffset (a per-render
+  // plain number — the swap offset only changes on focus swap, recomputed
+  // synchronously each render from fresh geometry). useTransform recombines
+  // synchronously on every render with a fresh closure (forecast-gate
+  // validated at source: no stale-closure trap), so topOffset here is never
+  // stale even though it isn't itself a MotionValue. NOT used in instant mode
+  // — forecast-gate adjudication #1: relying on motion's rAF-batched style
+  // binding for a synchronous instant-mode write would depend on undocumented
+  // same-frame-ordering internals.
+  const composedTop = useTransform(scrollY, (so) => -(topOffset + so));
 
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
@@ -880,7 +957,10 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         data-column-position={position ?? undefined}
         data-stack-depth={isInBetween ? String(stackDepth) : undefined}
         data-max-scroll={isScrollable ? String(maxScroll) : undefined}
-        data-scroll-offset={columnFocused ? String(scrollOffset) : undefined}
+        /* data-scroll-offset is written imperatively via the scrollY
+           subscription effect below (forecast-gate adjudication #2), not
+           React-rendered — per-tick MotionValue changes during a fling must
+           not force a re-render just to update this attribute. */
         data-content-height={columnFocused ? String(contentHeight) : undefined}
         animate={{
           opacity: depthOpacity,
@@ -916,15 +996,20 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
           aria-label={`${name} content${isScrollable ? ", scrollable" : ""}`}
           tabIndex={0}
           initial={false}
-          animate={{ top: combinedTop, marginTop }}
+          animate={{ marginTop }}
           transition={transition}
           onAnimationStart={animCallbacks?.onStart}
           onAnimationComplete={animCallbacks?.onEnd}
           style={{
             position: "relative",
-            // Only set top and marginTop in style for instant mode (duration=0).
-            // For real animations, animate springs from previous values.
-            ...(duration === 0 ? { top: combinedTop, marginTop } : {}),
+            // Instant mode (duration=0): the synchronous plain-number write,
+            // unchanged from before S3 (forecast-gate adjudication #1) — top
+            // is NOT MotionValue-driven here.
+            // Real animation: top is the composedTop MotionValue, updated
+            // off React's render cycle. marginTop still springs via animate
+            // above (unchanged) — only its own instant-mode style mirror
+            // moves with `duration === 0` here, same as before.
+            ...(duration === 0 ? { top: combinedTop, marginTop } : { top: composedTop }),
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
@@ -942,6 +1027,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
             onScroll={(newOffset) => {
               scrollOffsetRef.current = newOffset;
               setScrollOffset(newOffset);
+              driveScrollYRef.current(newOffset);
             }}
           />
         )}
