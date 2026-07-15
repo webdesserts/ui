@@ -1,7 +1,7 @@
 import React, { createContext, isValidElement, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
-import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE } from "./useSceneConfig";
+import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
 import { CameraContext } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
@@ -145,6 +145,13 @@ export interface SceneProps {
   damping?: number;
   /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to DEFAULT_PERSPECTIVE (800). */
   perspective?: number;
+  /**
+   * Per-depth-level peek offset (in px) for depth-deck cards — how far a
+   * deck card peeks out in the direction it travels when pulled from the
+   * deck (column decks peek left, within-column decks peek up), fanned by
+   * depth. Defaults to DEFAULT_PEEK_OFFSET (12).
+   */
+  peekOffset?: number;
 }
 
 /** A snapshot of a SceneObject's state for the debug overlay. */
@@ -1025,6 +1032,7 @@ export function Scene({
   stiffness = DEFAULT_STIFFNESS,
   damping = DEFAULT_DAMPING,
   perspective = DEFAULT_PERSPECTIVE,
+  peekOffset = DEFAULT_PEEK_OFFSET,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
   const debugObjects = debug ? collectObjectEntries(children) : null;
@@ -1083,7 +1091,7 @@ export function Scene({
   return (
     <SceneFirstPaintContext.Provider value={firstPaintRef}>
     <SceneConfigContext.Provider
-      value={{ stiffness, damping, perspective, padding, columnGap, duration: effectiveDuration, debug, slowMo }}
+      value={{ stiffness, damping, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo }}
     >
       <CameraContext.Provider
         value={{

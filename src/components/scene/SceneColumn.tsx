@@ -263,7 +263,7 @@ export interface SceneColumnProps {
 export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration, stiffness, damping, padding, slowMo } = useSceneConfig();
+  const { duration, stiffness, damping, padding, slowMo, peekOffset } = useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
@@ -898,11 +898,15 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // and stacked lower (z-index).
   const isInBetween = position === "in-between" && stackDepth > 0;
 
-  // In-between columns animate toward the rightmost focused column's left edge.
-  // Perspective projection naturally shifts them toward the perspective-origin,
-  // creating the peek effect without a manual x offset.
+  // In-between columns animate toward the rightmost focused column's left edge,
+  // then peek out further left by an explicit per-depth offset (A5 — the
+  // pull-out-direction principle: a deck card peeks in the direction it
+  // travels when pulled from the deck, so a column deck anchored under the
+  // right focused column peeks left). Fanned by stackDepth so every deeper
+  // card's left edge stays visible past its shallower neighbors. This is a
+  // manual offset, not an emergent artifact of perspective projection.
   // Outer columns stay at x:0 — they're in the natural flex row position.
-  const animateX = position === "in-between" ? stackTargetLeft : 0;
+  const animateX = position === "in-between" ? stackTargetLeft - peekOffset * stackDepth : 0;
   // translateZ pushes in-between columns back in 3D space. The stage's
   // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
   // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.

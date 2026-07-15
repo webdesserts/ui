@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
 import { ColumnContext } from "./SceneColumn";
 import { computeDepthTreatment } from "./depth";
+import { useSceneConfig } from "./useSceneConfig";
 
 export interface SceneObjectProps {
   /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
@@ -49,6 +50,7 @@ export interface SceneObjectProps {
 export function SceneObject({ name, focused, children, onActivate, style }: SceneObjectProps) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const column = useContext(ColumnContext);
+  const { peekOffset } = useSceneConfig();
 
   // Register this object's DOM element with the parent SceneColumn so the
   // column can track it. useLayoutEffect fires bottom-up (children before
@@ -108,9 +110,14 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
       : withinDepthInfo && withinDepth
         ? {
             position: "absolute",
-            // Anchor near the lower focused sibling. Perspective projection
-            // handles the visual depth — no manual peek offset needed.
-            top: withinDepthInfo.anchorTop,
+            // Anchor near the lower focused sibling, then peek UP past its
+            // top edge by an explicit per-depth offset (A5 — the
+            // pull-out-direction principle: a within-column deck card
+            // anchored under the lower focused sibling peeks up, the
+            // direction it travels when pulled from the deck). Fanned by
+            // depth so every deeper card's top edge stays visible past its
+            // shallower neighbors.
+            top: withinDepthInfo.anchorTop - peekOffset * withinDepthInfo.depth,
             // translateZ pushes this object back in 3D space. The column
             // content wrapper's perspective (800px) projects it smaller:
             // depth-1 → 800/900 ≈ 0.89×, depth-2 → 800/1000 = 0.80×.

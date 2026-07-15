@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
-import { render } from "vitest-browser-react";
+import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { TestWrapper } from "./test-wrapper";
@@ -18,6 +18,22 @@ async function getColumnStyle(
   const content = getByTestId(testId).element() as HTMLElement;
   const column = content.closest("[data-column]") as HTMLElement;
   return window.getComputedStyle(column);
+}
+
+/**
+ * Extracts the raw (pre-perspective-projection) translateX value written to
+ * an element's inline `transform` style. Motion writes this as either
+ * `translate3d(x, y, z)` or, when y is 0, separate `translateX(x)
+ * translateZ(z)` functions — this matches either shape. Depth-deck geometry
+ * assertions read this raw value rather than getBoundingClientRect() because
+ * CSS perspective projection scales rendered pixel positions non-linearly by
+ * depth (deeper cards are foreshortened more), while the x offset actually
+ * written to the transform (what SceneColumn's animateX computes) is exact.
+ */
+function parseTranslateX(transform: string): number {
+  const match = transform.match(/translateX?\(([-\d.]+)px(?:,|\))/) ?? transform.match(/translate3d\(([-\d.]+)px/);
+  if (!match) throw new Error(`Could not parse translateX from transform: "${transform}"`);
+  return parseFloat(match[1]!);
 }
 
 // ---------------------------------------------------------------------------
@@ -3153,6 +3169,194 @@ describe("Scene depth deck stacking", () => {
     expect(filter2).toContain("grayscale(0.25)");
     expect(filter1).toContain("grayscale(0.5)");
   });
+
+  // A5 — the pull-out-direction principle: a deck card peeks out in the
+  // direction it travels when pulled from the deck. Column decks anchor
+  // under the right focused column and peek left, as explicit per-depth
+  // offsets (peekOffset, fanned by depth) rather than the 1-2px emergent
+  // perspective artifact the deck previously relied on.
+
+  test("depth-1 in-between column peeks left by exactly peekOffset (default)", async () => {
+    const scene = (peekOffset: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0} peekOffset={peekOffset}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    // Render once with peekOffset=0 to establish the flush anchor (stackTargetLeft
+    // itself — the pre-A5 baseline, unaffected by the peek mechanism), then
+    // again with the default peekOffset — cleanup() between renders keeps the
+    // two mounts from colliding on shared data-testids within this one test.
+    const flush = await render(scene(0));
+    const flushMiddle = flush.getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    const flushX = parseTranslateX(flushMiddle.style.transform);
+    await cleanup();
+
+    const peeked = await render(scene(12));
+    const rightCol = peeked.getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const middleCol = peeked.getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // The raw x offset written to the transform (pre-projection) sits
+    // exactly peekOffset left of the flush anchor — this is what
+    // SceneColumn's animateX actually computes, undistorted by rendering.
+    expect(flushX - parseTranslateX(middleCol.style.transform)).toBe(12);
+
+    // Rendered (post-perspective-projection) left edge: the peek is also
+    // visibly observable, attenuated somewhat by perspective foreshortening
+    // at depth-1 (~0.89x scale — see computeDepthTreatment) — toBeCloseTo(-1)
+    // (tolerance <5px) accommodates that attenuation while still clearly
+    // discriminating from the pre-A5 ~1-2px emergent shift.
+    const rightRect = rightCol.getBoundingClientRect();
+    const middleRect = middleCol.getBoundingClientRect();
+    expect(rightRect.left - middleRect.left).toBeCloseTo(12, -1);
+  });
+
+  test("multiple in-between columns peek left by an additional peekOffset increment per depth (fanned)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // col-middle2 → depth-1, col-middle1 → depth-2 (further from col-right).
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+
+    const depth1X = parseTranslateX(middle2.style.transform);
+    const depth2X = parseTranslateX(middle1.style.transform);
+
+    // Each successive depth level peeks by one additional peekOffset
+    // increment (12px default) — exact, since this reads the raw
+    // pre-projection transform value rather than rendered pixels.
+    expect(depth1X - depth2X).toBe(12);
+  });
+
+  test("custom peekOffset prop changes the column deck peek offsets accordingly", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} peekOffset={20}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
+
+    const depth1X = parseTranslateX(middle2.style.transform);
+    const depth2X = parseTranslateX(middle1.style.transform);
+
+    // With peekOffset=20, depth-1 peeks by 20 and depth-2 by 2*20=40 — the
+    // fan increment between them is the configured peekOffset, not the
+    // default.
+    expect(depth1X - depth2X).toBe(20);
+  });
+
+  test("peekOffset={0} reproduces the old flush-anchored behavior (no fan)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} peekOffset={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle1">
+            <SceneObject name="obj-middle1" focused={false}>
+              <div data-testid="content-middle1" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle2">
+            <SceneObject name="obj-middle2" focused={false}>
+              <div data-testid="content-middle2" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
+    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
+
+    // With no peek offset, every in-between column anchors flush at
+    // stackTargetLeft regardless of depth — the pre-A5 behavior, where only
+    // perspective projection (not a manual x offset) distinguished depths.
+    expect(parseTranslateX(middle1.style.transform)).toBe(parseTranslateX(middle2.style.transform));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4203,7 +4407,8 @@ describe("SceneColumn within-column depth deck", () => {
 
   test("within-column depth object is anchored at the lower focused sibling with translateZ depth", async () => {
     // A (focused, 200px tall), B (unfocused), C (focused, 200px tall)
-    // B is anchored at C's top position and uses translateZ for 3D depth.
+    // B is anchored at C's top position (peeking up by the default
+    // peekOffset — A5) and uses translateZ for 3D depth.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -4228,9 +4433,112 @@ describe("SceneColumn within-column depth deck", () => {
     // Depth-1 objects are pushed back 100px in Z space.
     expect(objB.style.transform).toContain("translateZ(-100px)");
 
-    // B is anchored at C's top (anchorTop = height of A = 200px). The `top`
-    // style property should be set to the anchorTop value.
+    // B is anchored at C's top (anchorTop = height of A = 200px), then peeks
+    // up past it by the default peekOffset (12px) — A5, the pull-out-direction
+    // principle. The `top` style property should be set to anchorTop - peekOffset.
     expect(objB.style.position).toBe("absolute");
+    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 12, -1);
+  });
+
+  // A5 — the pull-out-direction principle: a within-column deck card peeks
+  // UP past the lower focused sibling's top edge, as explicit per-depth
+  // offsets (peekOffset, fanned by depth).
+
+  test("multiple unfocused objects between focused siblings peek up by an additional peekOffset increment per depth (fanned)", async () => {
+    // A (focused), B (unfocused, depth-2), C (unfocused, depth-1), D (focused)
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+            <SceneObject name="obj-d" focused>
+              <div data-testid="content-d" style={{ width: 300, height: 200 }}>D</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+
+    // anchorTop = D's offsetTop = height of A = 200 (A and D are the only
+    // in-flow siblings — B and C are absolutely positioned depth cards, so D
+    // sits directly after A regardless of how many depth cards sit between).
+    // C (depth-1) peeks up by 12px, B (depth-2) by 24px (default peekOffset).
+    expect(parseInt(objC.style.top)).toBeCloseTo(200 - 12, -1);
+    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 24, -1);
+  });
+
+  test("custom peekOffset prop changes the within-column deck peek offsets accordingly", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} peekOffset={20}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+            <SceneObject name="obj-d" focused>
+              <div data-testid="content-d" style={{ width: 300, height: 200 }}>D</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+
+    // anchorTop = 200 (A's height; A and D are the only in-flow siblings).
+    // With peekOffset=20, C (depth-1) peeks up by 20px and B (depth-2) by
+    // 2*20=40px.
+    expect(parseInt(objC.style.top)).toBeCloseTo(200 - 20, -1);
+    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 40, -1);
+  });
+
+  test("peekOffset={0} reproduces the old flush-anchored behavior (no peek)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} peekOffset={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>B</div>
+            </SceneObject>
+            <SceneObject name="obj-c" focused={false}>
+              <div data-testid="content-c" style={{ width: 300, height: 200 }}>C</div>
+            </SceneObject>
+            <SceneObject name="obj-d" focused>
+              <div data-testid="content-d" style={{ width: 300, height: 200 }}>D</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
+    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+
+    // With no peek offset, both depths anchor flush at anchorTop (200) —
+    // the pre-A5 behavior, where only translateZ (not a manual top offset)
+    // distinguished depths.
+    expect(parseInt(objC.style.top)).toBeCloseTo(200, -1);
     expect(parseInt(objB.style.top)).toBeCloseTo(200, -1);
   });
 });
