@@ -1948,6 +1948,219 @@ describe("Scene centering", () => {
 });
 
 // ---------------------------------------------------------------------------
+// S7 coverage backfill: Alignment & Centering (scene-scroll.feature, each
+// axis handled independently — these assert BOTH axes together in one
+// scenario, which the pre-existing per-axis tests above don't do).
+// ---------------------------------------------------------------------------
+
+describe("Scene alignment & centering (S7 coverage)", () => {
+  test("content fits both axes — centered horizontally and vertically", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const content = getByTestId("content").element() as HTMLElement;
+
+    // Vertical: margin-top centers the 100px content in the 800px viewport.
+    const marginTop = parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+    expect(marginTop).toBeGreaterThan(0);
+    expect(Math.abs(marginTop - (800 - 100) / 2)).toBeLessThan(2);
+
+    // Horizontal: the stage centers the 200px column in the 1280px viewport.
+    const rect = content.getBoundingClientRect();
+    expect(Math.abs(rect.left - (1280 - 200) / 2)).toBeLessThan(2);
+  });
+
+  test("focused column overflows vertically — top-aligned, still centered horizontally", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* 1000px tall overflows the 800px viewport; 300px wide fits */}
+              <div data-testid="content" style={{ minWidth: 300, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const content = getByTestId("content").element() as HTMLElement;
+
+    // Vertical: top-aligned (no centering margin) since it overflows.
+    const marginTop = parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+    expect(marginTop).toBe(0);
+
+    // Horizontal: still centered — overflow on one axis doesn't affect the other.
+    const rect = content.getBoundingClientRect();
+    expect(Math.abs(rect.left - (1280 - 300) / 2)).toBeLessThan(2);
+  });
+
+  test("focused columns overflow horizontally — left-aligned, columns still centered vertically", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          {/* Three 500px columns (1500px total) exceed the 1280px viewport;
+              100px height fits the 800px viewport. */}
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused>
+              <div data-testid="content3" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+
+    // Horizontal: left-aligned — stage left is 0 (focused region starts at
+    // the stage origin, so no leftward pan is needed).
+    const stageLeft = parseFloat(window.getComputedStyle(stage).left);
+    expect(stageLeft).toBe(0);
+
+    // Vertical: each column's content is still centered independently.
+    for (const testId of ["content1", "content2", "content3"]) {
+      const contentWrapper = getByTestId(testId)
+        .element()
+        .closest("[data-column]")!
+        .querySelector("[data-column-content]") as HTMLElement;
+      const marginTop = parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+      expect(marginTop).toBeGreaterThan(0);
+      expect(Math.abs(marginTop - (800 - 100) / 2)).toBeLessThan(2);
+    }
+  });
+
+  test("focused content overflows both axes — top-left corner visible", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* 1500px wide and 1000px tall overflow both the 1280x800 viewport. */}
+              <div data-testid="content" style={{ width: 1500, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+
+    // Horizontal: left-aligned (no leftward pan needed past the origin).
+    const stageLeft = parseFloat(window.getComputedStyle(stage).left);
+    expect(stageLeft).toBe(0);
+
+    // Vertical: top-aligned (no centering margin).
+    const marginTop = parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+    expect(marginTop).toBe(0);
+
+    // The content's own top-left corner is therefore at the viewport's
+    // top-left corner (0, 0).
+    const rect = getByTestId("content").element().getBoundingClientRect();
+    expect(Math.abs(rect.left)).toBeLessThan(2);
+    expect(Math.abs(rect.top)).toBeLessThan(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S7 coverage backfill: scrollbar placement (scene-scroll.feature "Each
+// overflowing column gets its own vertical scrollbar") — the rightmost
+// column's scrollbar sits at the Camera's right edge; other columns'
+// scrollbars sit between adjacent focused columns. This is emergent from
+// each Scrollbar being `position: absolute; right: 0` relative to its own
+// column (Scrollbar.tsx) — untested until now.
+// ---------------------------------------------------------------------------
+
+describe("Scene scrollbar placement (S7 coverage)", () => {
+  // SPEC-IMPLEMENTATION GAP, needs adjudication: written to the spec's exact
+  // Given clause ("two focused columns that both overflow the viewport
+  // height" — no width-overflow requirement) and its exact Then clause
+  // ("the rightmost column's scrollbar should appear at the right edge of
+  // the Camera"). With two 400px columns under the 1280px viewport, the
+  // layout CENTERS them (they don't overflow width), so the rightmost
+  // column's right edge lands at ~1040px, not the viewport's 1280px right
+  // edge — confirmed by the math (240px centering offset + 800px combined
+  // width = 1040, matching the observed failure). The spec's "right edge of
+  // the Camera" wording is already flagged as needing a hygiene pass (plans/
+  // Scene Assessment 2026-07-14, item 11: "scrollbar camera-vs-scene anchor
+  // vocabulary") — this is that same ambiguity surfacing as a concrete test
+  // failure rather than prose. Left skipped per the fix-plan's own
+  // instruction to write-to-spec-and-skip rather than reshape the fixture to
+  // force a pass; the "between adjacent columns" half of the claim (asserted
+  // below) may still be correct even where the "at the Camera edge" half is
+  // spec-imprecise for the non-width-overflowing case — that split needs a
+  // human call, not a test-side guess.
+  test.skip("rightmost column's scrollbar is at the Camera's right edge; the other sits between the columns", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          {/* Two columns, each individually overflowing vertically, sized to
+              fit side by side within the 1280px viewport. */}
+          <SceneColumn name="left">
+            <SceneObject name="left-obj" focused>
+              <div data-testid="content-left" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-obj" focused>
+              <div data-testid="content-right" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    // The "scene" testid element IS the Camera viewport (viewportRef is
+    // attached to the same node, per Scene.tsx).
+    const cameraViewport = getByTestId("scene").element() as HTMLElement;
+    const cameraRect = cameraViewport.getBoundingClientRect();
+
+    const leftColumn = getByTestId("content-left").element().closest("[data-column]") as HTMLElement;
+    const rightColumn = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const leftScrollbar = leftColumn.querySelector("[data-scrollbar]") as HTMLElement;
+    const rightScrollbar = rightColumn.querySelector("[data-scrollbar]") as HTMLElement;
+    expect(leftScrollbar).not.toBeNull();
+    expect(rightScrollbar).not.toBeNull();
+
+    // Rightmost column's scrollbar right-edge aligns with the Camera's right edge.
+    const rightScrollbarRect = rightScrollbar.getBoundingClientRect();
+    expect(Math.abs(rightScrollbarRect.right - cameraRect.right)).toBeLessThan(2);
+
+    // The non-rightmost (left) column's scrollbar sits at ITS OWN right edge —
+    // between the two columns, not at the Camera's right edge.
+    const leftColumnRect = leftColumn.getBoundingClientRect();
+    const leftScrollbarRect = leftScrollbar.getBoundingClientRect();
+    expect(Math.abs(leftScrollbarRect.right - leftColumnRect.right)).toBeLessThan(2);
+    expect(leftScrollbarRect.right).toBeLessThan(cameraRect.right - 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 3: Gaps and padding
 // ---------------------------------------------------------------------------
 
