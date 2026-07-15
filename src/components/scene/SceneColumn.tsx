@@ -659,10 +659,21 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     const wrapperRect = wrapper.getBoundingClientRect();
     for (const [objName, el] of registeredEls.current) {
       const rect = el.getBoundingClientRect();
-      geometryStore.current.set(objName, {
-        offsetTop: rect.top - wrapperRect.top,
-        height: el.offsetHeight,
-      });
+      const offsetTop = rect.top - wrapperRect.top;
+      const height = el.offsetHeight;
+      geometryStore.current.set(objName, { offsetTop, height });
+      // F4 feature (c) debug-only mirror: exposes this store's per-object
+      // entries to the debug overlay's geometry-store inspector without
+      // giving it a live React-level handle into this column's internal
+      // ref. Imperative attribute write (not React-rendered), same
+      // rationale as data-scroll-offset's own writer below — this runs on
+      // every remeasure pass (potentially every ResizeObserver tick), and
+      // React-rendering it would force a re-render on every tick just to
+      // keep a debug-only number current. Unconditional (not gated on
+      // `debug`), matching data-scroll-offset's own precedent — a plain
+      // attribute write doesn't affect layout either way.
+      el.setAttribute("data-geometry-offset-top", String(Math.round(offsetTop)));
+      el.setAttribute("data-geometry-height", String(Math.round(height)));
     }
     const fingerprint = Array.from(geometryStore.current.entries())
       .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}`)

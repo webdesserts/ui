@@ -1089,6 +1089,28 @@ function SceneDebugOverlay({
     }
   }
 
+  // F4 feature (c) geometry-store inspector: reads SceneColumn's per-object
+  // data-geometry-offset-top/height mirror (written by remeasureGeometry —
+  // see SceneColumn.tsx), grouped by parent column. No provenance tag
+  // (seeded-at-registration vs remeasured, as originally scoped) — SceneColumn
+  // has exactly ONE write site into its geometryStore (remeasureGeometry's
+  // bulk pass; verified at source, no separate registration-time seed
+  // exists), so a provenance boolean would have nothing real to distinguish.
+  const geometryByColumn = new Map<string, Array<{ name: string; offsetTop: number; height: number }>>();
+  if (viewport) {
+    viewport.querySelectorAll<HTMLElement>("[data-geometry-offset-top]").forEach((el) => {
+      const name = el.getAttribute("data-scene-id") ?? "?";
+      const columnName = el.closest<HTMLElement>("[data-column]")?.getAttribute("data-column") ?? "?";
+      const entries = geometryByColumn.get(columnName) ?? [];
+      entries.push({
+        name,
+        offsetTop: parseFloat(el.getAttribute("data-geometry-offset-top") ?? "0"),
+        height: parseFloat(el.getAttribute("data-geometry-height") ?? "0"),
+      });
+      geometryByColumn.set(columnName, entries);
+    });
+  }
+
   return (
     <div
       data-debug-overlay
@@ -1174,6 +1196,28 @@ function SceneDebugOverlay({
               {" / "}
               <span>{Math.round(col.contentHeight - col.viewportHeight)}</span>
               {col.scrollable ? " (scrollable)" : " (fits)"}
+            </div>
+          ))}
+        </>
+      )}
+
+      {geometryByColumn.size > 0 && (
+        <>
+          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
+            Geometry store
+          </div>
+          {Array.from(geometryByColumn.entries()).map(([columnName, entries]) => (
+            <div key={columnName} data-debug-geometry-column={columnName}>
+              <span style={{ color: "#c4b5fd" }}>{columnName}</span>
+              {entries.map((entry) => (
+                <div key={entry.name} style={{ paddingLeft: 8 }} data-debug-geometry-object={entry.name}>
+                  <span style={{ color: "#9ca3af" }}>{entry.name}</span>
+                  {": top="}
+                  {Math.round(entry.offsetTop)}
+                  {" h="}
+                  {Math.round(entry.height)}
+                </div>
+              ))}
             </div>
           ))}
         </>

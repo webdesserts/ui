@@ -1438,6 +1438,66 @@ describe("Scene debug — paint-order badges", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F4 commit 2 feature (c): geometry-store inspector
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — geometry store inspector", () => {
+  test("overlay lists each registered object's offsetTop/height, grouped by column", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 150 }} />
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 80 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("content-a").element().closest("[data-testid='scene']") as HTMLElement;
+    const overlay = scene.querySelector("[data-debug-overlay]");
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain("Geometry store");
+
+    const columnSection = scene.querySelector("[data-debug-geometry-column='col']");
+    expect(columnSection).not.toBeNull();
+
+    // obj-a is focused, so its offsetTop should be 0 (it's the visible
+    // top of the content wrapper) and its height should match the 150px
+    // content.
+    const objA = scene.querySelector("[data-debug-geometry-object='obj-a']");
+    expect(objA?.textContent).toContain("top=0");
+    expect(objA?.textContent).toContain("h=150");
+
+    // obj-b is unfocused (not a depth card here — nothing focused after
+    // it), still registered and measured — the geometry store tracks every
+    // registered object, not just focused ones.
+    const objB = scene.querySelector("[data-debug-geometry-object='obj-b']");
+    expect(objB).not.toBeNull();
+    expect(objB?.textContent).toContain("h=80");
+  });
+
+  test("no geometry-store section when nothing is registered yet (e.g. no columns)", async () => {
+    // A Scene with no children still renders (edge case) — no geometry
+    // section should appear, and the overlay must not throw.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0} debug>
+          <></>
+        </Scene>
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element();
+    expect(scene.querySelector("[data-debug-overlay]")).not.toBeNull();
+    expect(scene.querySelectorAll("[data-debug-geometry-column]").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 10a: Debug — remaining overlay features
 // ---------------------------------------------------------------------------
 
