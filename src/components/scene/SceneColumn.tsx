@@ -743,7 +743,16 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // within-column swap (columnFocused stays true throughout a swap, so a
   // [columnFocused]-only effect like this one would never see it — probe-
   // confirmed: a swap left the prior scroll offset untouched).
-  useEffect(() => {
+  //
+  // B14: useLayoutEffect, NOT useEffect. A plain passive effect fires one
+  // paint AFTER the commit that flips columnFocused — so on unfocus, the
+  // column briefly renders at its NATURAL (unfrozen) size for one real
+  // frame before collapsing/freezing; on rapid re-toggling, this can also
+  // freeze mid-FLIP projected dimensions (the same class of transform-
+  // distortion H11 fixed for content height, but for the frozen width/
+  // height snapshot itself). useLayoutEffect fires synchronously pre-paint,
+  // closing that one-frame gap.
+  useLayoutEffect(() => {
     if (columnFocused) {
       wasEverFocused.current = true;
       // Re-focusing — clear the frozen size so the column returns to flex flow.

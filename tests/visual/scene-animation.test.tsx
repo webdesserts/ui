@@ -927,31 +927,40 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
 // ---------------------------------------------------------------------------
 
 describe("depth-deck bug-fix regressions", () => {
-  // S7: attempted the motionSeam pinnable rewrite and REVERTED — unlike the
-  // layout-flip tests above, this fixture DOES have real freezable content
-  // (instrumented probe confirmed 2 genuine WAAPI animations, opacity +
-  // filter, registering after 1 frame — Bug 2b's fix — plus a real ~1s
-  // cameraX rAF track), so freezeAnimationsAt + pinAllRegisteredAnimations
-  // froze/pinned those tracks correctly. But Middle A's POSITION was still
-  // non-deterministic across runs even after pinning every registered
-  // track — a diff between two otherwise-identical runs showed Middle A at
-  // two different vertical offsets (~144k-170k differing pixels). Traced to
-  // a likely cause in SceneColumn.tsx: inBetweenY (the in-between column's
-  // vertical centering offset) is computed from `colHeight`, which falls
-  // back to `frozenSize?.height` — and frozenSize is set by `setFrozenSize`
-  // inside a PASSIVE useEffect (fires one paint after the commit, not a
-  // useLayoutEffect), both on entering AND clearing (re-focusing clears it
-  // via `setFrozenSize(null)`). This is the SAME mechanism as the already-
-  // documented B14 finding in plans/Scene Assessment 2026-07-14 ("Freeze
-  // applied one paint late... can also freeze mid-FLIP projected dimensions
-  // on rapid toggling") — a real, pre-existing PRODUCTION timing gap, not a
-  // test-only artifact. Tried both a single frame and a rect-stability
-  // polling loop (up to 20 frames) before freezing; neither reliably
-  // converged, consistent with the position depending on exactly when a
-  // passive effect lands relative to the freeze call rather than on elapsed
-  // frame count. A real fix belongs in SceneColumn.tsx (e.g. useLayoutEffect
-  // for setFrozenSize, per B14) — out of scope for this test-infrastructure
-  // slice. Kept skipped; flagging B14 as the blocking production item.
+  // B14 FIXED in production (SceneColumn.tsx: setFrozenSize/
+  // setFrozenContentHeight moved from a passive useEffect to
+  // useLayoutEffect — closes the one-paint-late freeze gap this comment used
+  // to describe; see H11's fix for the sibling content-height mechanism).
+  //
+  // Re-attempted the un-skip after landing B14, per the fix wave's
+  // instruction — VERIFIED NOT SUFFICIENT: 10 runs of this test against the
+  // (stale, pre-fix) stored baseline produced 10 DIFFERENT diff-pixel counts
+  // (76,572 / 80,622 / 81,537 / 85,944 / 86,184 / 88,661 / 92,278 / 99,556 /
+  // 104,752 / 79,398 — a ~30% relative spread), so real, still-unpinned
+  // non-determinism remains (the average magnitude dropped substantially
+  // from B14 fixing the content-height swing, but did not reach the
+  // 10x-identical bar this un-skip needs).
+  //
+  // Root cause is NOT B14 — it's a second, independent mechanism: unlike
+  // this file's other real-animation tests ("camera-pan-mid-spring",
+  // "unfocus-sync-mid-spring"), THIS test never wraps a
+  // MotionSeamContext.Provider / calls pinAllRegisteredAnimations. Middle A
+  // becoming newly focused changes the focused-column SET (adds "middle-a"),
+  // which triggers a REAL cameraX pan (Scene.tsx's stageLeft effect) — a
+  // rAF-driven `left` property, not WAAPI, exactly the class this file's own
+  // module doc says freezeAnimationsAt cannot touch. That pan runs
+  // completely uncoupled from freezeAnimationsAt's WAAPI freeze, so Middle
+  // A's exact captured position depends on wall-clock timing relative to the
+  // pan's progress at the moment of freeze — a real source of run-to-run
+  // variance freezeAnimationsAt alone can't close.
+  //
+  // The fix would be the SAME motionSeam-pinning rewrite this file's other
+  // camera-pan tests already use (pin cameraX to the same fraction as the
+  // frozen WAAPI tracks) — a test-infrastructure change, not a B14-adjacent
+  // production fix, and explicitly out of scope for this item (mirrors S7's
+  // own "attempted... and REVERTED" note above). Kept skipped; the
+  // motionSeam-pinning rewrite is the next concrete step for whoever picks
+  // this back up.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
