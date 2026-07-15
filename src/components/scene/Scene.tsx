@@ -200,6 +200,39 @@ interface DebugColumnStackEntry {
   depth: number;
 }
 
+// Module-level (not per-Scene-instance) — dev-warn dedup for warnStrayChild
+// below, keyed by the child's own `type` (component reference, or the DOM
+// tag string for a plain element). One warning per distinct offending type
+// for the lifetime of the module, not once per render/mount — a demo that
+// re-renders every frame (e.g. a live camera-pan readout) must not spam.
+const warnedStrayChildTypes = new Set<unknown>();
+
+/**
+ * Dev warning (H10/small-batch item) for a Scene child that is neither a
+ * SceneColumn nor a SceneObject: `wrapChild` below returns it UNCHANGED, so
+ * it joins the stage's `display: flex` row as a real flex item — silently
+ * widening the stage's scroll extent (scrollWidth) if it renders any actual
+ * size. This bit us via the demos' `CameraDebug` (a plain `<p>` readout
+ * rendered directly inside `<Scene>`) costing a diagnosis round before the
+ * cause was traced to exactly this. Warns once per distinct child type.
+ */
+function warnStrayChild(type: unknown): void {
+  if (warnedStrayChildTypes.has(type)) return;
+  warnedStrayChildTypes.add(type);
+  const typeName =
+    typeof type === "string"
+      ? type
+      : (type as { displayName?: string; name?: string } | null)?.displayName ??
+        (type as { displayName?: string; name?: string } | null)?.name ??
+        "(anonymous)";
+  console.warn(
+    `Scene: child <${typeName}> is neither a SceneColumn nor a SceneObject — it will join the ` +
+      "stage's flex row unchanged and can silently widen the scroll extent if it renders any " +
+      "size. If this is an overlay/debug element (e.g. a camera readout), give it " +
+      "`position: absolute` (or `fixed`) so it exits the flex flow, or render it outside <Scene> instead.",
+  );
+}
+
 /**
  * Wraps a bare SceneObject child in an implicit SceneColumn using the
  * SceneObject's name as the column name. SceneColumn children pass through
@@ -227,6 +260,7 @@ function wrapChild(child: React.ReactNode): React.ReactNode {
     );
   }
 
+  warnStrayChild(child.type);
   return child;
 }
 
@@ -1092,6 +1126,30 @@ function SceneViewport({
             // Thin scrollbar with transparent track so it doesn't eat into content space.
             scrollbarWidth: "thin",
             scrollbarColor: "rgba(128,128,128,0.4) transparent",
+            // H10 (investigated, NOT applied): `scrollbar-gutter: stable`
+            // was tried here to stop overflowX toggling auto<->hidden from
+            // wobbling clientHeight in space-reserving scrollbar
+            // environments. Empirically rejected — two probes on this
+            // codebase's actual Chromium/Playwright test environment: (1)
+            // the height wobble this was meant to fix is NOT reproducible
+            // here at all (clientHeight stayed exactly 800 across an
+            // overflowX auto<->hidden toggle, no scrollbar-gutter present —
+            // this environment's scrollbars don't reserve space); (2)
+            // adding `scrollbarGutter: "stable"` to THIS element (which has
+            // `overflowY: hidden`) reserved gutter space on the WRONG axis —
+            // clientWidth measurably shrank from 1280 to 1269 (~11px), since
+            // the property is spec'd for the BLOCK axis (vertical
+            // scrollbars), not the horizontal scrollbar this element
+            // actually toggles. That regressed 21 visual tests across the
+            // suite for zero benefit (overflow-y here is permanently
+            // hidden — a vertical scrollbar will never appear, so
+            // reserving its gutter is pure loss). There is no symmetric
+            // CSS mechanism for horizontal-scrollbar height reservation as
+            // of this spec level — a real fix (if the wobble is ever
+            // observed on a real device) would need a different approach
+            // (e.g. locking overflow-x to a constant reservation mode
+            // rather than toggling auto/hidden), which is a behavior
+            // change beyond a CSS-only fix and wasn't pursued here.
             // container-type: size lets consumers use cqw/cqh units to size
             // columns relative to the Camera viewport dimensions.
             containerType: "size",

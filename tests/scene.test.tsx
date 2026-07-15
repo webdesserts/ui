@@ -489,6 +489,73 @@ describe("Scene registration architecture (S6)", () => {
     expect(warnSpy.mock.calls.some((args) => String(args[0]).includes("dup"))).toBe(true);
     warnSpy.mockRestore();
   });
+
+  test("H10: warns when a Scene child is neither a SceneColumn nor a SceneObject", async () => {
+    // Mirrors the demos' real CameraDebug bug: a plain component rendered
+    // directly inside <Scene> (not position:absolute) silently joins the
+    // stage's flex row and can widen the scroll extent. Component defined
+    // locally with a unique name so its `type` identity doesn't collide
+    // with the module-level warn-dedup state from any other test.
+    function StrayDebugReadout() {
+      return <p>debug</p>;
+    }
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <StrayDebugReadout />
+        </Scene>
+      </TestWrapper>,
+    );
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const message = String(warnSpy.mock.calls[0]?.[0]);
+    expect(message).toContain("StrayDebugReadout");
+    expect(message).toContain("SceneColumn");
+    expect(message).toContain("SceneObject");
+    // The warning must suggest an actual fix, not just name the problem.
+    expect(message).toMatch(/position:\s*absolute/);
+    expect(message).toMatch(/outside <Scene>/);
+    warnSpy.mockRestore();
+  });
+
+  test("H10: the stray-child warning fires only once per distinct child type, even across remounts", async () => {
+    function AnotherStrayReadout() {
+      return <p>debug 2</p>;
+    }
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const build = () => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div style={{ width: 100, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <AnotherStrayReadout />
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender } = await render(build());
+    await rerender(build());
+    await rerender(build());
+    // cleanup() (not unmount()) between mounts within one test — matches
+    // this file's established pattern (see "depth-1 in-between column peeks
+    // left..." above) for remounting without colliding on shared
+    // data-testids or destabilizing subsequent tests' render roots.
+    await cleanup();
+    await render(build());
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2658,6 +2725,47 @@ describe("Scene horizontal scroll", () => {
 
     expect(window.getComputedStyle(scene).overflowX).toBe("auto");
     expect(scene.scrollLeft).toBe(0);
+  });
+
+  test("H10 (investigated, not applied): overflowX toggling does not wobble clientHeight in this test environment", async () => {
+    // Regression pin for the empirical finding, NOT the CSS mechanism —
+    // `scrollbar-gutter: stable` was tried on the viewport and rejected:
+    // (1) this exact wobble isn't reproducible here (asserted below — this
+    // environment's scrollbars don't reserve space, so there's nothing for
+    // the property to fix in THIS environment); (2) applying it anyway
+    // reserved gutter space on the wrong axis (the property targets
+    // vertical scrollbars; this viewport's overflowY is permanently
+    // hidden), shrinking clientWidth ~11px for zero benefit and regressing
+    // 21 visual tests. See Scene.tsx's viewport style comment for the full
+    // writeup. If a real device ever shows this wobble, the fix needs a
+    // different approach (e.g. locking overflow-x to a constant reservation
+    // mode) — this pin exists so a future re-attempt at the same CSS-only
+    // fix re-discovers the same rejection instead of re-deriving it.
+    const build = (overflow: boolean) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div style={{ minWidth: overflow ? 1000 : 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div style={{ minWidth: overflow ? 1000 : 200, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(false));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const before = scene.clientHeight;
+
+    await rerender(build(true));
+    await waitForAnimationFrame();
+
+    expect(scene.clientHeight).toBe(before);
   });
 });
 
