@@ -47,14 +47,6 @@ interface ColumnRegistration {
   /** Register a SceneObject's outer element. Returns an unregister function. */
   register: (name: string, el: HTMLElement) => () => void;
   /**
-   * Report the in-flow height of this object. Called by focused SceneObjects
-   * after each render so the column has reliable height data for offset
-   * computation — getBoundingClientRect on an absolute-positioned element
-   * reports its intrinsic size, but we need to distinguish "was in flow"
-   * heights from potentially-zero absolute heights.
-   */
-  reportHeight: (name: string, height: number) => void;
-  /**
    * Whether the parent column is in the depth deck (in-between, unfocused).
    * When true, unfocused SceneObjects stay in flow (position: relative) so the
    * column sizes to its content — necessary for perspective-depth width comparison.
@@ -102,19 +94,29 @@ function deriveObjectStates(
   return result;
 }
 
+/** A registered object's measured position within its column's content wrapper. */
+interface GeometryEntry {
+  /** Distance (px) from the content wrapper's top edge to this object's top edge. */
+  offsetTop: number;
+  /** This object's rendered height (px). */
+  height: number;
+}
+
 /**
- * Computes the natural vertical offset (in px) that the content wrapper must
- * slide to bring the (single) focused object into view at the top of the
- * column. Returns 0 when multiple objects are focused (stacking — show from
- * top) or when no objects are focused.
+ * Computes the vertical offset (in px) that the content wrapper must slide to
+ * bring the (single) focused object into view at the top of the column.
+ * Returns 0 when multiple objects are focused (stacking — show from top) or
+ * when no objects are focused.
  *
- * Uses saved natural heights (reported by focused SceneObjects) rather than
- * live getBoundingClientRect() to avoid misreading heights of
- * absolute-positioned elements.
+ * Reads the focused object's own measured offsetTop directly from the
+ * geometry store — every registered object (focused or not, except
+ * within-column depth cards) stays in flow, so its rendered offset already
+ * reflects the real cumulative height (and gap) of everything before it,
+ * with no need to sum anything here.
  */
 function computeTopOffset(
   objectStates: Array<{ name: string; focused: boolean }>,
-  naturalHeights: Map<string, number>,
+  geometryStore: Map<string, GeometryEntry>,
 ): number {
   const focusedNames = objectStates
     .filter((o) => o.focused)
@@ -124,16 +126,7 @@ function computeTopOffset(
   if (focusedNames.length !== 1) return 0;
 
   const focusedName = focusedNames[0]!;
-
-  // Sum the natural heights of all objects that appear before the focused one
-  // in DOM order. Objects that were never focused have no saved height and
-  // contribute 0 (their natural position in the stack).
-  let offset = 0;
-  for (const { name } of objectStates) {
-    if (name === focusedName) break;
-    offset += naturalHeights.get(name) ?? 0;
-  }
-  return offset;
+  return geometryStore.get(focusedName)?.offsetTop ?? 0;
 }
 
 /**
@@ -150,7 +143,7 @@ function computeTopOffset(
  */
 function computeWithinColumnDepths(
   objectStates: Array<{ name: string; focused: boolean }>,
-  naturalHeights: Map<string, number>,
+  geometryStore: Map<string, GeometryEntry>,
 ): Map<string, WithinColumnDepthInfo> {
   const result = new Map<string, WithinColumnDepthInfo>();
   const n = objectStates.length;
@@ -172,16 +165,40 @@ function computeWithinColumnDepths(
     // The object immediately above lowerFocused is depth-1, further away is higher.
     const depth = lowerFocusedIndex - i;
 
-    // anchorTop = cumulative height of all objects before the lower focused sibling.
-    let anchorTop = 0;
-    for (let j = 0; j < lowerFocusedIndex; j++) {
-      anchorTop += naturalHeights.get(objectStates[j]!.name) ?? 0;
-    }
+    // anchorTop = the lower focused sibling's own measured offsetTop — it is
+    // always in flow (focused objects are never depth cards), so its
+    // registered geometry already reflects the real cumulative height of
+    // everything before it.
+    const anchorTop = geometryStore.get(objectStates[lowerFocusedIndex]!.name)?.offsetTop ?? 0;
 
     result.set(objectStates[i]!.name, { depth, anchorTop });
   }
 
   return result;
+}
+
+/**
+ * Sums the rendered heights of every currently-focused object (from the
+ * geometry store) plus the gaps between them. This is the focused-content
+ * scroll range — a distinct concept from topOffset (strip position): it
+ * only ever includes focused content, never unfocused in-flow siblings.
+ */
+function computeFocusedContentHeight(
+  objectStates: Array<{ name: string; focused: boolean }>,
+  geometryStore: Map<string, GeometryEntry>,
+  objectGap: number,
+): number {
+  let focusedHeight = 0;
+  let focusedCount = 0;
+  for (const { name, focused } of objectStates) {
+    if (!focused) continue;
+    focusedCount++;
+    focusedHeight += geometryStore.get(name)?.height ?? 0;
+  }
+  if (focusedCount > 1 && objectGap) {
+    focusedHeight += (focusedCount - 1) * objectGap;
+  }
+  return focusedHeight;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,11 +251,27 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
-  // Natural in-flow heights of each object, updated by focused SceneObjects via
-  // useLayoutEffect. Heights from the previous render are available during the
+  // Single measurement layer: every registered object's offsetTop/height,
+  // relative to the content wrapper. Bulk-remeasured (a) synchronously after
+  // every render via useLayoutEffect and (b) asynchronously by a shared
+  // ResizeObserver that catches content growth with no accompanying render.
+  // Values from the previous render's remeasure are available during the
   // current render — valid for computing swap offsets since object content
   // doesn't change during a focus-only re-render.
-  const naturalHeights = useRef<Map<string, number>>(new Map());
+  const geometryStore = useRef<Map<string, GeometryEntry>>(new Map());
+  // Fingerprint of the last-remeasured geometry, used to bail out of forcing
+  // a re-render (geometryVersion bump) when a ResizeObserver callback fires
+  // but nothing actually moved.
+  const geometryFingerprintRef = useRef("");
+  // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
+  // remeasure finds a real change — forces a re-render so topOffset/
+  // anchorTop/contentHeight recompute from the fresh geometry. The value
+  // itself is never read; only the state update matters.
+  const [, setGeometryVersion] = useState(0);
+  // The ResizeObserver instance shared by every registered object element
+  // plus colRef itself. Created once on mount; register/unregister manage
+  // membership as objects mount/unmount.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   // The last measured size while the column was focused. Set to null while
   // focused (no freeze applied) and to a FrozenSize after losing focus.
@@ -390,14 +423,51 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     return () => el.removeEventListener("keydown", handler);
   }, []);
 
-  // Compute the top offset during render using heights captured in the previous
-  // render's useLayoutEffect. This is accurate for focus swaps (object content
-  // doesn't change when only focus changes) and avoids a two-render cycle.
-  const topOffset = computeTopOffset(objectStates, naturalHeights.current);
+  // Ref mirrors of render-time values, kept fresh every render so the
+  // ResizeObserver callback below (a stable closure, subscribed once on
+  // mount) always reads the current values instead of a stale snapshot.
+  const objectStatesRef = useRef(objectStates);
+  objectStatesRef.current = objectStates;
+  const objectGapRef = useRef(objectGap);
+  objectGapRef.current = objectGap;
+  const columnFocusedRef = useRef(columnFocused);
+  columnFocusedRef.current = columnFocused;
+
+  // Bulk-remeasures every registered object's offsetTop/height relative to
+  // the content wrapper (the rect-delta technique — invariant under the
+  // wrapper's own animated `top`, since both rects shift together). Shared
+  // by the per-render layout effect below and the ResizeObserver callback.
+  // Returns true when the geometry actually changed (fingerprint bail-out —
+  // avoids forcing a re-render on every ResizeObserver callback when
+  // nothing moved).
+  const remeasureGeometry = useCallback((): boolean => {
+    const wrapper = contentWrapperRef.current;
+    if (!wrapper) return false;
+    const wrapperRect = wrapper.getBoundingClientRect();
+    for (const [objName, el] of registeredEls.current) {
+      const rect = el.getBoundingClientRect();
+      geometryStore.current.set(objName, {
+        offsetTop: rect.top - wrapperRect.top,
+        height: rect.height,
+      });
+    }
+    const fingerprint = Array.from(geometryStore.current.entries())
+      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}`)
+      .join(",");
+    const changed = fingerprint !== geometryFingerprintRef.current;
+    geometryFingerprintRef.current = fingerprint;
+    return changed;
+  }, []);
+
+  // Compute the top offset during render using geometry captured in the
+  // previous render's useLayoutEffect. This is accurate for focus swaps
+  // (object content doesn't change when only focus changes) and avoids a
+  // two-render cycle.
+  const topOffset = computeTopOffset(objectStates, geometryStore.current);
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
-  const withinColumnDepths = computeWithinColumnDepths(objectStates, naturalHeights.current);
+  const withinColumnDepths = computeWithinColumnDepths(objectStates, geometryStore.current);
 
   // While the column is focused, snapshot its current dimensions synchronously
   // after each render (useLayoutEffect fires before the browser paints). This
@@ -471,21 +541,9 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
         }
       }
 
-      const el = colRef.current;
-      if (!el) return;
-
-      // ResizeObserver keeps lastObservedSize current during dynamic resizes.
-      const observer = new ResizeObserver((entries) => {
-        const entry = entries[0];
-        if (entry) {
-          lastObservedSize.current = {
-            width: entry.contentRect.width,
-            height: entry.contentRect.height,
-          };
-        }
-      });
-      observer.observe(el);
-      return () => observer.disconnect();
+      // lastObservedSize while focused is now kept current by the shared
+      // geometry ResizeObserver below (single measurement layer) — no
+      // per-focus observer needed here.
     } else if (wasEverFocused.current) {
       // Freeze at the last captured dimensions so the column doesn't collapse.
       setFrozenSize({ ...lastObservedSize.current });
@@ -495,27 +553,63 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
 
-  // Measure the content wrapper height synchronously after each render so that
-  // the initial value is available immediately (useLayoutEffect fires before
-  // the browser paints, before ResizeObserver callbacks). ResizeObserver keeps
-  // it current for dynamic content changes.
-  // Compute focused content height from the sum of focused objects' natural
-  // heights (not the content wrapper's total height, which includes unfocused
+  // Single shared ResizeObserver for this column: observes colRef plus every
+  // registered SceneObject element. Created once on mount; register/
+  // unregister (below) manage membership as objects mount/unmount. Catches
+  // content growth (e.g. an image finishing load) with no accompanying React
+  // render — the actual B2 fix. The synchronous per-render remeasure below
+  // handles the common case (focus/prop changes); this handles the rest.
+  useEffect(() => {
+    const observer = new ResizeObserver(() => {
+      // Always refresh the cache (cheap; corrected again by the next
+      // synchronous per-render remeasure regardless) so a column that later
+      // becomes focused starts from reasonably fresh geometry.
+      const changed = remeasureGeometry();
+
+      // Only unfocused columns' geometry (colHeight, marginTop) — none of
+      // it depends on the geometry store (computeTopOffset/anchorTop/
+      // computeFocusedContentHeight all early-return with zero focused
+      // objects), so forcing a re-render here would be pure overhead. Worse,
+      // an unfocused in-between column sits under CSS perspective/translateZ
+      // depth treatment — a rect read after that transform has visually
+      // settled reports a foreshortened size, and forcing an otherwise-
+      // unnecessary render risks feeding that projected size into
+      // unrelated column-level layout math. Bail out entirely.
+      if (!columnFocusedRef.current) return;
+
+      setContentHeight(
+        computeFocusedContentHeight(objectStatesRef.current, geometryStore.current, objectGapRef.current),
+      );
+      const colEl = colRef.current;
+      if (colEl) {
+        const rect = colEl.getBoundingClientRect();
+        lastObservedSize.current = { width: rect.width, height: rect.height };
+      }
+      // Fingerprint bail-out (forecast-gate adjudication): only force a
+      // re-render when the geometry actually changed.
+      if (changed) setGeometryVersion((v) => v + 1);
+    });
+    resizeObserverRef.current = observer;
+    if (colRef.current) observer.observe(colRef.current);
+    for (const el of registeredEls.current.values()) observer.observe(el);
+    return () => {
+      observer.disconnect();
+      resizeObserverRef.current = null;
+    };
+  }, [remeasureGeometry]);
+
+  // Measure the content wrapper synchronously after each render (useLayoutEffect
+  // fires before the browser paints) so geometry is fresh for the very next
+  // render — this is what removes the one-render lag that would otherwise
+  // corrupt a same-commit swap-reset decision reading maxScroll. The shared
+  // ResizeObserver above keeps geometry current between renders too.
+  // Compute focused content height from the sum of focused objects' heights
+  // (not the content wrapper's total height, which includes unfocused
   // objects in flow). This ensures scroll range only covers focused content.
   useLayoutEffect(() => {
+    remeasureGeometry();
     if (!columnFocused) return;
-    let focusedHeight = 0;
-    for (const obj of objectStates) {
-      if (obj.focused) {
-        focusedHeight += naturalHeights.current.get(obj.name) ?? 0;
-      }
-    }
-    // Account for gap between focused objects
-    const focusedCount = objectStates.filter(o => o.focused).length;
-    if (focusedCount > 1 && objectGap) {
-      focusedHeight += (focusedCount - 1) * (typeof objectGap === 'number' ? objectGap : 0);
-    }
-    setContentHeight(focusedHeight);
+    setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));
   });
 
   // Vertical centering: center the focused content within the viewport when it
@@ -533,17 +627,18 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
       ? Math.max(0, (viewportHeight - effectiveContentHeight) / 2)
       : 0;
 
-  // Registration and height-reporting callbacks provided to child SceneObjects.
+  // Registration callback provided to child SceneObjects. Also drives the
+  // shared ResizeObserver's membership — newly registered elements join the
+  // single measurement layer immediately (or are picked up by the mount
+  // effect's initial sweep if the observer hasn't been created yet).
   const register = useCallback((objName: string, el: HTMLElement) => {
     registeredEls.current.set(objName, el);
+    resizeObserverRef.current?.observe(el);
     return () => {
+      resizeObserverRef.current?.unobserve(el);
       registeredEls.current.delete(objName);
-      naturalHeights.current.delete(objName);
+      geometryStore.current.delete(objName);
     };
-  }, []);
-
-  const reportHeight = useCallback((objName: string, height: number) => {
-    naturalHeights.current.set(objName, height);
   }, []);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
@@ -664,7 +759,7 @@ export function SceneColumn({ name, children, objectGap = 0 }: SceneColumnProps)
     // Outer unfocused columns also need their SceneObjects in flow so the column
     // has natural dimensions (otherwise position: absolute children yield a
     // zero-width column that overlaps with adjacent focused columns).
-    <ColumnContext.Provider value={{ register, reportHeight, isInDepthDeck: !columnFocused, withinColumnDepths }}>
+    <ColumnContext.Provider value={{ register, isInDepthDeck: !columnFocused, withinColumnDepths }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
           time and silently shadows the spring. See depth.ts for the no-shadow rule. */}

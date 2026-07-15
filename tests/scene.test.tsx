@@ -1194,6 +1194,51 @@ describe("SceneColumn vertical swap", () => {
     expect(col2.getAttribute("data-column-focused")).toBe("true");
     expect(window.getComputedStyle(col2).position).toBe("relative");
   });
+
+  test("a never-focused sibling before a to-be-focused object does not displace it (B3)", async () => {
+    // A is never focused anywhere in this test. B starts unfocused, then
+    // becomes focused. Because A is genuinely in flow (position: relative)
+    // the whole time, B's real rendered offset within the content wrapper
+    // already includes A's height (200px) — topOffset must account for
+    // that to bring B to the top, not treat A's never-reported height as 0.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused={false}>
+              <div data-testid="content-b" style={{ width: 300, height: 300 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: 300 }}>B</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const contentWrapper = objB.closest("[data-column]")?.querySelector("[data-column-content]") as HTMLElement;
+
+    // topOffset must equal A's real height (200) so the wrapper shifts up
+    // enough to bring B to the top of the viewport.
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-200);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2063,6 +2108,45 @@ describe("Scene vertical scroll", () => {
     // Short column's centering should be unaffected
     const marginTopAfter = parseFloat(window.getComputedStyle(shortContent).marginTop);
     expect(marginTopAfter).toBe(marginTopBefore);
+  });
+
+  test("async content growth without a prop change updates maxScroll and shows a scrollbar (B2)", async () => {
+    // Simulates e.g. an image finishing load and growing its container's
+    // intrinsic height — no Scene prop changes, so nothing else would
+    // trigger a re-render. The geometry store's ResizeObserver must pick
+    // this up on its own.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    // Content fits the 800px viewport initially — no scrollbar yet.
+    expect(scene.querySelector("[data-scrollbar]")).toBeNull();
+
+    // Grow the content directly via the DOM — no React re-render, no prop change.
+    const content = getByTestId("content").element() as HTMLElement;
+    content.style.height = "2500px";
+
+    // Poll for the ResizeObserver-driven update (probe-measured ~1 rAF
+    // frame in this harness; generous headroom against occasional slow frames).
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    let maxScroll = 0;
+    for (let i = 0; i < 20; i++) {
+      await waitForAnimationFrame();
+      maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+      if (maxScroll > 0) break;
+    }
+
+    expect(maxScroll).toBeGreaterThan(0);
+    expect(scene.querySelector("[data-scrollbar]")).not.toBeNull();
   });
 });
 

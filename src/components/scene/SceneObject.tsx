@@ -48,17 +48,6 @@ export function SceneObject({ name, focused, children, onActivate, style }: Scen
     return column.register(name, outerRef.current);
   }, [column, name]);
 
-  // While focused and in-flow, report the rendered height to the column so
-  // it can compute accurate vertical offsets for swap animations. We capture
-  // height after each render while focused; the column reads these saved
-  // heights rather than getBoundingClientRect() at arbitrary times (which
-  // would return wrong values for absolutely-positioned elements).
-  useLayoutEffect(() => {
-    if (!focused || !column || !outerRef.current) return;
-    const { height } = outerRef.current.getBoundingClientRect();
-    column.reportHeight(name, height);
-  });
-
   // When this object transitions from unfocused to focused, move keyboard
   // focus to the first focusable element inside it so keyboard users land
   // directly in the new content without needing to tab manually.
