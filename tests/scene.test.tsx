@@ -952,6 +952,168 @@ describe("Scene debug mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F4: Debug — observational purity (spec: scene-debug.feature "Debug does not
+// affect layout"). The existing "debug does not affect layout" test above
+// only checks one column's computed position/flexGrow — it doesn't catch a
+// debug-only DOM node actually widening the scene's scroll extent (the
+// CameraDebug-incident class documented on warnStrayChild, above). These
+// pins compare the FULL scroll/layout footprint (scrollWidth/Height,
+// clientWidth/Height, per-column rects) between debug on and off for the
+// same underlying content, across three representative layouts.
+//
+// The discriminating fixtures below deliberately give one SceneObject a long,
+// hyphen/space-free (unbreakable) name and position it near the viewport's
+// right edge. This isn't a contrived edge case: SceneObjectOutlines' name
+// label is a `position: absolute` <span> anchored at its outline box's
+// top-left with no width constraint — an unbreakable name wider than the
+// object's own box overflows the outline box unclipped, and (absent
+// containment) that overflow is real, positive-direction (rightward) content
+// that widens the viewport's scrollable overflow area — this reproduces even
+// though the outline box ITSELF (an exact-rect duplicate of the real
+// object's box) never does, since browsers still report the larger
+// scrollWidth for overflow:hidden content, they just don't render a
+// scrollbar for it (verified directly: a plain overflow:hidden div with an
+// absolutely-positioned overflowing child reports the wider scrollWidth).
+// ---------------------------------------------------------------------------
+
+describe("Scene debug — layout purity (scrollWidth/scrollHeight identical on/off)", () => {
+  const UNBREAKABLE_LONG_NAME = "reallylongsceneobjectnamewithnobreaksatallwhatsoever";
+
+  /** scrollWidth/scrollHeight/clientWidth/clientHeight for the scene element. */
+  function measureScrollMetrics(scene: HTMLElement) {
+    return {
+      scrollWidth: scene.scrollWidth,
+      scrollHeight: scene.scrollHeight,
+      clientWidth: scene.clientWidth,
+      clientHeight: scene.clientHeight,
+    };
+  }
+
+  test("fits-and-centered: identical scroll metrics with debug on vs off", async () => {
+    // A single narrow focused SceneObject with a long unbreakable name,
+    // centered in a viewport just wide enough to fit it. No native overflow
+    // exists without debug; the debug label's overflow (if unclipped) would
+    // create overflow that doesn't exist without debug.
+    const build = (debug: boolean) => (
+      <TestWrapper fullPage width={100} height={200}>
+        <Scene duration={0} debug={debug}>
+          <SceneColumn name="col">
+            <SceneObject name={UNBREAKABLE_LONG_NAME} focused>
+              <div data-testid="content" style={{ width: 20, height: 20 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const off = await render(build(false));
+    await waitForAnimationFrame();
+    const metricsOff = measureScrollMetrics(off.getByTestId("scene").element() as HTMLElement);
+    await cleanup();
+
+    const on = await render(build(true));
+    await waitForAnimationFrame();
+    const metricsOn = measureScrollMetrics(on.getByTestId("scene").element() as HTMLElement);
+    await cleanup();
+
+    expect(metricsOn).toEqual(metricsOff);
+  });
+
+  test("horizontal-overflow with parked columns: identical scroll metrics with debug on vs off", async () => {
+    // Two 800px focused columns already overflow a 1280px viewport
+    // natively. A third column (long unbreakable name) is focused at mount
+    // (to freeze its size), then unfocused so it parks just past the two
+    // focused columns — exercising a parked/offscreen-classified column
+    // alongside existing native overflow.
+    async function build(debug: boolean) {
+      const mountJsx = (farRightFocused: boolean) => (
+        <TestWrapper fullPage>
+          <Scene duration={0} debug={debug}>
+            <SceneColumn name="col-a">
+              <SceneObject name="obj-a" focused>
+                <div data-testid="content-a" style={{ width: 800, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-b">
+              <SceneObject name="obj-b" focused>
+                <div data-testid="content-b" style={{ width: 800, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-c">
+              <SceneObject name={UNBREAKABLE_LONG_NAME} focused={farRightFocused}>
+                <div data-testid="content-c" style={{ width: 20, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+      const { rerender, getByTestId } = await render(mountJsx(true));
+      await rerender(mountJsx(false));
+      await waitForAnimationFrame();
+      return measureScrollMetrics(getByTestId("scene").element() as HTMLElement);
+    }
+
+    const metricsOff = await build(false);
+    await cleanup();
+    const metricsOn = await build(true);
+    await cleanup();
+
+    expect(metricsOn).toEqual(metricsOff);
+  });
+
+  test("depth-deck layout: identical scroll metrics with debug on vs off", async () => {
+    // Left/right focused columns (450px each) fit the 1280px viewport with
+    // an in-between (depth-deck) unfocused column between them, plus a
+    // fourth column (long unbreakable name) that starts focused (to freeze
+    // its size) then unfocuses, parking just inside the viewport's right
+    // edge with generous headroom for an unclipped label to overflow into.
+    async function build(debug: boolean) {
+      const mountJsx = (farRightFocused: boolean) => (
+        <TestWrapper fullPage>
+          <Scene duration={0} debug={debug}>
+            <SceneColumn name="col-left">
+              <SceneObject name="obj-left" focused>
+                <div data-testid="content-left" style={{ width: 450, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-middle">
+              <SceneObject name="obj-middle" focused={false}>
+                <div data-testid="content-middle" style={{ width: 300, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-right">
+              <SceneObject name="obj-right" focused>
+                <div data-testid="content-right" style={{ width: 450, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-far-right">
+              <SceneObject name={UNBREAKABLE_LONG_NAME} focused={farRightFocused}>
+                <div data-testid="content-far-right" style={{ width: 20, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+      const { rerender, getByTestId } = await render(mountJsx(true));
+      await rerender(mountJsx(false));
+      await waitForAnimationFrame();
+      const midCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+      // Sanity-check the fixture actually exercises the depth-deck
+      // classification this test claims to cover.
+      expect(midCol.getAttribute("data-column-position")).toBe("in-between");
+      return measureScrollMetrics(getByTestId("scene").element() as HTMLElement);
+    }
+
+    const metricsOff = await build(false);
+    await cleanup();
+    const metricsOn = await build(true);
+    await cleanup();
+
+    expect(metricsOn).toEqual(metricsOff);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 10a: Debug — remaining overlay features
 // ---------------------------------------------------------------------------
 

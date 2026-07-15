@@ -504,8 +504,22 @@ function SceneDebugOverlay({
     });
   });
 
-  // Read current scroll state from column DOM attributes. This is debug-only
-  // so reading from the DOM directly is acceptable.
+  // F4 purity audit finding: everything below (columnScrollStates,
+  // scrollLeft/scrollWidth/clientWidth, offsetParentWarnings, objectBounds)
+  // is still computed via RENDER-TIME reads of viewportRef.current/
+  // stageRef.current — the exact one-commit-stale hazard `objects` above was
+  // moved off of (see its comment). These are lower-stakes than `objects`
+  // (no self-correcting re-render loop existed for them either way, and an
+  // idle scene's stale display corrects on the next unrelated re-render), and
+  // — same rationale as SceneObjectOutlines' pure DOM reads — reading here is
+  // observationally pure: it only feeds the overlay's OWN displayed text, and
+  // is never written back into Scene's actual layout/scroll decisions, so it
+  // doesn't threaten "Debug does not affect layout" (scene-debug.feature).
+  // Left as pre-existing behavior (out of scope for this purity fix, which is
+  // about Scene's real behavior, not the overlay's internal display
+  // freshness) — a future pass could apply the same layout-effect+state
+  // treatment `objects` already got, purely to reduce staleness in what's
+  // shown.
   const columnScrollStates: DebugColumnScroll[] = [];
   const viewport = viewportRef.current;
   if (viewport) {
@@ -1213,14 +1227,44 @@ function SceneViewport({
           </motion.div>
           {/* Object outlines: absolutely positioned colored borders for each
               SceneObject. Rendered outside the stage so positions are relative
-              to the viewport, not the panning stage. */}
+              to the viewport, not the panning stage.
+              Wrapped in a clipping layer pinned exactly to the viewport's own
+              box (F4 purity fix): each outline's name label is a
+              width-unconstrained <span> that can overflow its own outline
+              box when the object's name is long/unbreakable — and since
+              scrollWidth/scrollHeight report the full overflow extent even
+              under overflow:hidden (only the visible scrollbar is
+              suppressed, not the JS-observable metric), an unclipped label
+              widened the viewport's own scroll extent in debug mode only —
+              the "Debug does not affect layout" scenario (spec:
+              scene-debug.feature) is violated by real content, the same
+              CameraDebug-incident class documented on warnStrayChild above,
+              just via a different mechanism (an overflowing debug-only
+              child, not a stray flex-row child). overflow: hidden here
+              clips ANY debug-only overflow (label text, or a future outline
+              rendering change) at the viewport's own edge, so it can never
+              propagate to the viewport's own scrollWidth/scrollHeight —
+              structurally closing the whole class, not just the label case
+              this was caught by. */}
           {debug && (
-            <OutlineRafCallbackContext.Provider value={outlineStartRafRef}>
-              <SceneObjectOutlines
-                viewportRef={viewportRef}
-                animatingRef={animatingRef}
-              />
-            </OutlineRafCallbackContext.Provider>
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                overflow: "hidden",
+                pointerEvents: "none",
+              }}
+            >
+              <OutlineRafCallbackContext.Provider value={outlineStartRafRef}>
+                <SceneObjectOutlines
+                  viewportRef={viewportRef}
+                  animatingRef={animatingRef}
+                />
+              </OutlineRafCallbackContext.Provider>
+            </div>
           )}
           {/* Overlay is inside the scene div so tests can find it via
               scene.querySelector('[data-debug-overlay]'). position:fixed
