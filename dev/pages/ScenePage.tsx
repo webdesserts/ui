@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Scene, SceneColumn, SceneObject, useCamera } from "../../src";
 import { Button } from "../../src";
 
@@ -656,6 +656,36 @@ function TuningPanel({
   tuning: SceneTuning;
   onChange: (next: SceneTuning) => void;
 }) {
+  // Every 8 demos read `tuning` as a prop, so any commit re-renders all of
+  // them. A naive onChange->setState per slider `input` event fires on
+  // every drag tick (measured: 28 ticks -> 30 re-renders + 770
+  // getBoundingClientRect calls in an untouched off-screen demo). Batch
+  // same-frame ticks into a single commit via rAF instead — the slider's
+  // own thumb/value tracks the pointer natively between commits (React
+  // isn't re-rendering, so nothing forces it back), so this stays fully
+  // live without the apply-on-blur-only lag of committing on release.
+  const pendingRef = useRef(tuning);
+  pendingRef.current = tuning;
+  const rafIdRef = useRef<number | null>(null);
+
+  const scheduleChange = useCallback(
+    (next: SceneTuning) => {
+      pendingRef.current = next;
+      if (rafIdRef.current !== null) return;
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        onChange(pendingRef.current);
+      });
+    },
+    [onChange],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+    };
+  }, []);
+
   const sliders: Array<{
     key: keyof SceneTuning;
     label: string;
@@ -698,8 +728,10 @@ function TuningPanel({
             min={min}
             max={max}
             step={step}
-            value={tuning[key]}
-            onChange={(e) => onChange({ ...tuning, [key]: Number(e.target.value) })}
+            defaultValue={tuning[key]}
+            onChange={(e) =>
+              scheduleChange({ ...pendingRef.current, [key]: Number(e.target.value) })
+            }
             style={{ flex: 1 }}
           />
           <span style={{ width: 36, textAlign: "right" }}>{tuning[key]}</span>
