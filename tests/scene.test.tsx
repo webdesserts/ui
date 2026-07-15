@@ -1898,6 +1898,82 @@ describe("Scene horizontal scroll", () => {
     const stageLeftAfter = parseFloat(window.getComputedStyle(stage!).left);
     expect(stageLeftAfter).toBeGreaterThan(0);
   });
+
+  test("horizontal scroll resets when the focused column set changes, even if the new layout still overflows (B1)", async () => {
+    // Four 500px columns; three are focused at a time (a sliding window) so
+    // the focused region overflows the 1280px viewport in both the before
+    // and after layouts — overflow-x stays "auto" throughout and the browser
+    // never auto-clamps scrollLeft on its own. This isolates the real bug:
+    // the Camera's stageLeft re-centers for the newly-focused region, but
+    // nothing resets the separate native scrollLeft, which stays stuck at a
+    // position calibrated to the OLD focused region.
+    const { rerender, getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused>
+              <div data-testid="content3" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col4">
+            <SceneObject name="obj4" focused={false}>
+              <div data-testid="content4" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    expect(window.getComputedStyle(scene).overflowX).toBe("auto");
+
+    scene.scrollLeft = 300;
+    await waitForAnimationFrame();
+    expect(scene.scrollLeft).toBeGreaterThan(0);
+
+    // Focus shifts to a different column set (col2+col3+col4 instead of
+    // col1+col2+col3) — the layout as a whole still overflows the viewport.
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused={false}>
+              <div data-testid="content1" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused>
+              <div data-testid="content3" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col4">
+            <SceneObject name="obj4" focused>
+              <div data-testid="content4" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    expect(window.getComputedStyle(scene).overflowX).toBe("auto");
+    expect(scene.scrollLeft).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

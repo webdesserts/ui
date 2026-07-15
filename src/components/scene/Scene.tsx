@@ -655,6 +655,11 @@ function SceneViewport({
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
 
+  // Tracks the previous focused-column-name set (joined, DOM order) so the
+  // stageLeft effect below can detect when the focused layout actually
+  // changes — the trigger for resetting native horizontal scroll (B1).
+  const prevFocusedNamesRef = useRef("");
+
   // Measure viewport dimensions synchronously on first render so columns have
   // valid values immediately (useLayoutEffect fires before paint, before
   // ResizeObserver callbacks). ResizeObserver keeps the values current for
@@ -719,6 +724,25 @@ function SceneViewport({
     const focusedCols = Array.from(
       stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
     );
+
+    // Single camera owner also owns the native horizontal scroll reset: any
+    // time the SET of focused column names changes (DOM order is stable, so
+    // a plain joined-names comparison is enough), reset scrollLeft to 0
+    // synchronously, before paint. This is a separate concern from stageLeft
+    // (base alignment) — a still-overflowing newly-focused region needs
+    // native scroll to reach the parts stageLeft alone doesn't cover, and a
+    // stale scrollLeft calibrated to the OLD focused region would otherwise
+    // permanently offset the new content (B1). Runs even when transitioning
+    // to/from "nothing focused" so a later return to the same set isn't
+    // mistaken for "unchanged".
+    const focusedNames = focusedCols
+      .map((col) => col.getAttribute("data-column") ?? "")
+      .join(",");
+    if (focusedNames !== prevFocusedNamesRef.current) {
+      prevFocusedNamesRef.current = focusedNames;
+      viewport.scrollLeft = 0;
+    }
+
     if (focusedCols.length === 0) {
       // No focused columns — keep stage at current position (camera stays still).
       return;
