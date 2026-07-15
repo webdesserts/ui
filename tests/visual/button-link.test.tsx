@@ -286,11 +286,15 @@ describe("ButtonLink spread animation", () => {
     await waitForAnimationFrame();
     anims = freezeAnimationsAt(el, 0.5, { subtree: true });
     restoreExit();
+    // Explicit `undefined` name preserves the auto-generated screenshot name
+    // (matches every other call in this file) — a single-object-arg call
+    // doesn't type-check against toMatchScreenshot's overloaded generic
+    // signature here (see S7's tolerance-key sweep report for why).
     await expect
       .element(page.elementLocator(screen.container))
-      .toMatchScreenshot({
+      .toMatchScreenshot(undefined, {
         ...animationScreenshotOptions,
-        allowedMismatchedPixelRatio: 0.01,
+        comparatorOptions: { allowedMismatchedPixelRatio: 0.01 },
       });
     unfreezeAnimations(anims);
   });

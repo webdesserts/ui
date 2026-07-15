@@ -152,7 +152,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "focus-to-unfocus-frozen-at-50pct",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.005 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.005 } },
     );
 
     unfreezeAnimations(frozen);
@@ -227,17 +227,11 @@ describe("mid-animation capture (focus → unfocus)", () => {
     // rewrites this test on the motionSeam pinnable pipeline — see
     // plans/Scene Assessment 2026-07-14 fix plan.
     //
-    // NOTE (fix-round discovery): `maxDiffPixelRatio` is not a real option on
-    // ScreenshotMatcherOptions (confirmed both by a pre-existing `tsc`
-    // error against the root tsconfig, excluded from this package's actual
-    // build gate, and by reading @vitest/browser's pixelmatch comparator
-    // source directly) — it's silently ignored, and every occurrence of it
-    // in this file (this one included, before this fix) has always compared
-    // with the comparator's default of ZERO tolerance (bit-exact). The real
-    // key is comparatorOptions.allowedMismatchedPixelRatio. Scoped to this
-    // one test only, per the fix-round's "one-test stopgap only" — the other
-    // maxDiffPixelRatio occurrences in this file carry the same latent no-op
-    // and are out of scope here.
+    // NOTE: `maxDiffPixelRatio` is not a real option on ScreenshotMatcherOptions
+    // — it's silently ignored, so every occurrence of it in this file was
+    // always comparing at the comparator's default of ZERO tolerance
+    // (bit-exact). The real key is comparatorOptions.allowedMismatchedPixelRatio
+    // (S7 swept every occurrence in this file to the correct key).
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "focus-to-unfocus-mid-spring-wait",
       {
@@ -430,7 +424,7 @@ describe("camera pan mid-capture", () => {
     // some frame-timing variance even with slow-mo springs.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "camera-pan-mid-spring",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.05 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.05 } },
     );
   });
 });
@@ -557,7 +551,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "layout-flip-frozen-at-50pct",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.015 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.015 } },
     );
 
     unfreezeAnimations(frozen);
@@ -636,7 +630,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
     // Tighter tolerance because slower springs produce less jitter between frames.
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "layout-flip-mid-spring-wait",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.01 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.01 } },
     );
   });
 });
@@ -986,7 +980,7 @@ describe("depth-deck bug-fix regressions", () => {
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "refocus-from-depth-deck-mid-spring",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.02 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
     );
 
     unfreezeAnimations(frozen);
@@ -1082,7 +1076,7 @@ describe("depth-deck bug-fix regressions", () => {
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
       "unfocus-sync-mid-spring",
-      { ...animationScreenshotOptions, maxDiffPixelRatio: 0.02 },
+      { ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.02 } },
     );
 
     unfreezeAnimations(frozen);
