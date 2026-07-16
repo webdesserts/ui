@@ -257,7 +257,8 @@ export type ScrollCommand =
   | { type: "page"; delta: number }
   | { type: "toTop" }
   | { type: "toBottom" }
-  | { type: "fling"; velocity: number };
+  | { type: "fling"; velocity: number }
+  | { type: "scrollTo"; offset: number };
 
 /**
  * Maps a keydown's key (+ shiftKey, for reversed paging on Space) to a
@@ -547,4 +548,61 @@ export function findDeepestIntraObjectAnchor(
   }
 
   return best;
+}
+
+// ---------------------------------------------------------------------------
+// Declarative scrollTo (F11 commit 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds the element with the given standard DOM `id` within `root` — the
+ * interior contract again: consumers use normal HTML ids on their own
+ * content, no Scene-specific naming. Scoped to `root` (the column's content
+ * wrapper) rather than a global `document.getElementById` lookup, so a
+ * `scrollTo` id collision with something OUTSIDE the column (e.g. another
+ * column, or unrelated page chrome) can never silently navigate to the
+ * wrong element. `CSS.escape` guards against ids containing characters that
+ * would otherwise break the attribute-selector syntax (a real id
+ * constraint browsers accept but a raw template-string selector wouldn't).
+ */
+export function findScrollToTarget(root: Element, id: string): Element | null {
+  return root.querySelector(`[id="${CSS.escape(id)}"]`);
+}
+
+/**
+ * Computes the nearest-edge scroll offset that brings a target element
+ * fully into view, mirroring the native `element.scrollIntoView({ block:
+ * "nearest" })` algorithm: already fully visible → no movement; entirely or
+ * partially above the current window → align the target's TOP with the
+ * viewport's top; entirely or partially below → align the target's BOTTOM
+ * with the viewport's bottom. A target taller than the viewport (visible on
+ * neither edge cleanly) falls into the "above" branch and aligns to its
+ * top — an arbitrary but reasonable choice for that ambiguous case, same as
+ * browsers make.
+ *
+ * Clamped to `[0, maxScroll]` — same bound every other write in this file
+ * respects.
+ */
+export function computeNearestEdgeScrollOffset(
+  currentOffset: number,
+  viewportHeight: number,
+  targetOffsetTop: number,
+  targetHeight: number,
+  maxScroll: number,
+): number {
+  const windowStart = currentOffset;
+  const windowEnd = currentOffset + viewportHeight;
+  const targetStart = targetOffsetTop;
+  const targetEnd = targetOffsetTop + targetHeight;
+
+  let next: number;
+  if (targetStart < windowStart) {
+    next = targetStart;
+  } else if (targetEnd > windowEnd) {
+    next = targetEnd - viewportHeight;
+  } else {
+    next = currentOffset;
+  }
+
+  return Math.max(0, Math.min(maxScroll, next));
 }

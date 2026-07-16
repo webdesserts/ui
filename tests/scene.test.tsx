@@ -4856,6 +4856,241 @@ describe("Scene offset-0 policy mode-scoping (F11 commit 1)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F11 commit 2: declarative scrollTo
+// ---------------------------------------------------------------------------
+
+describe("Scene declarative scrollTo (F11 commit 2)", () => {
+  const ROW_HEIGHT = 70;
+  const ROW_COUNT = 50;
+  const rowIds = Array.from({ length: ROW_COUNT }, (_, i) => i);
+
+  function buildScrollTo(scrollToId: string | null, anchor: "none" | "end" = "none") {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor={anchor} scrollTo={scrollToId}>
+            <SceneObject name="rows" focused>
+              {rowIds.map((id) => (
+                <div key={id} id={`row-${id}`} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  test("navigates to a target below the current window, aligning its bottom with the viewport's bottom", async () => {
+    const { rerender, getByTestId } = await render(buildScrollTo(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+
+    // row-30 spans [2100, 2170) — entirely below window [0, 800). Aligning
+    // the bottom: offset = 2170 - 800 = 1370.
+    await rerender(buildScrollTo("row-30"));
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1370");
+  });
+
+  test("navigates to a target above the current window, aligning its top with the viewport's top", async () => {
+    const { rerender, getByTestId } = await render(buildScrollTo(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 2000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("2000");
+
+    // row-5 spans [350, 420) — entirely above window [2000, 2800).
+    await rerender(buildScrollTo("row-5"));
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("350");
+  });
+
+  test("an already-fully-visible target does not move the offset", async () => {
+    const { rerender, getByTestId } = await render(buildScrollTo(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 1000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1000");
+
+    // row-15 spans [1050, 1120) — fully contained in window [1000, 1800).
+    await rerender(buildScrollTo("row-15"));
+    // No movement — give it a beat to prove it genuinely stays, not just
+    // hasn't updated yet.
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("1000");
+  });
+
+  test("null is inert — no navigation occurs", async () => {
+    const { getByTestId } = await render(buildScrollTo(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+  });
+
+  test("an unknown id is a documented no-op with a loud dev console.warn", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { rerender, getByTestId } = await render(buildScrollTo(null));
+      const scene = getByTestId("scene").element() as HTMLElement;
+      const column = scene.querySelector("[data-column]") as HTMLElement;
+
+      await rerender(buildScrollTo("does-not-exist"));
+      await waitForAnimationFrame();
+
+      expect(column.getAttribute("data-scroll-offset")).toBe("0");
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("does-not-exist"));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("one-shot semantics: re-setting the SAME id (unchanged prop value) does not re-navigate, even after the user has since scrolled elsewhere", async () => {
+    const { rerender, getByTestId } = await render(buildScrollTo(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    await rerender(buildScrollTo("row-30"));
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1370");
+
+    // The user scrolls elsewhere afterward — a real interaction the
+    // component must not clobber on a later re-render.
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -500,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("870");
+
+    // Re-rendering with the SAME "row-30" value (identical string, no
+    // intervening null) must NOT re-fire — the offset must stay at the
+    // user's own 870, not jump back to 1370.
+    await rerender(buildScrollTo("row-30"));
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("870");
+  });
+
+  test("springs (real/animated mode), not jump — the offset transitions gradually rather than landing instantly, unlike F9/F10's content-driven compensation", async () => {
+    // Deliberately NOT using motionSeam controls-reference comparison here:
+    // probe-confirmed this component can register an UNRELATED scrollY
+    // controls entry near mount at a non-deterministic time (some other
+    // real-mode mechanism, timing-variable — not scrollTo's own doing),
+    // which made a "did the controls reference change" assertion flaky/
+    // vacuous in practice (it passed even against a deliberately severed
+    // dispatch, on a timing coincidence). The DIRECTLY OBSERVABLE
+    // distinction between jump and spring is more robust: a jump (F9/F10's
+    // compensation path) lands at its final value the same frame it's
+    // applied; a real spring takes actual animation time — F9's own "let
+    // the wheel-triggered spring fully settle" comment elsewhere in this
+    // file uses a full second for the SAME default transition.
+    const buildReal = (scrollToId: string | null) => (
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col" scrollTo={scrollToId}>
+            <SceneObject name="rows" focused>
+              {rowIds.map((id) => (
+                <div key={id} id={`row-${id}`} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(buildReal(null));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    await rerender(buildReal("row-30"));
+    // Sample almost immediately — a jump would already show the final
+    // value (1370, per the "navigates to a target below" test) on the
+    // very next readable frame; a spring is still mid-transition here.
+    await waitForAnimationFrame();
+    const midFlightOffset = column.getAttribute("data-scroll-offset");
+    expect(midFlightOffset).not.toBeNull();
+    expect(midFlightOffset).not.toBe("1370");
+
+    // Eventually settles at the correct final target.
+    await expect.poll(() => column.getAttribute("data-scroll-offset"), { timeout: 5000 }).toBe("1370");
+  });
+
+  test("send-jump composition: on an anchor=\"end\" column, scrolling to an id at the end RE-PINS, and subsequent growth follows again", async () => {
+    const { rerender, getByTestId } = await render(buildScrollTo(null, "end"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    // Mounts pinned at maxScroll (2700).
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("2700");
+
+    // Release the pin.
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -1000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1700");
+
+    // scrollTo the LAST row — its bottom aligns with maxScroll, landing
+    // within the re-pin threshold.
+    await rerender(buildScrollTo("row-49", "end"));
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("2700");
+
+    // Growth now follows again — proves the pin genuinely RE-ENGAGED, not
+    // just that this one navigation happened to land at maxScroll.
+    const grownIds = [...rowIds, ROW_COUNT]; // append one more row
+    await rerender(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end" scrollTo="row-49">
+            <SceneObject name="rows" focused>
+              {grownIds.map((id) => (
+                <div key={id} id={`row-${id}`} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("2770"); // new maxScroll
+  });
+});
+
+// ---------------------------------------------------------------------------
 // F9 commit 2: anchor="end" follow-the-end pin state machine
 // ---------------------------------------------------------------------------
 

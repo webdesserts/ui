@@ -18,6 +18,8 @@ import {
   findIntraObjectAnchorCandidates,
   selectIntraObjectAnchorIndex,
   findDeepestIntraObjectAnchor,
+  findScrollToTarget,
+  computeNearestEdgeScrollOffset,
   type AnchorCandidate,
   type AnchorGeometry,
 } from "../src/components/scene/inputController";
@@ -875,5 +877,104 @@ describe("findDeepestIntraObjectAnchor", () => {
     } finally {
       wrapper.remove();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findScrollToTarget (F11 commit 2)
+// ---------------------------------------------------------------------------
+
+describe("findScrollToTarget", () => {
+  test("finds a descendant element with a matching id", () => {
+    const root = document.createElement("div");
+    const target = document.createElement("div");
+    target.id = "message-42";
+    root.appendChild(target);
+
+    expect(findScrollToTarget(root, "message-42")).toBe(target);
+  });
+
+  test("returns null for an unknown id", () => {
+    const root = document.createElement("div");
+    root.appendChild(document.createElement("div"));
+
+    expect(findScrollToTarget(root, "does-not-exist")).toBeNull();
+  });
+
+  test("scoped to root — an element with a matching id OUTSIDE root is never found", () => {
+    const outsideMatch = document.createElement("div");
+    outsideMatch.id = "shared-id";
+    document.body.appendChild(outsideMatch);
+    const root = document.createElement("div"); // no matching descendant
+    document.body.appendChild(root);
+
+    try {
+      expect(findScrollToTarget(root, "shared-id")).toBeNull();
+    } finally {
+      outsideMatch.remove();
+      root.remove();
+    }
+  });
+
+  test("an id containing characters that would break a naive selector string still resolves (CSS.escape)", () => {
+    const root = document.createElement("div");
+    const target = document.createElement("div");
+    target.id = "message:42.5"; // colon + period — both need escaping in a CSS selector
+    root.appendChild(target);
+
+    expect(findScrollToTarget(root, "message:42.5")).toBe(target);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeNearestEdgeScrollOffset (F11 commit 2)
+// ---------------------------------------------------------------------------
+
+describe("computeNearestEdgeScrollOffset", () => {
+  test("target already fully visible — no movement", () => {
+    // window [500, 1300) — target [600, 700) is fully contained.
+    expect(computeNearestEdgeScrollOffset(500, 800, 600, 100, 5000)).toBe(500);
+  });
+
+  test("target entirely above the window — aligns target's top with the viewport's top", () => {
+    // window [1000, 1800) — target [200, 300) is entirely above it.
+    expect(computeNearestEdgeScrollOffset(1000, 800, 200, 100, 5000)).toBe(200);
+  });
+
+  test("target entirely below the window — aligns target's bottom with the viewport's bottom", () => {
+    // window [0, 800) — target [1200, 1300) is entirely below it.
+    // Aligning the bottom: offset = targetEnd - viewportHeight = 1300 - 800 = 500.
+    expect(computeNearestEdgeScrollOffset(0, 800, 1200, 100, 5000)).toBe(500);
+  });
+
+  test("target straddling the top edge (starts above, ends within the window) — aligns to the top", () => {
+    // window [500, 1300) — target [400, 600) starts above, ends inside.
+    expect(computeNearestEdgeScrollOffset(500, 800, 400, 200, 5000)).toBe(400);
+  });
+
+  test("target straddling the bottom edge (starts within, ends below the window) — aligns to the bottom", () => {
+    // window [0, 800) — target [700, 900) starts inside, ends below.
+    // Aligning the bottom: offset = 900 - 800 = 100.
+    expect(computeNearestEdgeScrollOffset(0, 800, 700, 200, 5000)).toBe(100);
+  });
+
+  test("a target taller than the viewport (visible on neither edge cleanly) aligns to its top", () => {
+    // window [500, 1300) — target [200, 2000) (height 1800) spans past
+    // both edges. A positive, non-clamp-boundary offset so this
+    // discriminates "aligns to top" from an unrelated clamp side effect.
+    expect(computeNearestEdgeScrollOffset(500, 800, 200, 1800, 5000)).toBe(200);
+  });
+
+  test("clamps the result to [0, maxScroll]", () => {
+    // A target near the very top would naturally compute a negative-ish
+    // or out-of-bounds offset absent clamping.
+    expect(computeNearestEdgeScrollOffset(1000, 800, -50, 100, 5000)).toBe(0);
+    // A target past maxScroll clamps down to it.
+    expect(computeNearestEdgeScrollOffset(0, 800, 9000, 100, 5000)).toBe(5000);
+  });
+
+  test("target flush against the window's edges (touching, not overlapping) still counts as visible — no movement", () => {
+    // window [0, 800) — target [0, 800) exactly fills it.
+    expect(computeNearestEdgeScrollOffset(0, 800, 0, 800, 5000)).toBe(0);
   });
 });

@@ -330,6 +330,31 @@ Feature: Scene Scroll
     engaged). It fires at the same per-tick cadence as the scroll offset
     itself, not once per React render.
 
+  Scenario: A declarative scrollTo brings a target element fully into view (F11)
+    Given a column's `scrollTo` prop changes to a non-null string
+    When an element with that standard DOM id exists within the column's content
+    Then the column navigates to bring it fully into view, nearest-edge —
+    already visible: no movement; above: aligns the target's top with the
+    viewport's top; below: aligns the target's bottom with the viewport's
+    bottom
+    Then the resulting scroll change animates with a spring — this is an
+    intent-driven navigation, not a content-driven correction
+    Note: fires once per VALUE CHANGE, not per render — setting the SAME id
+    again while it's already the current value does not re-fire; `null` is
+    inert and resets the comparison baseline, so a later re-set of the same
+    id (after passing through null) fires again
+    Note: an id with no matching element inside the column is a documented
+    no-op with a loud dev console.warn, never a thrown error
+
+  Scenario: A scrollTo navigation that lands at the end re-engages a released follow-the-end pin (F11)
+    Given a follow-the-end column (anchor="end") with its pin released
+    When `scrollTo` navigates to an element whose target offset lands within
+    the re-pin threshold of maxScroll
+    Then the pin re-engages, same as scrolling back to the end manually
+    Because completes a declarative "send and jump to the new message" flow:
+    `scrollTo={newMessageId}` on send springs to the bottom and resumes
+    following the end
+
   # --- Alignment & Centering ---
 
   # Each axis is handled independently. Centering on an axis only applies

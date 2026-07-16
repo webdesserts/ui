@@ -31,6 +31,8 @@ import {
   selectAnchorObject,
   isAtScrollEnd,
   findDeepestIntraObjectAnchor,
+  findScrollToTarget,
+  computeNearestEdgeScrollOffset,
   type ScrollCommand,
 } from "./inputController";
 
@@ -278,6 +280,34 @@ export interface SceneColumnProps {
    * the cadence-staleness contract on maxScroll/contentHeight.
    */
   onScroll?: (metrics: SceneScrollMetrics) => void;
+  /**
+   * Declarative scroll-to-element (F11 commit 2): when this VALUE CHANGES
+   * to a non-null string, the column navigates to bring the element with
+   * that standard DOM `id` (the interior contract again — a normal HTML
+   * id on the consumer's own content, no Scene-specific naming) fully into
+   * view, nearest-edge (already-visible → no movement; above → align its
+   * top with the viewport's top; below → align its bottom with the
+   * viewport's bottom — matches `element.scrollIntoView({ block:
+   * "nearest" })`).
+   *
+   * One-shot: fires once per value CHANGE, not per render — setting the
+   * SAME id again while it's already the current value does not re-fire
+   * (React's own effect-dependency comparison on a primitive string
+   * handles this for free). `null` is inert (no navigation, and clears
+   * the "current" value so a later re-set of the same id DOES fire again).
+   * An id with no matching element inside the column is a documented
+   * no-op with a loud dev console.warn (never a thrown error).
+   *
+   * This is an INTENT-driven navigation, not a content-driven correction —
+   * it springs (goes through the same write path as wheel/keyboard/
+   * scrollbar), never the F9/F10 compensation jump path. On an
+   * `anchor="end"` column, if the navigation's target offset lands within
+   * the re-pin threshold of maxScroll, the column RE-PINS (the same
+   * updatePinnedState check every other command already runs) — completing
+   * a declarative "send and jump to the new message" flow:
+   * `scrollTo={newMessageId}` on send.
+   */
+  scrollTo?: string | null;
 }
 
 /**
@@ -310,6 +340,7 @@ export function SceneColumn({
   className,
   anchor = "none",
   onScroll,
+  scrollTo = null,
 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
@@ -829,6 +860,16 @@ export function SceneColumn({
         case "toBottom":
           nextOffset = maxScrollRef.current;
           break;
+        case "scrollTo":
+          // F11 commit 2: the target offset is already fully computed
+          // (nearest-edge, clamped) by the scrollTo effect below — this
+          // command just routes it through the SAME shared write path
+          // every other intent-driven command uses, springing exactly
+          // like scrollBy/toTop/toBottom, and getting the pin-interaction
+          // re-pin below "for free" (updatePinnedState runs unconditionally
+          // for every command type here, scrollTo included).
+          nextOffset = Math.max(0, Math.min(maxScrollRef.current, cmd.offset));
+          break;
       }
       scrollOffsetRef.current = nextOffset;
       setScrollOffset(nextOffset);
@@ -903,6 +944,53 @@ export function SceneColumn({
     el.addEventListener("keydown", handler);
     return () => el.removeEventListener("keydown", handler);
   }, []);
+
+  // F11 commit 2: declarative scrollTo. Fires once per VALUE CHANGE to a
+  // non-null string — React's own dependency comparison on `scrollTo` (a
+  // primitive string) already gives one-shot semantics for free: setting
+  // the SAME id again while it's already the current value doesn't change
+  // the dependency, so this effect simply doesn't re-run (no extra
+  // "already navigated" tracking ref needed). `null` is inert (early
+  // return) and also resets the comparison baseline, so a LATER re-set of
+  // the same id (after passing through null) is a genuine new value change
+  // and fires again — the intended "clear then re-request" semantics.
+  useEffect(() => {
+    if (scrollTo === null) return;
+    const wrapper = contentWrapperRef.current;
+    if (!wrapper) return;
+
+    const target = findScrollToTarget(wrapper, scrollTo);
+    if (!target) {
+      console.warn(
+        `Scene: scrollTo target "${scrollTo}" not found within column "${name}" — no-op.`,
+      );
+      return;
+    }
+
+    // Transform-immune rect-delta measurement — the SAME technique
+    // remeasureGeometry and the F10/F10b intra-object anchoring use
+    // throughout this file, for the same reason: getBoundingClientRect
+    // alone would report a foreshortened size/position under any ancestor
+    // transform (H11), but the DELTA between two simultaneous reads in the
+    // same transform context cancels that out.
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetOffsetTop = targetRect.top - wrapperRect.top;
+    const targetHeight = (target as HTMLElement).offsetHeight;
+
+    const nextOffset = computeNearestEdgeScrollOffset(
+      scrollOffsetRef.current,
+      viewportHeightRef.current,
+      targetOffsetTop,
+      targetHeight,
+      maxScrollRef.current,
+    );
+    // Routes through the SAME applyScrollCommand write path every other
+    // intent-driven command uses (springs; re-pins for free via its
+    // shared updatePinnedState call — see the "scrollTo" case's own
+    // comment there) rather than writing scrollOffsetRef/scrollY directly.
+    applyScrollCommandRef.current({ type: "scrollTo", offset: nextOffset });
+  }, [scrollTo, name]);
 
   // Ref mirrors of render-time values, kept fresh every render so the
   // ResizeObserver callback below (a stable closure, subscribed once on
