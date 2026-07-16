@@ -4080,6 +4080,381 @@ describe("Scene vertical scroll", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F9 commit 1: content-growth scroll anchoring (anchoring-as-default)
+// ---------------------------------------------------------------------------
+
+describe("Scene content-growth scroll anchoring (F9)", () => {
+  test("growth above the scroll window compensates same-frame via a React re-render (sync path)", async () => {
+    // Multi-focused-object stacking: "top" (grows) above "bottom" (where
+    // the user is scrolled). total=1300, viewport=800 -> maxScroll=500.
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll to 400 — window [400, 1200) intersects only "bottom"
+    // ([300, 1300) before growth), which becomes the anchor. Poll, not a
+    // single waitForAnimationFrame(): the wheel handler's setScrollOffset
+    // update lands from a native DOM event outside any act() boundary, so
+    // a cold first mount occasionally needs a second frame to settle
+    // (same documented flake class as the scroll-restore tests above).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+
+    // Grow "top" from 300 to 500 (+200) via a prop change — the sync
+    // per-render remeasure path.
+    await rerender(build(500));
+
+    // Same frame, no intervening stale sample: the scroll offset shifts by
+    // exactly the growth delta, keeping "bottom" (the anchor) visually stable.
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-600);
+  });
+
+  test("growth above the scroll window compensates same-frame via a ResizeObserver-driven DOM mutation (async path, B2-style)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // Poll, not a single waitForAnimationFrame() — the same documented
+    // first-mount flake class as the scroll-restore tests above.
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+
+    // Grow "top" directly via the DOM — no React re-render, no prop change
+    // (the B2 pattern). The shared ResizeObserver must pick this up on its
+    // own, asynchronously. data-geometry-height lives on the SceneObject's
+    // own OUTER wrapper (data-scene-id), not the consumer's inner content
+    // div — that outer wrapper's natural height tracks the child's.
+    const topContent = getByTestId("top-content").element() as HTMLElement;
+    topContent.style.height = "500px"; // +200
+    const topWrapper = scene.querySelector("[data-scene-id='top']") as HTMLElement;
+
+    // Forecast Finding 1: PAIRED polling, not a single waitForAnimationFrame()
+    // + one assertion. A test's own rAF continuation can resume BEFORE that
+    // pass's ResizeObserver delivery per HTML spec ordering, risking a false
+    // red on correct code with a naive single-sample check. Sampling BOTH
+    // the geometry attribute and the scroll-offset attribute together on
+    // every polled frame proves there is never a frame where geometry
+    // reflects the growth but the offset still lags behind it.
+    let geometryUpdated = false;
+    let offsetAtGeometryUpdate = NaN;
+    for (let i = 0; i < 20; i++) {
+      await waitForAnimationFrame();
+      const geometryHeight = parseFloat(topWrapper.getAttribute("data-geometry-height") ?? "0");
+      if (geometryHeight >= 500) {
+        geometryUpdated = true;
+        offsetAtGeometryUpdate = parseFloat(contentWrapper.style.top || "0");
+        break;
+      }
+    }
+    expect(geometryUpdated).toBe(true);
+    expect(offsetAtGeometryUpdate).toBe(-600);
+  });
+
+  test("growth of the anchor object's own body does not move the scroll offset (control)", async () => {
+    // "bottom" IS the anchor here — its own growth never moves its own
+    // offsetTop (nothing precedes it in the content wrapper), so this must
+    // be a structural no-op, same reason B2's single-object test is safe.
+    const build = (bottomHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: bottomHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1000));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // Poll, not a single waitForAnimationFrame() — the same documented
+    // first-mount flake class as the scroll-restore tests above.
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+
+    await rerender(build(1400));
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+  });
+
+  test("shrinkage above the scroll window compensates negatively (control — native anchoring handles both directions)", async () => {
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(500));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // total=1500, maxScroll=700. Scroll to 600 -> window [600,1400)
+    // intersects "bottom" ([500,1500)) -> bottom is the anchor. Poll, not
+    // a single waitForAnimationFrame() — the same documented first-mount
+    // flake class as the scroll-restore tests above.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 600,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-600);
+
+    // Shrink "top" from 500 to 300 (-200).
+    await rerender(build(300));
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+  });
+
+  test("compensation applies as a jump — no spring/animate() call is invoked at rest (real/spring mode)", async () => {
+    const recorder = createMotionSeamRecorder();
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="top" focused>
+                <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+              </SceneObject>
+              <SceneObject name="bottom" focused>
+                <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // Let the wheel-triggered spring fully settle before introducing
+    // growth, so this compensation event is genuinely "at rest, nothing in
+    // flight" — the sibling test below covers the in-flight retarget case.
+    await wait(1000);
+    const controlsBeforeGrowth = recorder.controls.get(`scrollY:col`);
+    expect(controlsBeforeGrowth).toBeDefined();
+
+    await rerender(build(500));
+
+    // No NEW animate() call — the compensation applied via a plain jump,
+    // not a spring, so the recorded controls reference is unchanged.
+    expect(recorder.controls.get(`scrollY:col`)).toBe(controlsBeforeGrowth);
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-600);
+  });
+
+  test("content growth while a real spring is still in flight retargets it by the same delta, preserving momentum (adjudication 1)", async () => {
+    const targets = new Map<string, number>();
+    const base = createMotionSeamRecorder();
+    const recorder: typeof base = {
+      ...base,
+      registerTarget: (key, target) => targets.set(key, target),
+    };
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="top" focused>
+                <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+              </SceneObject>
+              <SceneObject name="bottom" focused>
+                <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Trigger a real-mode wheel scroll (springs toward 400) — do NOT wait
+    // for it to settle.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    const controlsInFlight = recorder.controls.get(`scrollY:col`);
+    expect(controlsInFlight).toBeDefined();
+    expect(targets.get(`scrollY:col`)).toBe(400);
+
+    // Content grows above the window WHILE the spring is mid-flight —
+    // triggers the retarget-with-velocity-carryover path.
+    await rerender(build(500));
+
+    // A NEW controls entry was registered (retargeting stopped the old
+    // one and started a fresh animate() call), toward a target shifted by
+    // the same +200 delta.
+    expect(recorder.controls.get(`scrollY:col`)).not.toBe(controlsInFlight);
+    expect(targets.get(`scrollY:col`)).toBe(600);
+
+    // Velocity carryover, probed directly (adjudication 1): sampled right
+    // after the retarget, scrollY's velocity must still be substantial —
+    // a silently-reset-to-cold-start spring would read ~0 here instead.
+    const scrollYValue = base.values.get(`scrollY:col`)!;
+    const velocityAfterRetarget = Math.abs(scrollYValue.getVelocity());
+    expect(velocityAfterRetarget).toBeGreaterThan(10);
+
+    // Settles at the position accounting for BOTH the original navigation
+    // (400) and the compensation (+200).
+    await wait(1000);
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-600);
+  });
+
+  test("a maxScroll shrink clamps instantly, not via a visible spring (F9 adjudication 3)", async () => {
+    const recorder = createMotionSeamRecorder();
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await wait(1000);
+    expect(parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-300, 0);
+
+    const controlsBeforeShrink = recorder.controls.get(`scrollY:col`);
+
+    // Shrink content from 1200 to 900 -> new maxScroll = 100, well below
+    // the current offset (300) -> the clamp effect fires.
+    await rerender(build(900));
+
+    // Same-frame: already clamped to the new maxScroll (100) on the very
+    // first observable read, no intervening stale-then-corrected sample.
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+    // No NEW spring was invoked — the clamp reclassified from spring to
+    // jump (F9 adjudication 3); the recorded controls reference is
+    // unchanged.
+    expect(recorder.controls.get(`scrollY:col`)).toBe(controlsBeforeShrink);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 5c: Keyboard scroll + scroll position management
 // ---------------------------------------------------------------------------
 

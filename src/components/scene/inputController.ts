@@ -289,3 +289,78 @@ export function mapScrollKeyToCommand(
       return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Content-growth anchor selection (F9)
+// ---------------------------------------------------------------------------
+
+/**
+ * A registered object's focus state, structurally compatible with
+ * SceneColumn's own (unexported) ObjectState — kept as a minimal local
+ * shape here rather than importing it, since inputController.ts is a
+ * dependency-light pure-function module SceneColumn.tsx imports FROM (an
+ * import the other direction would be circular).
+ */
+export interface AnchorCandidate {
+  name: string;
+  focused: boolean;
+}
+
+/**
+ * A registered object's measured position, structurally compatible with
+ * SceneColumn's own (unexported) GeometryEntry — same rationale as
+ * AnchorCandidate above.
+ */
+export interface AnchorGeometry {
+  offsetTop: number;
+  height: number;
+}
+
+/**
+ * Selects the anchor object for content-growth scroll compensation (F9
+ * anchoring-as-default): the topmost focused object, in DOM order, whose
+ * measured range intersects the current scroll window
+ * `[scrollOffset, scrollOffset + viewportHeight)`. Mirrors native browser
+ * scroll anchoring in spirit — stabilize what the user is looking at — at
+ * OBJECT granularity rather than arbitrary DOM nodes: Scene's geometry
+ * store only knows each registered SceneObject's own total measured
+ * height, not what moved within it, so this is the finest grain available
+ * (and the only grain multi-focused-object stacking needs).
+ *
+ * `objectStates` is assumed to already be in DOM order (SceneColumn's own
+ * `deriveObjectStates` preserves child order) — DOM order for focused
+ * objects sharing `position: relative` in a column IS visual top-to-bottom
+ * order, so the first intersecting match found while walking in order is
+ * the topmost one; no separate sort is needed.
+ *
+ * Null-safety contract (forecast Finding 2): returns `null` when no
+ * focused object's geometry entry can be found (e.g. a transient state
+ * mid-swap-commit, before geometry has been remeasured for a newly-focused
+ * object) — this is a legal transient state, not an error. Callers must
+ * treat `null` as "skip compensation, no-op" and never NaN-propagate it
+ * into a scroll write.
+ */
+export function selectAnchorObject(
+  objectStates: AnchorCandidate[],
+  geometryStore: Map<string, AnchorGeometry>,
+  scrollOffset: number,
+  viewportHeight: number,
+): string | null {
+  const windowStart = scrollOffset;
+  const windowEnd = scrollOffset + viewportHeight;
+  for (const { name, focused } of objectStates) {
+    if (!focused) continue;
+    const geometry = geometryStore.get(name);
+    if (!geometry) continue;
+    const objStart = geometry.offsetTop;
+    const objEnd = geometry.offsetTop + geometry.height;
+    // Intersects the visible window: the object starts before the window
+    // ends AND ends after the window starts (a half-open range check —
+    // an object flush against the window's own edge, touching but not
+    // overlapping, does not count).
+    if (objStart < windowEnd && objEnd > windowStart) {
+      return name;
+    }
+  }
+  return null;
+}

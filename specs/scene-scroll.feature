@@ -232,6 +232,36 @@ Feature: Scene Scroll
     When focus changes
     Then scrolling should stop and the new target's scroll state should apply
 
+  # --- Content-Driven Scroll (F9) ---
+
+  # Mirrors native browser scroll anchoring: displacement corrections
+  # driven by content changing size (not by the user's own scroll intent)
+  # keep the user's in-view content visually stable, and apply instantly
+  # rather than animating like an intent-driven scroll would.
+
+  Scenario: Content growth or shrinkage above the scroll window is compensated invisibly
+    Given a scrolled column with focused content above the current scroll window
+    When that content's height changes (e.g. an image finishes loading, or
+    an earlier object in a multi-object stack resizes)
+    Then the column's scroll offset adjusts by the same delta in the same frame
+    And the content the user was looking at does not visibly move
+    Because this mirrors native browser scroll anchoring
+
+  Scenario: Content growth below the scroll window does not move visible content
+    Given a scrolled column with content below the current scroll window
+    When that content's height changes
+    Then the column's scroll offset is unaffected
+    Because only growth above the visible window requires compensation
+
+  Scenario: Content-driven scroll changes jump; intent-driven scroll changes spring
+    Given a focused, scrollable column
+    When the user scrolls via wheel, keyboard, or touch
+    Then the resulting scroll change animates with a spring
+    But when scroll position adjusts due to content growth/shrinkage above
+    the window, or a maxScroll shrink (viewport resize or content
+    shrinking below the current offset)
+    Then the resulting scroll change applies instantly, without animation
+
   # --- Alignment & Centering ---
 
   # Each axis is handled independently. Centering on an axis only applies
@@ -287,6 +317,10 @@ Feature: Scene Scroll
     When the viewport height grows
     Then the scroll position should remain valid
     And if the content now fits, the scrollbar should disappear
+    Note: if a resize instead SHRINKS the viewport below the current
+    scroll offset, the resulting clamp correction applies instantly,
+    without animation — see "Content-driven scroll changes jump" below
+    (F9 adjudication 3)
 
   # --- Consumer Scroll Override ---
 

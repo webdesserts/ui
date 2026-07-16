@@ -24,7 +24,12 @@ import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
-import { isInteractiveElement, mapScrollKeyToCommand, type ScrollCommand } from "./inputController";
+import {
+  isInteractiveElement,
+  mapScrollKeyToCommand,
+  selectAnchorObject,
+  type ScrollCommand,
+} from "./inputController";
 
 // ---------------------------------------------------------------------------
 // ColumnContext — lets SceneObjects register their elements and report their
@@ -364,14 +369,80 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // effects below (wheel, keyboard — subscribed once via `[]` deps) always
   // call the latest version instead of a stale one captured at mount.
   const driveScrollYRef = useRef<(target: number) => void>(() => {});
+
+  // F9 anchoring: the destination a REAL-mode scrollY spring is currently
+  // animating toward, or null when at rest (no live spring). Content-growth
+  // compensation (below) reads this to decide between retargeting an
+  // in-flight spring by the compensation delta (adjudication 1 — carries
+  // momentum) and a plain jump when nothing is currently animating (nothing
+  // further to animate toward). Cleared on the spring's NATURAL completion
+  // via onComplete — NOT on interruption (`.stop()`/`.jump()`), since every
+  // call site that stops a running spring immediately either sets a fresh
+  // target (a new command, or compensation's own retarget) or explicitly
+  // clears this ref itself (see handleContentPointerDown, the maxScroll-
+  // shrink clamp effect below).
+  const scrollYSpringTargetRef = useRef<number | null>(null);
+
   driveScrollYRef.current = (target: number) => {
     if (duration === 0) {
       scrollY.set(target);
-    } else {
-      const controls = animate(scrollY, target, transition);
-      motionSeam?.registerControls(`scrollY:${name}`, controls);
-      motionSeam?.registerTarget?.(`scrollY:${name}`, target);
+      return;
     }
+    scrollYSpringTargetRef.current = target;
+    const controls = animate(scrollY, target, {
+      ...transition,
+      onComplete: () => {
+        // Guard against a stale onComplete firing after a NEWER spring has
+        // already retargeted to a different destination — only clear if
+        // this callback's own target is still the one currently tracked.
+        if (scrollYSpringTargetRef.current === target) {
+          scrollYSpringTargetRef.current = null;
+        }
+      },
+    });
+    motionSeam?.registerControls(`scrollY:${name}`, controls);
+    motionSeam?.registerTarget?.(`scrollY:${name}`, target);
+  };
+
+  // F9 anchoring/content-driven scroll changes: applies a displacement
+  // DELTA to scrollY, never as a navigation (jump semantics — never
+  // animated on its own). When a real spring is currently in flight
+  // (scrollYSpringTargetRef tracks its destination), retargets it by the
+  // SAME delta with velocity carryover (adjudication 1) rather than a
+  // naive `.set()` (silently overwritten by the still-running spring's own
+  // next tick — probe-confirmed elsewhere in this file, see
+  // handleContentPointerDown's doc comment) or a hard stop-and-jump (kills
+  // the user's in-progress scroll momentum). At rest (no tracked target),
+  // there is nothing further to animate toward — a plain jump is both
+  // correct and cheaper (asserted by commit 1's tests: no animate() call
+  // during a resting-state compensation).
+  const applyScrollYDeltaRef = useRef<(delta: number) => void>(() => {});
+  applyScrollYDeltaRef.current = (delta: number) => {
+    if (delta === 0) return;
+    if (duration === 0) {
+      scrollY.jump(scrollY.get() + delta);
+      return;
+    }
+    const currentTarget = scrollYSpringTargetRef.current;
+    if (currentTarget === null) {
+      scrollY.jump(scrollY.get() + delta);
+      return;
+    }
+    const velocity = scrollY.getVelocity();
+    scrollY.jump(scrollY.get() + delta); // stops the running spring, shifts current position
+    const newTarget = currentTarget + delta;
+    scrollYSpringTargetRef.current = newTarget;
+    const controls = animate(scrollY, newTarget, {
+      ...transition,
+      velocity,
+      onComplete: () => {
+        if (scrollYSpringTargetRef.current === newTarget) {
+          scrollYSpringTargetRef.current = null;
+        }
+      },
+    });
+    motionSeam?.registerControls(`scrollY:${name}`, controls);
+    motionSeam?.registerTarget?.(`scrollY:${name}`, newTarget);
   };
 
   // Registered SceneObject elements — populated via ColumnContext.
@@ -478,15 +549,26 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   maxScrollRef.current = maxScroll;
 
   // Clamp scrollOffset to [0, maxScroll] whenever maxScroll changes (e.g. on
-  // content resize or viewport resize).
+  // content resize or viewport resize). F9 adjudication 3: reclassified
+  // from spring to jump — a maxScroll shrink is content/viewport-driven,
+  // not user intent, so under this slice's "content-driven scroll changes
+  // jump; intent-driven scroll changes spring" rule it must not animate.
+  // Shipping that rule as a spec'd contract (this slice) while this
+  // already-mapped site still sprang via driveScrollYRef would make the
+  // spec false on day one. scrollY.jump() stops any in-flight spring
+  // without firing its onComplete (an interruption, not a completion), so
+  // the tracked spring target is cleared explicitly here too — otherwise a
+  // LATER compensation event could read a stale target and retarget
+  // toward a destination nothing is actually animating toward anymore.
   useEffect(() => {
     if (scrollOffsetRef.current > maxScroll) {
       const clamped = Math.min(scrollOffsetRef.current, maxScroll);
       scrollOffsetRef.current = clamped;
       setScrollOffset(clamped);
-      driveScrollYRef.current(clamped);
+      scrollY.jump(clamped);
+      scrollYSpringTargetRef.current = null;
     }
-  }, [maxScroll]);
+  }, [maxScroll, scrollY]);
 
   // Single write-path closure (S5 input controller) for every scroll command
   // source: wheel (via the registry below), keyboard, touch release (fling),
@@ -726,6 +808,107 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     return changed;
   }, []);
 
+  // F9 anchoring: a snapshot of geometryStore taken at the end of the last
+  // remeasureGeometryWithAnchorCompensation call — used as the "before"
+  // reference for the NEXT compensation event, instead of reading
+  // geometryStore.current live (see that wrapper's own comment for why:
+  // SceneObject's own per-render register/unregister cleanup can
+  // transiently wipe entries before this wrapper's layout effect runs).
+  const lastSettledGeometryRef = useRef<Map<string, GeometryEntry>>(new Map());
+
+  // F9 anchoring-as-default: wraps remeasureGeometry with content-growth
+  // scroll-position compensation, mirroring native browser scroll
+  // anchoring. Captures the anchor object's offsetTop BEFORE remeasuring,
+  // then diffs against its offsetTop AFTER — if a focused sibling earlier
+  // in DOM order changed height, everything after it (including the
+  // anchor) shifts by that delta, and applying the SAME delta to the
+  // scroll offset keeps the user's in-view content visually stable. See
+  // selectAnchorObject's own doc comment for why this operates at object
+  // granularity rather than arbitrary DOM nodes.
+  //
+  // Only meaningful for multi-focused-object stacking: a single-focused-
+  // object column's anchor is trivially that object, and its OWN growth
+  // never moves its OWN offsetTop (nothing precedes it in the content
+  // wrapper) — a structural no-op there, which is why the existing B2
+  // single-object content-growth test is unaffected by this addition.
+  //
+  // A displacement correction, never a navigation — applyScrollYDeltaRef
+  // (jump semantics, with in-flight-spring retargeting per adjudication 1)
+  // is the write path, never driveScrollYRef (which always springs in
+  // real mode).
+  const remeasureGeometryWithAnchorCompensation = useCallback((): boolean => {
+    if (!columnFocusedRef.current) {
+      const changed = remeasureGeometry();
+      lastSettledGeometryRef.current = new Map(geometryStore.current);
+      return changed;
+    }
+
+    // "Before" reads from the last-SETTLED snapshot (captured at the end
+    // of the PREVIOUS call to this same wrapper), never live geometryStore
+    // directly — probe-confirmed bug avoided here: SceneObject's own
+    // registration effect unregisters-then-reregisters on EVERY render
+    // (no deps array — see its own doc comment, "a focus-only change must
+    // be reflected in the registry the SAME commit"), and unregistering
+    // deletes that object's geometryStore entry as a side effect.
+    // Children's layout effects run BEFORE the parent's (React's
+    // bottom-up ordering), so by the time THIS wrapper's own layout
+    // effect runs, sibling children may have already wiped their entries
+    // for this same commit — geometryStore.current can transiently read
+    // empty/partial even though nothing about their geometry actually
+    // needs to change. The settled snapshot sidesteps this entirely.
+    const anchorName = selectAnchorObject(
+      objectStatesRef.current,
+      lastSettledGeometryRef.current,
+      scrollOffsetRef.current,
+      viewportHeightRef.current,
+    );
+    // Null-safety (forecast Finding 2): selectAnchorObject legally returns
+    // null (no focused object's geometry is known yet, e.g. mid-swap-
+    // commit) — skip compensation entirely rather than NaN-propagating.
+    const beforeOffsetTop = anchorName ? lastSettledGeometryRef.current.get(anchorName)?.offsetTop : undefined;
+
+    const changed = remeasureGeometry();
+
+    if (anchorName !== null && beforeOffsetTop !== undefined) {
+      const afterOffsetTop = geometryStore.current.get(anchorName)?.offsetTop;
+      if (afterOffsetTop !== undefined) {
+        const delta = afterOffsetTop - beforeOffsetTop;
+        if (delta !== 0) {
+          // Clamp against a FRESHLY computed maxScroll, not maxScrollRef —
+          // probe-confirmed bug avoided here: maxScrollRef.current still
+          // reflects the STALE, pre-remeasure contentHeight React state
+          // (setContentHeight is only called AFTER this wrapper returns,
+          // later in the same layout effect), so clamping against it here
+          // would clip a genuine correction to the OLD, smaller bound
+          // before the new content's height is accounted for. Mirrors the
+          // A2 swap-reset effect's own established pattern for this exact
+          // staleness class ("Computing a fresh value directly from the
+          // just-remeasured geometry store sidesteps that lag entirely").
+          const freshContentHeight = computeFocusedContentHeight(
+            objectStatesRef.current,
+            geometryStore.current,
+            objectGapRef.current,
+          );
+          const freshMaxScroll = Math.max(
+            0,
+            viewportHeightRef.current > 0 ? freshContentHeight - viewportHeightRef.current : 0,
+          );
+          const corrected = Math.max(
+            0,
+            Math.min(freshMaxScroll, scrollOffsetRef.current + delta),
+          );
+          const appliedDelta = corrected - scrollOffsetRef.current;
+          scrollOffsetRef.current = corrected;
+          setScrollOffset(corrected);
+          applyScrollYDeltaRef.current(appliedDelta);
+        }
+      }
+    }
+
+    lastSettledGeometryRef.current = new Map(geometryStore.current);
+    return changed;
+  }, [remeasureGeometry]);
+
   // Compute the top offset during render using geometry captured in the
   // previous render's useLayoutEffect. This is accurate for focus swaps
   // (object content doesn't change when only focus changes) and avoids a
@@ -903,8 +1086,17 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     const observer = new ResizeObserver(() => {
       // Always refresh the cache (cheap; corrected again by the next
       // synchronous per-render remeasure regardless) so a column that later
-      // becomes focused starts from reasonably fresh geometry.
-      const changed = remeasureGeometry();
+      // becomes focused starts from reasonably fresh geometry. F9: the
+      // anchor-compensation wrapper (not raw remeasureGeometry) — this is
+      // the async path content growth reaches with no accompanying React
+      // render (the B2 fix's own scenario), so it must apply anchoring
+      // compensation here directly, synchronously inside this callback,
+      // before any state update — ResizeObserver callbacks run pre-paint
+      // in the SAME rendering pass as the layout change that triggered
+      // them (same guarantee data-scroll-offset's writer already relies
+      // on), so a synchronous scrollY write here lands before that frame
+      // paints, matching the "same-frame, no visible motion" contract.
+      const changed = remeasureGeometryWithAnchorCompensation();
 
       // Only unfocused columns' geometry (colHeight, marginTop) — none of
       // it depends on the geometry store (computeTopOffset/anchorTop/
@@ -942,7 +1134,7 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       observer.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [remeasureGeometry]);
+  }, [remeasureGeometryWithAnchorCompensation]);
 
   // Measure the content wrapper synchronously after each render (useLayoutEffect
   // fires before the browser paints) so geometry is fresh for the very next
@@ -952,8 +1144,12 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // Compute focused content height from the sum of focused objects' heights
   // (not the content wrapper's total height, which includes unfocused
   // objects in flow). This ensures scroll range only covers focused content.
+  // F9: the anchor-compensation wrapper (not raw remeasureGeometry) — this
+  // is the sync path a React re-render (e.g. a focused sibling's content
+  // prop changing) reaches; useLayoutEffect fires pre-paint, same commit
+  // tier as the compensation write, so it lands before paint here too.
   useLayoutEffect(() => {
-    remeasureGeometry();
+    remeasureGeometryWithAnchorCompensation();
     if (!columnFocused) return;
     setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));
   });
@@ -1479,6 +1675,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       // also stopping the animation (jump's endAnimation default calls
       // .stop() internally) — a strict superset of the old .stop() call.
       scrollY.jump(scrollY.get());
+      // F9: this jump can interrupt a still-in-flight wheel/keyboard/
+      // scrollbar-driven spring (e.g. a PageDown mid-spring, grabbed
+      // before it settles) — .jump()'s stop() doesn't fire onComplete (an
+      // interruption, not a completion), so the tracked spring target
+      // must be cleared explicitly here too, or a later content-growth
+      // compensation event could retarget toward a now-meaningless stale
+      // destination instead of correctly falling back to a plain jump.
+      scrollYSpringTargetRef.current = null;
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
     [columnFocused, isScrollable, scrollY],

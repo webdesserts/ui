@@ -12,6 +12,9 @@ import {
   isEditableElement,
   isInteractiveElement,
   mapScrollKeyToCommand,
+  selectAnchorObject,
+  type AnchorCandidate,
+  type AnchorGeometry,
 } from "../src/components/scene/inputController";
 
 function makeWheelEvent(init: Partial<WheelEventInit> = {}): WheelEvent {
@@ -431,5 +434,114 @@ describe("mapScrollKeyToCommand", () => {
 
   test("an unrelated key returns null", () => {
     expect(mapScrollKeyToCommand("a", false, 800)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectAnchorObject (F9)
+// ---------------------------------------------------------------------------
+
+describe("selectAnchorObject", () => {
+  function geom(map: Record<string, AnchorGeometry>): Map<string, AnchorGeometry> {
+    return new Map(Object.entries(map));
+  }
+
+  test("single focused object always anchors, regardless of scroll position", () => {
+    const objectStates: AnchorCandidate[] = [{ name: "a", focused: true }];
+    const geometryStore = geom({ a: { offsetTop: 0, height: 2000 } });
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBe("a");
+    expect(selectAnchorObject(objectStates, geometryStore, 500, 800)).toBe("a");
+    expect(selectAnchorObject(objectStates, geometryStore, 1200, 800)).toBe("a");
+  });
+
+  test("multi-focus stacking: picks the topmost object intersecting the visible window", () => {
+    // a: [0, 300), b: [300, 900), c: [900, 1400) — window [400, 1200) at
+    // scrollOffset=400, viewportHeight=800 intersects b first (topmost).
+    const objectStates: AnchorCandidate[] = [
+      { name: "a", focused: true },
+      { name: "b", focused: true },
+      { name: "c", focused: true },
+    ];
+    const geometryStore = geom({
+      a: { offsetTop: 0, height: 300 },
+      b: { offsetTop: 300, height: 600 },
+      c: { offsetTop: 900, height: 500 },
+    });
+    expect(selectAnchorObject(objectStates, geometryStore, 400, 800)).toBe("b");
+  });
+
+  test("scrolled to the very top: anchors the first (topmost) object", () => {
+    const objectStates: AnchorCandidate[] = [
+      { name: "a", focused: true },
+      { name: "b", focused: true },
+    ];
+    const geometryStore = geom({
+      a: { offsetTop: 0, height: 300 },
+      b: { offsetTop: 300, height: 600 },
+    });
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBe("a");
+  });
+
+  test("unfocused objects are never selected as the anchor, even if their geometry intersects the window", () => {
+    const objectStates: AnchorCandidate[] = [
+      { name: "a", focused: false },
+      { name: "b", focused: true },
+    ];
+    const geometryStore = geom({
+      a: { offsetTop: 0, height: 300 },
+      b: { offsetTop: 300, height: 600 },
+    });
+    // Window [0, 800) technically overlaps "a"'s [0, 300) range too, but "a"
+    // is unfocused (a within-column depth card, not scrollable content).
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBe("b");
+  });
+
+  test("an object flush against the window's edge (touching, not overlapping) does not count", () => {
+    const objectStates: AnchorCandidate[] = [
+      { name: "a", focused: true },
+      { name: "b", focused: true },
+    ];
+    const geometryStore = geom({
+      a: { offsetTop: 0, height: 300 },
+      b: { offsetTop: 300, height: 600 },
+    });
+    // Window [300, 1100) starts exactly where "a" ends — "a" does not
+    // intersect, "b" does.
+    expect(selectAnchorObject(objectStates, geometryStore, 300, 800)).toBe("b");
+  });
+
+  test("null-safety (forecast Finding 2): no focused object has a geometry entry -> returns null, not NaN", () => {
+    const objectStates: AnchorCandidate[] = [{ name: "a", focused: true }];
+    const geometryStore = geom({}); // "a" registered as focused but not yet measured
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBeNull();
+  });
+
+  test("null-safety: no objects are focused at all -> returns null", () => {
+    const objectStates: AnchorCandidate[] = [{ name: "a", focused: false }];
+    const geometryStore = geom({ a: { offsetTop: 0, height: 300 } });
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBeNull();
+  });
+
+  test("null-safety: a focused object exists but its measured range never intersects the window -> returns null", () => {
+    const objectStates: AnchorCandidate[] = [{ name: "a", focused: true }];
+    const geometryStore = geom({ a: { offsetTop: 0, height: 300 } });
+    // Window [1000, 1800) is entirely past "a"'s [0, 300) range — a
+    // transient state (e.g. mid-swap-commit against stale geometry), not
+    // an error.
+    expect(selectAnchorObject(objectStates, geometryStore, 1000, 800)).toBeNull();
+  });
+
+  test("mid-swap-commit shape: DOM order determines the walk, independent of Map insertion order", () => {
+    const objectStates: AnchorCandidate[] = [
+      { name: "second", focused: true },
+      { name: "first", focused: true },
+    ];
+    // geometryStore populated in a different order than objectStates —
+    // the walk must follow objectStates (DOM order), not Map iteration order.
+    const geometryStore = geom({
+      first: { offsetTop: 300, height: 600 },
+      second: { offsetTop: 0, height: 300 },
+    });
+    expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBe("second");
   });
 });
