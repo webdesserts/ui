@@ -438,6 +438,36 @@ export function SceneColumn({
   // call the latest version instead of a stale one captured at mount.
   const driveScrollYRef = useRef<(target: number) => void>(() => {});
 
+  // F13 commit 4: true while a REAL multi-frame inertia coast (the
+  // type:"inertia" animate() call assigned to startInertiaFlingRef below)
+  // is actively running — distinct from scrollYSpringTargetRef, which only
+  // tracks destination-based (driveScrollYRef) springs; an inertia coast
+  // has no fixed destination to track (see applyScrollCommand's fling
+  // branch — no registerTarget call there, on purpose). Read by
+  // applyScrollYDeltaRef to decide whether a content-growth/prepend
+  // compensation arriving mid-coast must RE-FLING (preserve the user's
+  // momentum) rather than plain-jump (silently killing it — jump()
+  // unconditionally stops any in-flight Motion animation, fling included).
+  // Cleared at every write-path entry that supersedes or completes the
+  // coast: startInertiaFlingRef's own onComplete (natural settle), and
+  // every other direct scrollY write site below (driveScrollYRef, the
+  // maxScroll-shrink clamp effect, the follow-the-end pin effect,
+  // handleContentPointerDown's own re-grab jump) — each superseding write
+  // clears it at its own site, mirroring how those same sites already
+  // clear scrollYSpringTargetRef for the identical reason.
+  const flingActiveRef = useRef(false);
+
+  // F13 commit 4: extracted so BOTH applyScrollCommand's release-time fling
+  // branch below AND applyScrollYDeltaRef's mid-coast re-fling (content-
+  // growth compensation arriving while a fling is active) share the exact
+  // same inertia call — no duplicated animate() invocation to drift out of
+  // sync. Declared empty here (mirrors driveScrollYRef's own two-step
+  // ref-then-assign pattern just above) and assigned its real
+  // implementation further down, once every dependency it needs
+  // (maxScrollRef, the tuned inertia params, updatePinnedState,
+  // resyncScrollMetricsRef) is in scope.
+  const startInertiaFlingRef = useRef<(velocity: number) => void>(() => {});
+
   // F9 anchoring: the destination a REAL-mode scrollY spring is currently
   // animating toward, or null when at rest (no live spring). Content-growth
   // compensation (below) reads this to decide between retargeting an
@@ -492,6 +522,13 @@ export function SceneColumn({
   const resyncScrollMetricsRef = useRef<(() => void) | null>(null);
 
   driveScrollYRef.current = (target: number) => {
+    // F13 commit 4: any intent-driven command (wheel/keyboard/scrollbar/
+    // scrollTo) superseding an active fling must stop tracking it as
+    // active — this call is about to drive scrollY toward its OWN target
+    // via the standard chase, not the inertia coast, and a later
+    // compensation event must not try to re-fling something that no
+    // longer exists.
+    flingActiveRef.current = false;
     if (duration === 0) {
       scrollY.set(target);
       return;
@@ -529,6 +566,28 @@ export function SceneColumn({
     if (delta === 0) return;
     if (duration === 0) {
       scrollY.jump(scrollY.get() + delta);
+      return;
+    }
+    // F13 commit 4: a mid-coast compensation must shift the coast, not kill
+    // it. A plain jump() below stops ANY in-flight Motion animation — that's
+    // fine for the resting/spring-retarget cases this function already
+    // handled, but a coasting inertia fling has no "target" to retarget
+    // toward (scrollYSpringTargetRef is never set for it — see
+    // startInertiaFlingRef's own comment), so it would otherwise fall
+    // straight into the plain-jump branch below and silently freeze the
+    // user's still-in-flight momentum. Capture the LIVE velocity first
+    // (valid mid-animation — Motion's animate() writes via .set() every
+    // frame, which keeps its internal velocity-tracking state fresh, unlike
+    // the release-time staleness this file works around elsewhere), jump by
+    // the delta (stops the interrupted controls exactly as it always has),
+    // then re-fling with that captured velocity through the SAME inertia
+    // call release uses — maxScrollRef.current is read FRESH at re-fling
+    // time inside startInertiaFlingRef, not the bound baked into the now-
+    // ended animation, which was computed pre-growth and is now stale.
+    if (flingActiveRef.current) {
+      const velocity = scrollY.getVelocity();
+      scrollY.jump(scrollY.get() + delta);
+      startInertiaFlingRef.current(velocity);
       return;
     }
     const currentTarget = scrollYSpringTargetRef.current;
@@ -682,6 +741,9 @@ export function SceneColumn({
       setScrollOffset(clamped);
       scrollY.jump(clamped);
       scrollYSpringTargetRef.current = null;
+      // F13 commit 4: same interruption as scrollYSpringTargetRef above —
+      // a maxScroll shrink stops any in-flight fling too.
+      flingActiveRef.current = false;
     }
   }, [maxScroll, scrollY]);
 
@@ -717,8 +779,69 @@ export function SceneColumn({
       setScrollOffset(maxScroll);
       scrollY.jump(maxScroll); // NOT driveScrollYRef — must not spring
       scrollYSpringTargetRef.current = null;
+      // F13 commit 4: same interruption as scrollYSpringTargetRef above.
+      flingActiveRef.current = false;
     }
   }, [maxScroll, scrollY, anchor]);
+
+  // F13 commit 4: the actual inertia call, assigned via a ref (mirrors
+  // driveScrollYRef/applyScrollYDeltaRef's own reassign-every-render
+  // pattern) so applyScrollCommand's fling branch below AND
+  // applyScrollYDeltaRef's mid-coast re-fling can both call the exact same
+  // logic — see startInertiaFlingRef's own declaration (near
+  // driveScrollYRef, above) for the full rationale.
+  startInertiaFlingRef.current = (velocity: number) => {
+    flingActiveRef.current = true;
+    // NOTE: deviates from the plan's literal
+    // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
+    // that resolves internally to keyframes=[null, undefined], which
+    // finishes the animation instantly without ever running. Passing an
+    // explicit single-element keyframes array with the current value is
+    // required for inertia to actually decelerate from here.
+    const controls = animate(scrollY, [scrollY.get()], {
+      type: "inertia",
+      velocity,
+      min: 0,
+      max: maxScrollRef.current,
+      // F13 commit 3: iOS-feel flywheel constants (the classic
+      // power/timeConstant pair), Michael-tunable via the dev TuningPanel —
+      // threaded through SceneConfig exactly like stiffness/damping (see
+      // useSceneConfig.tsx's DEFAULT_TOUCH_POWER/DEFAULT_TOUCH_TIME_CONSTANT
+      // for the shipped defaults).
+      power: touchPower,
+      timeConstant: touchTimeConstant,
+      // Reuses Scene's configured spring constants for the boundary bounce
+      // so the touch-release feel matches wheel/keyboard's spring physics,
+      // rather than introducing a third unrelated set of magic numbers —
+      // judgment call: the plan named bounceStiffness/bounceDamping
+      // without pinning values.
+      bounceStiffness: stiffness,
+      bounceDamping: damping,
+      // F9 commit 2: re-pin (or stay released) once the coast genuinely
+      // settles — the only point at which the final resting offset is
+      // knowable for a physics-based multi-frame deceleration. F9
+      // commit 3: the animation driver has already set scrollY to its
+      // final value (and fired onScroll's own change-event subscriber
+      // for it) by the time onComplete runs, so updatePinnedState's
+      // decision here arrives too late for that subscriber to have
+      // reported it — force an explicit resync so the pin transition
+      // is still observable via onScroll. F13 commit 4: also clears
+      // flingActiveRef — this is the coast's NATURAL settle (an
+      // interruption instead clears it at its own write site — see the
+      // ref's own declaration for the full list).
+      onComplete: () => {
+        flingActiveRef.current = false;
+        updatePinnedState(scrollY.get(), maxScrollRef.current);
+        resyncScrollMetricsRef.current?.();
+      },
+    });
+    motionSeam?.registerControls(`scrollY:${name}`, controls);
+    // No registerTarget here (F4 active-springs panel): an inertia
+    // deceleration has no fixed destination to report — it coasts to
+    // wherever momentum runs out, only meeting the boundary spring
+    // above if it overshoots. The panel shows "—" for this key while
+    // coasting, which is the honest answer.
+  };
 
   // Single write-path closure (S5 input controller) for every scroll command
   // source: wheel (via the registry below), keyboard, touch release (fling),
@@ -809,52 +932,13 @@ export function SceneColumn({
           return;
         }
 
-        // NOTE: deviates from the plan's literal
-        // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
-        // that resolves internally to keyframes=[null, undefined], which
-        // finishes the animation instantly without ever running. Passing an
-        // explicit single-element keyframes array with the current value is
-        // required for inertia to actually decelerate from here.
-        const controls = animate(scrollY, [scrollY.get()], {
-          type: "inertia",
-          velocity,
-          min: 0,
-          max: maxScrollRef.current,
-          // F13 commit 3: iOS-feel flywheel constants (the classic
-          // power/timeConstant pair), Michael-tunable via the dev
-          // TuningPanel — threaded through SceneConfig exactly like
-          // stiffness/damping (see useSceneConfig.tsx's
-          // DEFAULT_TOUCH_POWER/DEFAULT_TOUCH_TIME_CONSTANT for the shipped
-          // defaults).
-          power: touchPower,
-          timeConstant: touchTimeConstant,
-          // Reuses Scene's configured spring constants for the boundary bounce
-          // so the touch-release feel matches wheel/keyboard's spring physics,
-          // rather than introducing a third unrelated set of magic numbers —
-          // judgment call: the plan named bounceStiffness/bounceDamping
-          // without pinning values.
-          bounceStiffness: stiffness,
-          bounceDamping: damping,
-          // F9 commit 2: re-pin (or stay released) once the coast genuinely
-          // settles — the only point at which the final resting offset is
-          // knowable for a physics-based multi-frame deceleration. F9
-          // commit 3: the animation driver has already set scrollY to its
-          // final value (and fired onScroll's own change-event subscriber
-          // for it) by the time onComplete runs, so updatePinnedState's
-          // decision here arrives too late for that subscriber to have
-          // reported it — force an explicit resync so the pin transition
-          // is still observable via onScroll.
-          onComplete: () => {
-            updatePinnedState(scrollY.get(), maxScrollRef.current);
-            resyncScrollMetricsRef.current?.();
-          },
-        });
-        motionSeam?.registerControls(`scrollY:${name}`, controls);
-        // No registerTarget here (F4 active-springs panel): an inertia
-        // deceleration has no fixed destination to report — it coasts to
-        // wherever momentum runs out, only meeting the boundary spring
-        // above if it overshoots. The panel shows "—" for this key while
-        // coasting, which is the honest answer.
+        // F13 commit 4: the real, multi-frame decay call lives in
+        // startInertiaFlingRef (assigned just above, before this callback —
+        // see its own declaration near driveScrollYRef for why) so
+        // applyScrollYDeltaRef can call the exact SAME logic to re-fling a
+        // coast interrupted mid-flight by a content-growth compensation —
+        // no duplicated animate() invocation to drift out of sync.
+        startInertiaFlingRef.current(velocity);
         return;
       }
 
@@ -898,7 +982,11 @@ export function SceneColumn({
       updatePinnedState(nextOffset, maxScrollRef.current);
       driveScrollYRef.current(nextOffset);
     },
-    [duration, transition, motionSeam, name, stiffness, damping, scrollY, anchor],
+    // F13 commit 4: stiffness/damping dropped from this list — the real
+    // inertia call (which used them for bounceStiffness/bounceDamping) now
+    // lives in startInertiaFlingRef, a stable ref this callback reads
+    // through .current rather than closing over directly.
+    [duration, transition, motionSeam, name, scrollY, anchor],
   );
 
   // Mirrors driveScrollYRef's ref pattern: the wheel/keyboard effects below
@@ -2288,6 +2376,11 @@ export function SceneColumn({
       // compensation event could retarget toward a now-meaningless stale
       // destination instead of correctly falling back to a plain jump.
       scrollYSpringTargetRef.current = null;
+      // F13 commit 4: same interruption — a re-grab stops a coasting fling
+      // too (the jump() above already halts its animation; this just marks
+      // it no-longer-active so a LATER compensation event doesn't try to
+      // re-fling something that's no longer running).
+      flingActiveRef.current = false;
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
     [columnFocused, isScrollable, scrollY],

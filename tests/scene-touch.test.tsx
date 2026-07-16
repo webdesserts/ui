@@ -5,9 +5,15 @@
  * (C3), release inertia + boundary clamp (C4, defeat-checked at C5), focus
  * change during an active fling (C6), touch-action CSS + thumb hit target
  * (C7), and the scrollbar thumb's own touch-drag (C11 — its first test
- * coverage in this suite; the thumb's drag logic predates S3). Also covers
- * F13 commit 1's native touchmove ownership/preventDefault gating and
- * commit 3's tunable touch inertia params.
+ * coverage in this suite; the thumb's drag logic predates S3).
+ *
+ * Also covers F13's mobile touch-feel fixes: native touchmove ownership/
+ * preventDefault (commit 1), the own release-velocity tracker (commit 2,
+ * exercised end-to-end through the pre-existing release-inertia tests below
+ * — computeReleaseVelocity's own unit tests live in
+ * scene-input-controller.test.ts), tunable touch inertia params (commit 3),
+ * and fling survival through a mid-coast content-growth compensation
+ * (commit 4).
  *
  * PointerEvents are dispatched directly via element.dispatchEvent() — this
  * repo runs vitest-browser tests in real Chromium (not jsdom), so
@@ -661,6 +667,83 @@ describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
     const floatyDuration = await flingDurationWith(0.9, 2000);
 
     expect(floatyDuration).toBeGreaterThan(snappyDuration * 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F13 commit 4: fling survives a mid-coast content-growth compensation
+// ---------------------------------------------------------------------------
+
+describe("Scene touch — fling survives content-growth compensation (F13 commit 4)", () => {
+  test("content growing above the anchor while a fling coasts re-flings instead of freezing", async () => {
+    // Mirrors the F9 content-growth test's multi-focused-object shape
+    // (a "top" object that grows, a "bottom" object the fling scrolls
+    // into), but in REAL (non-instant) mode with a genuine release fling
+    // rather than a single big drag — duration=0 never runs inertia at all
+    // (applyScrollCommand's fling branch short-circuits before it).
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    await waitForAnimationFrame();
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    // Flick well past "top" (300px tall) so "bottom" becomes the anchor —
+    // same rationale as the F9 test this mirrors: the compensation write
+    // path only fires when growth happens ABOVE the tracked anchor.
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    for (let i = 1; i <= 6; i++) {
+      firePointer(contentWrapper, "pointermove", startX, startY - i * 80);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    firePointer(contentWrapper, "pointerup", startX, startY - 6 * 80);
+
+    // Confirm a real fling actually started (still coasting shortly after release).
+    const offsetAtRelease = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    await wait(30);
+    const offsetSoonAfter = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    expect(offsetSoonAfter).not.toBe(offsetAtRelease);
+
+    // Content grows above the anchor WHILE the fling is actively coasting.
+    await rerender(build(500));
+    const offsetRightAfterGrowth = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+
+    // The pre-commit-4 bug: a plain jump() stops ANY in-flight Motion
+    // animation, so the coast would freeze here permanently. Surviving
+    // means it keeps changing afterward — this is the test's own
+    // defeat-check target (see commit 4's own comment on
+    // applyScrollYDeltaRef for the sever site: removing the
+    // `flingActiveRef.current` branch collapses this back to the frozen
+    // plain-jump path).
+    await wait(150);
+    const offsetLater = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    expect(offsetLater).not.toBe(offsetRightAfterGrowth);
+
+    // Eventually settles within the FRESH (post-growth) bounds — never
+    // stranded past the new maxScroll.
+    await wait(2500);
+    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    expect(settled).toBeGreaterThanOrEqual(0);
+    expect(settled).toBeLessThanOrEqual(maxScroll + 1);
   });
 });
 
