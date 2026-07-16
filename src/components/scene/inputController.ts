@@ -460,3 +460,91 @@ export function selectIntraObjectAnchorIndex(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Recursive intra-object anchor descent (F10b)
+// ---------------------------------------------------------------------------
+
+/**
+ * True for elements whose rendered position does NOT track normal flow —
+ * `position: sticky` or `position: fixed`. Excluded from intra-object
+ * anchor candidacy (F10b): native scroll anchoring excludes these from its
+ * own candidate set for the same reason — a sticky/fixed element's
+ * `getBoundingClientRect()` reflects wherever the viewport has pinned it,
+ * not its flow position, so measuring it as a flow-position anchor would
+ * produce a meaningless delta (and a sticky sibling parked at the anchor
+ * line, e.g. a chat composer, would otherwise win selection over the
+ * actual scrolling content next to it).
+ */
+function isStickyOrFixed(el: Element): boolean {
+  const position = getComputedStyle(el).position;
+  return position === "sticky" || position === "fixed";
+}
+
+/** A measured intra-object anchor match: the element plus its position, in
+ * the SAME content-wrapper-relative frame `remeasureGeometry` uses for
+ * top-level objects. */
+export interface IntraObjectAnchorMatch {
+  el: Element;
+  offsetTop: number;
+  height: number;
+}
+
+/**
+ * Finds the DEEPEST element intersecting the current scroll window within
+ * `objectEl` (F10b's recursive refinement of F10's one-level descent).
+ * F10's `findIntraObjectAnchorCandidates` + `selectIntraObjectAnchorIndex`
+ * correctly select the topmost intersecting candidate at ONE level — but a
+ * real consumer pipeline can nest the actual scrolling rows two or more
+ * wrapper levels below the level where real siblings first appear (e.g.
+ * SceneObject's own inert wrapper → a flex stack of [rows-container,
+ * sticky Composer, sticky PushBanner] → the rows themselves, INSIDE
+ * rows-container). Stopping at the first branching level selects
+ * rows-container — an identity-stable wrapper whose OWN offsetTop never
+ * moves from a prepend inside it, reproducing F10's exact blindness one
+ * level down.
+ *
+ * Native scroll anchoring's own rule is "the deepest element intersecting
+ * the anchor line": at each level, selects the topmost non-sticky/fixed
+ * candidate whose range intersects the window; if that candidate itself
+ * has further candidates of its own, descends into it and repeats.
+ * Terminates when the selected candidate has no further candidates (a
+ * genuine leaf/terminal item, e.g. an actual row) or when no candidate at
+ * a level intersects the window at all.
+ *
+ * Operates entirely in the SAME content-wrapper-relative (global) frame
+ * `wrapperRect` establishes — a single shared measurement across the whole
+ * recursive walk (mirrors remeasureGeometryWithAnchorCompensation's own
+ * single-wrapperRect-read-per-pass technique). Converting the result to a
+ * frame local to a specific anchor OBJECT (for composing with the
+ * object-level diff) is the caller's job, same as F10's one-level version.
+ *
+ * Returns `null` when no candidate at the FIRST level intersects the
+ * window — a legal transient state (mirrors selectIntraObjectAnchorIndex's
+ * own null-safety contract), never NaN-propagated into a scroll write.
+ */
+export function findDeepestIntraObjectAnchor(
+  objectEl: Element,
+  wrapperRect: DOMRect,
+  scrollOffset: number,
+  viewportHeight: number,
+): IntraObjectAnchorMatch | null {
+  let current: Element = objectEl;
+  let best: IntraObjectAnchorMatch | null = null;
+
+  for (;;) {
+    const candidateEls = findIntraObjectAnchorCandidates(current).filter((el) => !isStickyOrFixed(el));
+    const candidateGeometry: AnchorGeometry[] = candidateEls.map((el) => ({
+      offsetTop: el.getBoundingClientRect().top - wrapperRect.top,
+      height: (el as HTMLElement).offsetHeight,
+    }));
+    const idx = selectIntraObjectAnchorIndex(candidateGeometry, scrollOffset, viewportHeight);
+    if (idx === null) break; // nothing intersects at this level — stop; `best` already holds the deepest match so far
+
+    const selected = candidateEls[idx]!;
+    best = { el: selected, offsetTop: candidateGeometry[idx]!.offsetTop, height: candidateGeometry[idx]!.height };
+    current = selected; // descend and try to go deeper
+  }
+
+  return best;
+}

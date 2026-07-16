@@ -268,6 +268,16 @@ Feature: Scene Scroll
     the same update (a preceding sibling object growing AND this object's
     own interior changing at once) — the two corrections stack rather than
     double-counting
+    Note: tracking descends RECURSIVELY, not just one level (F10b) — a real
+    consumer's rows can sit multiple wrapper levels below the first level
+    with real siblings (e.g. behind a list component's own root, alongside
+    sticky footer/header siblings); the deepest element intersecting the
+    scroll window is what's tracked, mirroring native scroll anchoring's
+    own "deepest intersecting element" rule
+    Note: `position: sticky`/`fixed` siblings are never selected as anchor
+    candidates during that descent — their rendered position doesn't track
+    flow position, so a sticky composer or banner sitting at the anchor
+    line would produce a meaningless delta if tracked
 
   Scenario: A follow-the-end column opens already at the newest content
     Given a column configured to follow the end (anchor="end")

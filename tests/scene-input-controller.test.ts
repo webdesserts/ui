@@ -17,6 +17,7 @@ import {
   END_PIN_THRESHOLD_PX,
   findIntraObjectAnchorCandidates,
   selectIntraObjectAnchorIndex,
+  findDeepestIntraObjectAnchor,
   type AnchorCandidate,
   type AnchorGeometry,
 } from "../src/components/scene/inputController";
@@ -677,5 +678,202 @@ describe("selectIntraObjectAnchorIndex", () => {
     const candidates: AnchorGeometry[] = [{ offsetTop: 0, height: 300 }];
     // Window [1000, 1800) is entirely past the only candidate's [0, 300) range.
     expect(selectIntraObjectAnchorIndex(candidates, 1000, 800)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findDeepestIntraObjectAnchor (F10b)
+// ---------------------------------------------------------------------------
+
+describe("findDeepestIntraObjectAnchor", () => {
+  /** A real, flow-laid-out block element of the given height, appended to `parent`. */
+  function block(parent: Element, height: number, opts: { position?: string } = {}): HTMLElement {
+    const el = document.createElement("div");
+    el.style.height = `${height}px`;
+    el.style.display = "block";
+    if (opts.position) el.style.position = opts.position;
+    parent.appendChild(el);
+    return el;
+  }
+
+  function makeWrapper(): HTMLElement {
+    const wrapper = document.createElement("div");
+    document.body.appendChild(wrapper);
+    return wrapper;
+  }
+
+  test("recursively descends through 2 levels of REAL branching to select the actual row, not the identity-stable intermediate wrapper it's nested in", () => {
+    // objectEl's single child is midLevel, which branches into TWO real
+    // siblings [decoy(0-height, never intersects), rowsContainer] — the
+    // level F10's own one-level descent would have stopped at, selecting
+    // rowsContainer itself. rowsContainer ITSELF branches further into the
+    // actual rows — reaching them requires the OUTER loop to iterate a
+    // SECOND time (descending into the level-1 selection), not just
+    // findIntraObjectAnchorCandidates' own single-child-skip (which fully
+    // resolves within one call and wouldn't exercise this).
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0); // height irrelevant — its own box isn't a candidate
+      const midLevel = document.createElement("div"); // objectEl's sole child (single-child-skipped)
+      objectEl.appendChild(midLevel);
+      const decoy = block(midLevel, 0); // 0-height — never intersects any window
+      const rowsContainer = document.createElement("div"); // mirrors MessageList's root — the level F10 stopped at
+      midLevel.appendChild(rowsContainer);
+      const row0 = block(rowsContainer, 100);
+      const row1 = block(rowsContainer, 100);
+      const row2 = block(rowsContainer, 100);
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // rowsContainer spans [0, 300) (decoy consumes no space) — row1 spans
+      // [100, 200) within it — window [150, 250) intersects row1.
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 150, 100);
+
+      expect(match?.el).toBe(row1);
+      void decoy;
+      void row0;
+      void row2;
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("a depth-3 nesting (one further level of REAL branching) generalizes with no hardcoded depth", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const outerLevel = document.createElement("div"); // objectEl's sole child
+      objectEl.appendChild(outerLevel);
+      const outerDecoy = block(outerLevel, 0);
+      const midLevel = document.createElement("div"); // outerLevel's 2nd child — real branching #1
+      outerLevel.appendChild(midLevel);
+      const midDecoy = block(midLevel, 0);
+      const rowsContainer = document.createElement("div"); // midLevel's 2nd child — real branching #2
+      midLevel.appendChild(rowsContainer);
+      const row0 = block(rowsContainer, 100);
+      const row1 = block(rowsContainer, 100);
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // row0 spans [0, 100) — window [0, 50) intersects it. Reaching it
+      // requires THREE outer-loop iterations (objectEl -> midLevel ->
+      // rowsContainer -> row0), each through a genuine branching level.
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 0, 50);
+
+      expect(match?.el).toBe(row0);
+      void outerDecoy;
+      void midDecoy;
+      void row1;
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("terminates at a genuine leaf row (no text/inline content mistaken for further candidates)", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const rowsContainer = document.createElement("div");
+      objectEl.appendChild(rowsContainer);
+      // Two rows — a lone single row would collapse into a pass-through
+      // wrapper by findIntraObjectAnchorCandidates' own single-child rule
+      // (correctly: a container with exactly one item isn't list-like), so
+      // a real branching level needs at least two siblings here.
+      const row0 = block(rowsContainer, 100);
+      row0.textContent = "hello world"; // a leaf row's real content is text, not more elements
+      const row1 = block(rowsContainer, 100);
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // row0 spans [0, 100) — window [0, 50) intersects it.
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 0, 50);
+
+      expect(match?.el).toBe(row0);
+      void row1;
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("sticky sibling exclusion: a sticky element at the anchor line is never selected, even when it would otherwise be topmost-intersecting", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const flexStack = document.createElement("div");
+      objectEl.appendChild(flexStack);
+      const stickyComposer = block(flexStack, 60, { position: "sticky" }); // [0, 60) — DOM-first, would win topmost-in-order
+      const rowsContainer = document.createElement("div");
+      flexStack.appendChild(rowsContainer);
+      const row0 = block(rowsContainer, 100); // global [60, 160)
+      const row1 = block(rowsContainer, 100); // global [160, 260) — a 2nd row so rowsContainer is a real branching level
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // Window [0, 200) intersects BOTH stickyComposer ([0,60)) and rowsContainer
+      // ([60,260), which contains row0/row1) — the sticky one is DOM-first
+      // (would win a naive topmost-in-order pick) but must be excluded.
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 0, 200);
+
+      expect(match?.el).toBe(row0);
+      void stickyComposer;
+      void row1;
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("a fixed-position sibling is also excluded", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const flexStack = document.createElement("div");
+      objectEl.appendChild(flexStack);
+      const fixedBanner = block(flexStack, 40, { position: "fixed" });
+      const rowsContainer = document.createElement("div");
+      flexStack.appendChild(rowsContainer);
+      const row0 = block(rowsContainer, 100);
+      const row1 = block(rowsContainer, 100);
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 0, 200);
+
+      expect(match?.el).toBe(row0);
+      void fixedBanner;
+      void row1;
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("null-safety: nothing intersects at the first level -> returns null", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const rowsContainer = document.createElement("div");
+      objectEl.appendChild(rowsContainer);
+      block(rowsContainer, 100); // [0, 100)
+      block(rowsContainer, 100); // [100, 200)
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      // Window [1000, 1800) is entirely past both rows.
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 1000, 800);
+
+      expect(match).toBeNull();
+    } finally {
+      wrapper.remove();
+    }
+  });
+
+  test("a single-item object body (no branching at any level) returns null — same shape F10's own null-safety covers", () => {
+    const wrapper = makeWrapper();
+    try {
+      const objectEl = block(wrapper, 0);
+      const onlyChild = document.createElement("div");
+      objectEl.appendChild(onlyChild);
+      block(onlyChild, 500); // one lone item, never branches
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const match = findDeepestIntraObjectAnchor(objectEl, wrapperRect, 0, 200);
+
+      expect(match).toBeNull();
+    } finally {
+      wrapper.remove();
+    }
   });
 });

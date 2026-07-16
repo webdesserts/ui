@@ -4682,6 +4682,89 @@ describe("Scene intra-object content-growth anchoring (F10)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F10b: recursive intra-object anchor descent
+// ---------------------------------------------------------------------------
+
+describe("Scene recursive intra-object anchor descent (F10b)", () => {
+  const ROW_HEIGHT = 70;
+
+  // Mirrors Peri's real pipeline shape (scene-lab 53): SceneObject's own
+  // inert wrapper (single-child, implicit) -> a flex stack (real siblings:
+  // rows-container + sticky Composer + sticky PushBanner) -> the rows
+  // themselves, nested INSIDE rows-container. F10's one-level descent stops
+  // at the flex-stack level (the first level with real siblings) and tracks
+  // rows-container itself — an identity-stable wrapper whose own offsetTop
+  // never moves from a prepend inside it, reproducing F10's exact blindness
+  // one level down.
+  function buildChatPipeline(rowIds: number[]) {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="chat" focused>
+              <div data-testid="flex-stack" style={{ display: "flex", flexDirection: "column" }}>
+                <div data-testid="rows-container">
+                  {rowIds.map((id) => (
+                    <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                      row {id}
+                    </div>
+                  ))}
+                </div>
+                <div data-testid="composer" style={{ position: "sticky", bottom: 0, height: 60, width: 400 }}>
+                  composer
+                </div>
+                <div data-testid="push-banner" style={{ position: "sticky", top: 0, height: 40, width: 400 }}>
+                  push banner
+                </div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  test("Peri's real pipeline shape (rows nested two wrapper levels deep, sticky Composer/PushBanner siblings) compensates fully — object-level and F10's one-level descent both reproduce the exact blindness one level down", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildChatPipeline(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Scroll to 1000 — window [1000, 1800) intersects row 14 ([980, 1050)),
+    // the topmost partially-visible row. Poll contentWrapper's OWN rendered
+    // top (not just data-scroll-offset) before capturing a "before" rect —
+    // see the F10 primary repro test's identical rationale.
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 1000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-1000);
+
+    const row14Before = getByTestId("row-14").element() as HTMLElement;
+    const row14RectBefore = row14Before.getBoundingClientRect();
+
+    // Prepend 20 NEW keyed rows before the existing 50, nested INSIDE
+    // rows-container (two wrapper levels below the flex stack).
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildChatPipeline([...prependedIds, ...existingIds]));
+
+    // The offset compensates by exactly the prepended height (20 * 70).
+    expect(column.getAttribute("data-scroll-offset")).toBe("2400");
+
+    const row14After = getByTestId("row-14").element() as HTMLElement;
+    expect(row14After).toBe(row14Before);
+    expect(row14After.getBoundingClientRect().top).toBeCloseTo(row14RectBefore.top, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // F9 commit 2: anchor="end" follow-the-end pin state machine
 // ---------------------------------------------------------------------------
 

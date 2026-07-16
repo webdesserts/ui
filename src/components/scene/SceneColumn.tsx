@@ -30,8 +30,7 @@ import {
   mapScrollKeyToCommand,
   selectAnchorObject,
   isAtScrollEnd,
-  findIntraObjectAnchorCandidates,
-  selectIntraObjectAnchorIndex,
+  findDeepestIntraObjectAnchor,
   type ScrollCommand,
 } from "./inputController";
 
@@ -1188,33 +1187,30 @@ export function SceneColumn({
       }
     }
 
-    // F10: re-select the candidate to track for the NEXT settle, from the
-    // (possibly just-updated) anchor object's fresh geometry — always
-    // freshly derived rather than carried forward, so a changed anchor or a
-    // disconnected previous candidate self-heals with no special-case
-    // recovery path. Requires a resolved object offsetTop to convert
-    // candidate positions into the object-LOCAL frame intraBefore uses
-    // (see the intra-object branch's own comment above for why local,
-    // not global).
+    // F10b: re-select the DEEPEST candidate to track for the NEXT settle
+    // (recursive descent — F10's own one-level version stopped at the
+    // first branching level, which reproduces the exact object-level
+    // blindness one wrapper deeper: a real consumer pipeline can nest the
+    // actual rows two or more levels below where real siblings first
+    // appear, e.g. behind a list component's own root, alongside sticky
+    // siblings like a chat's Composer/PushBanner). Always freshly derived
+    // rather than carried forward, so a changed anchor or a disconnected
+    // previous candidate self-heals with no special-case recovery path.
+    // findDeepestIntraObjectAnchor operates in the GLOBAL (content-
+    // wrapper-relative) frame throughout its walk — the SAME frame
+    // wrapperRect/scrollOffsetRef.current already share — converting to
+    // the object-LOCAL frame intraBefore uses only at the end, once,
+    // rather than at every recursion level.
     const anchorEl = anchorName ? registeredEls.current.get(anchorName) : undefined;
     if (anchorEl && wrapperRect && afterOffsetTop !== undefined) {
-      const candidateEls = findIntraObjectAnchorCandidates(anchorEl);
-      const candidateGeometry = candidateEls.map((el) => ({
-        offsetTop: el.getBoundingClientRect().top - wrapperRect.top - afterOffsetTop,
-        height: (el as HTMLElement).offsetHeight,
-      }));
-      // The intersection window must be expressed in the SAME (object-
-      // local) frame the candidates now are — offset the column's global
-      // scroll window by the object's own offsetTop.
-      const idx = selectIntraObjectAnchorIndex(
-        candidateGeometry,
-        scrollOffsetRef.current - afterOffsetTop,
+      const match = findDeepestIntraObjectAnchor(
+        anchorEl,
+        wrapperRect,
+        scrollOffsetRef.current,
         viewportHeightRef.current,
       );
       lastSettledIntraAnchorRef.current =
-        idx !== null
-          ? { objName: anchorName!, el: candidateEls[idx]!, offsetTop: candidateGeometry[idx]!.offsetTop }
-          : null;
+        match !== null ? { objName: anchorName!, el: match.el, offsetTop: match.offsetTop - afterOffsetTop } : null;
     } else {
       lastSettledIntraAnchorRef.current = null;
     }
