@@ -255,6 +255,70 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
 
     firePointer(contentWrapper, "pointerup", 200, 600);
   });
+
+  // F10 scope: intra-object anchoring (a prepend inside a single object's
+  // own interior) reuses this SAME dragStartOffset-rebase mechanism — its
+  // own compensation write goes through the identical
+  // applyScrollYDeltaRef/dragStartOffset code path as F9 commit 1's
+  // sibling-growth case above, just with a second delta source.
+  test("a mid-drag compensation event from an intra-object prepend (F10) also rebases the drag's own baseline — no flash-then-revert", async () => {
+    const ROW_HEIGHT = 70;
+    const build = (ids: number[]) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="rows" focused>
+              {ids.map((id) => (
+                <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(build(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Drag to offset 1000 (dragStartY=1000, finger moves up to clientY=0).
+    firePointer(contentWrapper, "pointerdown", 200, 1000);
+    await waitForAnimationFrame();
+    firePointer(contentWrapper, "pointermove", 200, 0); // deltaY=-1000
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("1000");
+    // Poll the wrapper's OWN rendered top before the prepend below — same
+    // rationale as scene.test.tsx's F10 tests: a raw pointer event's
+    // React-state write (instant mode's combinedTop) needs an actual commit
+    // to catch up before F10's intra-anchor RE-SELECTION (which runs in
+    // that commit's layout effect) is guaranteed to have captured row 14
+    // as the tracked candidate for this offset.
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-1000);
+
+    // Prepend 20 rows WHILE still dragging (isDragging still true — no
+    // pointerup/pointercancel yet).
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(build([...prependedIds, ...existingIds]));
+    // Intra-object compensation applies +1400 (20 * 70) same-frame: 1000 -> 2400.
+    expect(column.getAttribute("data-scroll-offset")).toBe("2400");
+
+    // Continue the SAME drag (dragStartY still 1000, never restarted) a
+    // further 50px up, to clientY=-50. Without the rebase, this recomputes
+    // from the STALE pre-prepend baseline (dragStartOffset=0) and lands at
+    // 1050, silently discarding the +1400 compensation (the flash-then-
+    // revert bug). With the rebase (dragStartOffset += 1400 -> 1400), it
+    // correctly lands at 2450 (1050 raw drag delta from the rebased
+    // baseline + the 1400 compensation, both preserved).
+    firePointer(contentWrapper, "pointermove", 200, -50);
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("2450");
+
+    firePointer(contentWrapper, "pointerup", 200, -50);
+  });
 });
 
 // ---------------------------------------------------------------------------

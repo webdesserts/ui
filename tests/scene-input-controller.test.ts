@@ -15,6 +15,8 @@ import {
   selectAnchorObject,
   isAtScrollEnd,
   END_PIN_THRESHOLD_PX,
+  findIntraObjectAnchorCandidates,
+  selectIntraObjectAnchorIndex,
   type AnchorCandidate,
   type AnchorGeometry,
 } from "../src/components/scene/inputController";
@@ -575,5 +577,105 @@ describe("isAtScrollEnd", () => {
 
   test("probe-motivated case: a real fractional wheel tick 1.3px short of maxScroll counts as at the end", () => {
     expect(isAtScrollEnd(499.7, 501)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findIntraObjectAnchorCandidates (F10)
+// ---------------------------------------------------------------------------
+
+describe("findIntraObjectAnchorCandidates", () => {
+  test("descends through SceneObject's own inert-wrapper single-child layer to find the consumer's real rows", () => {
+    const objectEl = document.createElement("div"); // the registered outer element
+    const inertWrapper = document.createElement("div"); // SceneObject's <div inert> wrapper
+    objectEl.appendChild(inertWrapper);
+    const rowA = document.createElement("div");
+    const rowB = document.createElement("div");
+    const rowC = document.createElement("div");
+    inertWrapper.append(rowA, rowB, rowC);
+
+    expect(findIntraObjectAnchorCandidates(objectEl)).toEqual([rowA, rowB, rowC]);
+  });
+
+  test("descends through an ADDITIONAL consumer-added single-child wrapper (e.g. a list component's own root) with no hardcoded depth", () => {
+    const objectEl = document.createElement("div");
+    const inertWrapper = document.createElement("div");
+    const listRoot = document.createElement("ul"); // consumer's own extra wrapper
+    objectEl.appendChild(inertWrapper);
+    inertWrapper.appendChild(listRoot);
+    const item1 = document.createElement("li");
+    const item2 = document.createElement("li");
+    listRoot.append(item1, item2);
+
+    expect(findIntraObjectAnchorCandidates(objectEl)).toEqual([item1, item2]);
+  });
+
+  test("a single-item/non-list object body (no level ever branches) returns an empty array", () => {
+    const objectEl = document.createElement("div");
+    const inertWrapper = document.createElement("div");
+    const onlyChild = document.createElement("div"); // no siblings, ever
+    objectEl.appendChild(inertWrapper);
+    inertWrapper.appendChild(onlyChild);
+
+    expect(findIntraObjectAnchorCandidates(objectEl)).toEqual([]);
+  });
+
+  test("an object element with zero children returns an empty array", () => {
+    const objectEl = document.createElement("div");
+    expect(findIntraObjectAnchorCandidates(objectEl)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectIntraObjectAnchorIndex (F10)
+// ---------------------------------------------------------------------------
+
+describe("selectIntraObjectAnchorIndex", () => {
+  test("single candidate spanning the whole window always anchors, regardless of scroll position", () => {
+    const candidates: AnchorGeometry[] = [{ offsetTop: 0, height: 2000 }];
+    expect(selectIntraObjectAnchorIndex(candidates, 0, 800)).toBe(0);
+    expect(selectIntraObjectAnchorIndex(candidates, 500, 800)).toBe(0);
+    expect(selectIntraObjectAnchorIndex(candidates, 1200, 800)).toBe(0);
+  });
+
+  test("picks the topmost candidate intersecting the visible window, in DOM order", () => {
+    // rows: [0,70) [70,140) [140,210) ... window [350, 1150) at
+    // scrollOffset=350, viewportHeight=800 intersects the row starting at
+    // 280? No — intersects the row at [350,420)? Row boundaries are every
+    // 70px; window starts exactly at a row boundary (350 = 5*70), so the
+    // row at index 5 ([350,420)) is the first intersecting one.
+    const candidates: AnchorGeometry[] = Array.from({ length: 10 }, (_, i) => ({
+      offsetTop: i * 70,
+      height: 70,
+    }));
+    expect(selectIntraObjectAnchorIndex(candidates, 350, 800)).toBe(5);
+  });
+
+  test("scrolled to the very top: anchors the first (topmost) candidate", () => {
+    const candidates: AnchorGeometry[] = [
+      { offsetTop: 0, height: 70 },
+      { offsetTop: 70, height: 70 },
+    ];
+    expect(selectIntraObjectAnchorIndex(candidates, 0, 800)).toBe(0);
+  });
+
+  test("a candidate flush against the window's edge (touching, not overlapping) does not count", () => {
+    const candidates: AnchorGeometry[] = [
+      { offsetTop: 0, height: 300 },
+      { offsetTop: 300, height: 600 },
+    ];
+    // Window [300, 1100) starts exactly where the first candidate ends —
+    // the first does not intersect, the second does.
+    expect(selectIntraObjectAnchorIndex(candidates, 300, 800)).toBe(1);
+  });
+
+  test("null-safety: an empty candidates array returns null, not NaN", () => {
+    expect(selectIntraObjectAnchorIndex([], 0, 800)).toBeNull();
+  });
+
+  test("null-safety: no candidate's measured range ever intersects the window -> returns null", () => {
+    const candidates: AnchorGeometry[] = [{ offsetTop: 0, height: 300 }];
+    // Window [1000, 1800) is entirely past the only candidate's [0, 300) range.
+    expect(selectIntraObjectAnchorIndex(candidates, 1000, 800)).toBeNull();
   });
 });

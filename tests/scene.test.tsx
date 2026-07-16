@@ -4456,6 +4456,232 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F10: intra-object content-growth anchoring
+// ---------------------------------------------------------------------------
+
+describe("Scene intra-object content-growth anchoring (F10)", () => {
+  const ROW_HEIGHT = 70;
+
+  function buildRows(ids: number[]) {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="rows" focused>
+              {ids.map((id) => (
+                <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  function wheelScroll(scene: HTMLElement, column: HTMLElement, deltaY: number) {
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  test("Peri's minimal repro: a prepend inside a single anchor object's own interior compensates the offset (object-level anchoring is structurally blind here)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildRows(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Scroll to 1000 — window [1000, 1800) intersects row 14 ([980, 1050)),
+    // the topmost partially-visible row (row 13's [910, 980) is flush
+    // against the window's start, not intersecting). Poll contentWrapper's
+    // OWN rendered top (not just data-scroll-offset) before capturing a
+    // "before" rect below — data-scroll-offset is written synchronously off
+    // the scrollY MotionValue by the wheel handler, but the wrapper's
+    // ACTUAL rendered position (instant mode's React-state-driven
+    // combinedTop) only catches up on the next commit; reading a row's rect
+    // in the gap between those two would capture a stale, pre-scroll position.
+    wheelScroll(scene, column, 1000);
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-1000);
+
+    const row14Before = getByTestId("row-14").element() as HTMLElement;
+    const row14RectBefore = row14Before.getBoundingClientRect();
+
+    // Prepend 20 NEW keyed rows before the existing 50 — keyed reconciliation
+    // preserves the existing rows' own DOM identity, so row 14 is the SAME
+    // element after this rerender, just moved 20 rows (1400px) further down.
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildRows([...prependedIds, ...existingIds]));
+
+    // The offset compensates by exactly the prepended height (20 * 70).
+    expect(column.getAttribute("data-scroll-offset")).toBe("2400");
+
+    // The landmark — the SAME DOM node throughout — holds its viewport position.
+    const row14After = getByTestId("row-14").element() as HTMLElement;
+    expect(row14After).toBe(row14Before);
+    expect(row14After.getBoundingClientRect().top).toBeCloseTo(row14RectBefore.top, 0);
+  });
+
+  test("appending rows below the visible window does not move the tracked row or spuriously compensate (control)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildRows(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    wheelScroll(scene, column, 1000);
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1000");
+
+    // Append 20 rows AFTER all existing ones — well below the tracked
+    // row's own position, which a plain-flow layout never moves.
+    const appendedIds = Array.from({ length: 20 }, (_, i) => 50 + i);
+    await rerender(buildRows([...existingIds, ...appendedIds]));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("1000");
+  });
+
+  test("offset-exactly-0 suppression: a prepend while scrolled to the very top does NOT compensate — new content stays discoverable at the top (native-anchoring-mirroring policy)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildRows(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    // Mounts at offset 0 — no scroll needed. Confirm the starting state.
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildRows([...prependedIds, ...existingIds]));
+
+    // Suppressed: the offset stays at 0 rather than jumping to 1400 to
+    // "preserve" the old row 0's position — the newly-prepended content is
+    // now what's visible at the top instead.
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+    const newTopRow = getByTestId(`row-${prependedIds[0]}`).element() as HTMLElement;
+    expect(newTopRow.getBoundingClientRect().top).toBeCloseTo(column.getBoundingClientRect().top, 0);
+  });
+
+  test("a tracked row that gets removed entirely (disconnected) skips compensation that round without crashing, and re-selects a fresh candidate that correctly compensates the NEXT prepend", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildRows(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    wheelScroll(scene, column, 1000);
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("1000");
+
+    // Remove row 14 (the tracked landmark) — nothing else changes. This
+    // must not throw, and must not apply a compensation this round (the
+    // tracked element is gone; there is nothing valid to diff against).
+    const withoutRow14 = existingIds.filter((id) => id !== 14);
+    await rerender(buildRows(withoutRow14));
+    expect(column.getAttribute("data-scroll-offset")).toBe("1000");
+
+    // Self-heals: a fresh candidate (whatever now sits at the tracked
+    // position — row 15, shifted up into row 14's old slot) was re-selected
+    // at the end of that settle, so the NEXT prepend compensates correctly
+    // again from it.
+    const row15Before = getByTestId("row-15").element() as HTMLElement;
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildRows([...prependedIds, ...withoutRow14]));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("2400");
+    expect(getByTestId("row-15").element()).toBe(row15Before);
+  });
+
+  test("composes additively with object-level compensation when a preceding sibling grows AND the anchor object's own interior prepends in the same settle (no double-counting)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const build = (beforeHeight: number, ids: number[]) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="before" focused>
+              <div data-testid="before-content" style={{ width: 400, height: beforeHeight }} />
+            </SceneObject>
+            <SceneObject name="rows" focused>
+              {ids.map((id) => (
+                <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300, existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // total = 300 (before) + 3500 (50 rows) = 3800. Scroll to 1000 — window
+    // [1000, 1800) intersects "rows" (which starts at 300), and within it,
+    // row 10 (global [1000, 1070)) is the topmost intersecting row (row 9's
+    // global [930, 1000) is flush against the window's start). Poll
+    // contentWrapper's OWN rendered top (see the primary repro test's
+    // identical comment) — this is what guarantees the layout effect (and
+    // thus F10's intra-anchor RE-SELECTION for row 10) has actually run
+    // before the combined growth event below, not just that
+    // data-scroll-offset's synchronous MotionValue write landed.
+    wheelScroll(scene, column, 1000);
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-1000);
+
+    // "before" grows 300 -> 400 (object-level delta: +100, sibling growth
+    // shifts "rows" itself down) AND "rows" gets a 20-row prepend
+    // (intra-level delta, measured LOCAL to "rows": +1400) in the SAME
+    // rerender. If the intra-level delta were measured globally instead of
+    // locally, it would ALREADY include the +100 from "before" growing
+    // (row 10's absolute position reflects both), and adding the
+    // object-level delta on top would double-count it — the correct total
+    // is 100 + 1400 = 1500, not 100 + 1500 = 1600.
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(build(400, [...prependedIds, ...existingIds]));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("2500");
+  });
+
+  test("pinned anchor=\"end\" already follows a prepend via the existing pin-follow mechanism (confirmation, not new F10 logic)", async () => {
+    const buildPinned = (ids: number[]) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="rows" focused>
+              {ids.map((id) => (
+                <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                  row {id}
+                </div>
+              ))}
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildPinned(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+
+    // Mounts pinned at maxScroll (3500 - 800 = 2700).
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("2700");
+
+    // A prepend still keeps the offset at the (new, larger) maxScroll —
+    // the pin-follow effect reacts to maxScroll growing, independent of F10.
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildPinned([...prependedIds, ...existingIds]));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("4100"); // 4900 - 800
+  });
+});
+
+// ---------------------------------------------------------------------------
 // F9 commit 2: anchor="end" follow-the-end pin state machine
 // ---------------------------------------------------------------------------
 

@@ -395,3 +395,68 @@ export const END_PIN_THRESHOLD_PX = 2;
 export function isAtScrollEnd(offset: number, maxScroll: number): boolean {
   return maxScroll - offset <= END_PIN_THRESHOLD_PX;
 }
+
+// ---------------------------------------------------------------------------
+// Intra-object anchor selection (F10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds the candidate elements for intra-object content-growth anchoring
+ * (F10): the children of the innermost single-child wrapper inside
+ * `objectEl`. selectAnchorObject's own object-granularity anchoring is
+ * structurally blind to a PREPEND inside a single anchor object's own
+ * interior (its own offsetTop never moves from its own growth) — this finds
+ * the finer-grained candidates one level down: the consumer's actual
+ * rows/items, wherever they live under whatever incidental wrapping sits
+ * above them.
+ *
+ * SceneObject always interposes its own inert wrapper div between a
+ * registered object's outer element and the consumer's content
+ * (`<div inert>{children}</div>`), and a consumer may add further
+ * single-child wrapping of their own (e.g. a list component's own root
+ * element). Descending through single-child chains before collecting
+ * candidates finds the level where real siblings exist, regardless of how
+ * many wrapper layers sit above them, without hardcoding a fixed depth.
+ *
+ * Returns an empty array when no level ever has more than one child (a
+ * single-item, non-list object body) — there is nothing meaningful to
+ * anchor at finer-than-object granularity there; the object-level
+ * mechanism (F9 commit 1) already covers that shape (its own growth is
+ * already a documented no-op, correctly, since nothing precedes it).
+ */
+export function findIntraObjectAnchorCandidates(objectEl: Element): Element[] {
+  let container: Element = objectEl;
+  while (container.children.length === 1) {
+    container = container.children[0]!;
+  }
+  return Array.from(container.children);
+}
+
+/**
+ * Selects the topmost intra-object anchor candidate (by index into
+ * `candidates`) whose measured range intersects the current scroll window —
+ * the SAME intersection rule as selectAnchorObject (F9 commit 1), scoped
+ * one level finer: to the rows/items inside a single anchor object rather
+ * than to top-level SceneObjects. `candidates` is assumed to already be in
+ * DOM order (findIntraObjectAnchorCandidates preserves `element.children`
+ * order), so the first intersecting match is the topmost.
+ *
+ * Returns `null` when no candidate intersects — a legal transient state
+ * (mirrors selectAnchorObject's own null-safety contract), never
+ * NaN-propagated into a scroll write.
+ */
+export function selectIntraObjectAnchorIndex(
+  candidates: AnchorGeometry[],
+  scrollOffset: number,
+  viewportHeight: number,
+): number | null {
+  const windowStart = scrollOffset;
+  const windowEnd = scrollOffset + viewportHeight;
+  for (let i = 0; i < candidates.length; i++) {
+    const { offsetTop, height } = candidates[i]!;
+    if (offsetTop < windowEnd && offsetTop + height > windowStart) {
+      return i;
+    }
+  }
+  return null;
+}

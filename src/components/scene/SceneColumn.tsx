@@ -30,6 +30,8 @@ import {
   mapScrollKeyToCommand,
   selectAnchorObject,
   isAtScrollEnd,
+  findIntraObjectAnchorCandidates,
+  selectIntraObjectAnchorIndex,
   type ScrollCommand,
 } from "./inputController";
 
@@ -986,6 +988,19 @@ export function SceneColumn({
   // transiently wipe entries before this wrapper's layout effect runs).
   const lastSettledGeometryRef = useRef<Map<string, GeometryEntry>>(new Map());
 
+  /**
+   * F10: the intra-object anchor candidate tracked at the end of the last
+   * remeasureGeometryWithAnchorCompensation call. `el` is tracked by
+   * reference (not name — descendant candidates don't have Scene-level
+   * identifiers) and re-measured via `el.isConnected` at the next settle;
+   * `offsetTop` is stored LOCAL to `objName`'s own object (candidate
+   * offsetTop minus the anchor object's own offsetTop), not
+   * content-wrapper-relative — see remeasureGeometryWithAnchorCompensation's
+   * own comment for why the local frame is what lets this compose
+   * additively with the object-level diff instead of double-counting.
+   */
+  const lastSettledIntraAnchorRef = useRef<{ objName: string; el: Element; offsetTop: number } | null>(null);
+
   // F9 anchoring-as-default: wraps remeasureGeometry with content-growth
   // scroll-position compensation, mirroring native browser scroll
   // anchoring. Captures the anchor object's offsetTop BEFORE remeasuring,
@@ -1010,6 +1025,7 @@ export function SceneColumn({
     if (!columnFocusedRef.current) {
       const changed = remeasureGeometry();
       lastSettledGeometryRef.current = new Map(geometryStore.current);
+      lastSettledIntraAnchorRef.current = null; // F10: nothing to track while unfocused
       return changed;
     }
 
@@ -1037,23 +1053,114 @@ export function SceneColumn({
     // commit) — skip compensation entirely rather than NaN-propagating.
     const beforeOffsetTop = anchorName ? lastSettledGeometryRef.current.get(anchorName)?.offsetTop : undefined;
 
+    // F10: carry forward the element tracked at the end of the PREVIOUS
+    // settle, discarding it if it belonged to a DIFFERENT anchor object
+    // (the user scrolled to a different focused object between settles —
+    // its LOCAL offset would be meaningless against a different object's
+    // basis) or has since been disconnected (removed by the same content
+    // change this call is reacting to). Both are legal transient states,
+    // not errors: a fresh candidate is always re-selected at the end of
+    // this function regardless, so tracking self-heals on the very next
+    // call with no special-case recovery path needed.
+    const beforeIntra = lastSettledIntraAnchorRef.current;
+    const intraBefore =
+      beforeIntra && beforeIntra.objName === anchorName && beforeIntra.el.isConnected
+        ? beforeIntra
+        : null;
+
     const changed = remeasureGeometry();
 
-    if (anchorName !== null && beforeOffsetTop !== undefined) {
-      const afterOffsetTop = geometryStore.current.get(anchorName)?.offsetTop;
-      if (afterOffsetTop !== undefined) {
-        const delta = afterOffsetTop - beforeOffsetTop;
-        if (delta !== 0) {
-          // Clamp against a FRESHLY computed maxScroll, not maxScrollRef —
-          // probe-confirmed bug avoided here: maxScrollRef.current still
-          // reflects the STALE, pre-remeasure contentHeight React state
-          // (setContentHeight is only called AFTER this wrapper returns,
-          // later in the same layout effect), so clamping against it here
-          // would clip a genuine correction to the OLD, smaller bound
-          // before the new content's height is accounted for. Mirrors the
-          // A2 swap-reset effect's own established pattern for this exact
-          // staleness class ("Computing a fresh value directly from the
-          // just-remeasured geometry store sidesteps that lag entirely").
+    // F10: one wrapperRect read serves every intra-object measurement below
+    // (the "after" delta for intraBefore AND the fresh re-selection at the
+    // end) — mirrors remeasureGeometry's own single-read-per-pass
+    // technique. Safe to reuse across the scroll-offset writes in between:
+    // neither React's state-driven `top` (instant mode) nor Motion's
+    // rAF-batched MotionValue-driven `top` (real mode) mutates the
+    // wrapper's rendered position SYNCHRONOUSLY within this function call —
+    // both defer to a later commit/frame — so the wrapper never actually
+    // moves between these reads.
+    const wrapper = contentWrapperRef.current;
+    const wrapperRect = wrapper?.getBoundingClientRect();
+    const afterOffsetTop = anchorName ? geometryStore.current.get(anchorName)?.offsetTop : undefined;
+
+    if (anchorName !== null && beforeOffsetTop !== undefined && afterOffsetTop !== undefined) {
+      const delta = afterOffsetTop - beforeOffsetTop;
+      if (delta !== 0) {
+        // Clamp against a FRESHLY computed maxScroll, not maxScrollRef —
+        // probe-confirmed bug avoided here: maxScrollRef.current still
+        // reflects the STALE, pre-remeasure contentHeight React state
+        // (setContentHeight is only called AFTER this wrapper returns,
+        // later in the same layout effect), so clamping against it here
+        // would clip a genuine correction to the OLD, smaller bound
+        // before the new content's height is accounted for. Mirrors the
+        // A2 swap-reset effect's own established pattern for this exact
+        // staleness class ("Computing a fresh value directly from the
+        // just-remeasured geometry store sidesteps that lag entirely").
+        const freshContentHeight = computeFocusedContentHeight(
+          objectStatesRef.current,
+          geometryStore.current,
+          objectGapRef.current,
+        );
+        const freshMaxScroll = Math.max(
+          0,
+          viewportHeightRef.current > 0 ? freshContentHeight - viewportHeightRef.current : 0,
+        );
+        const corrected = Math.max(
+          0,
+          Math.min(freshMaxScroll, scrollOffsetRef.current + delta),
+        );
+        const appliedDelta = corrected - scrollOffsetRef.current;
+        scrollOffsetRef.current = corrected;
+        setScrollOffset(corrected);
+        applyScrollYDeltaRef.current(appliedDelta);
+        // F9 commit 2 scope addition: rebase the active touch drag's own
+        // baseline by the same delta so the gesture's math stays
+        // coherent through a mid-drag compensation event. Without this,
+        // handleContentPointerMove recomputes newOffset from
+        // dragStartOffset every pointermove tick — a STALE baseline
+        // relative to the just-applied compensation — silently
+        // overwriting the correction on the very next tick (a flash-
+        // then-revert). Rebasing dragStartOffset by the same delta
+        // preserves the user's finger-anchored expectation: the finger
+        // still tracks the SAME visual content it started on, just now
+        // correctly offset by however much content shifted above it.
+        if (isDragging.current) {
+          dragStartOffset.current += appliedDelta;
+        }
+      }
+
+      // F10: intra-object anchoring — a PREPEND inside the anchor object's
+      // own interior (adding content above the currently-tracked row) grows
+      // the object's total height but never moves the object's OWN
+      // offsetTop (nothing precedes the OBJECT itself), so the object-level
+      // pass above is structurally blind to it (same reason a sole
+      // focused object's own growth is a no-op there). Layered on top,
+      // never in place of it: intraBefore.offsetTop and
+      // afterIntraLocalOffsetTop are both expressed LOCAL to anchorName
+      // (candidate offsetTop minus the object's OWN offsetTop), which is
+      // what lets this branch's correction compose ADDITIVELY with the
+      // object-level one above rather than double-counting it — a
+      // content-wrapper-relative (global) delta for the SAME tracked
+      // candidate would already include whatever shifted the object itself,
+      // since a descendant's absolute position is anchorObjectOffsetTop +
+      // itsOwnLocalOffset; subtracting the object's own offsetTop on both
+      // sides of the diff cancels that shared term, isolating the
+      // object's-own-interior contribution only. scrollOffsetRef.current is
+      // read below AFTER the object-level write above (if any fired), so
+      // the two corrections stack rather than race.
+      if (intraBefore && wrapperRect) {
+        const afterIntraGlobalOffsetTop = intraBefore.el.getBoundingClientRect().top - wrapperRect.top;
+        const afterIntraLocalOffsetTop = afterIntraGlobalOffsetTop - afterOffsetTop;
+        const intraDelta = afterIntraLocalOffsetTop - intraBefore.offsetTop;
+        // Offset-exactly-0 suppression (F10 design amendment's open policy
+        // point, resolved): mirrors native scroll anchoring, which never
+        // corrects at scrollTop 0 — new top content stays discoverable
+        // there rather than being invisibly scrolled past. A chat/log
+        // consumer's own loadOlder threshold fires above 0 in practice, so
+        // this does not interfere with that use case. Evaluated against the
+        // RUNNING offset (post any object-level write above), matching
+        // where this branch's own correction, if applied, would land.
+        if (intraDelta !== 0 && scrollOffsetRef.current > 0) {
           const freshContentHeight = computeFocusedContentHeight(
             objectStatesRef.current,
             geometryStore.current,
@@ -1065,28 +1172,51 @@ export function SceneColumn({
           );
           const corrected = Math.max(
             0,
-            Math.min(freshMaxScroll, scrollOffsetRef.current + delta),
+            Math.min(freshMaxScroll, scrollOffsetRef.current + intraDelta),
           );
           const appliedDelta = corrected - scrollOffsetRef.current;
           scrollOffsetRef.current = corrected;
           setScrollOffset(corrected);
           applyScrollYDeltaRef.current(appliedDelta);
-          // F9 commit 2 scope addition: rebase the active touch drag's own
-          // baseline by the same delta so the gesture's math stays
-          // coherent through a mid-drag compensation event. Without this,
-          // handleContentPointerMove recomputes newOffset from
-          // dragStartOffset every pointermove tick — a STALE baseline
-          // relative to the just-applied compensation — silently
-          // overwriting the correction on the very next tick (a flash-
-          // then-revert). Rebasing dragStartOffset by the same delta
-          // preserves the user's finger-anchored expectation: the finger
-          // still tracks the SAME visual content it started on, just now
-          // correctly offset by however much content shifted above it.
+          // Same drag-rebase rationale as the object-level branch above —
+          // both branches' appliedDelta accumulate independently onto
+          // dragStartOffset when they compose in the same settle.
           if (isDragging.current) {
             dragStartOffset.current += appliedDelta;
           }
         }
       }
+    }
+
+    // F10: re-select the candidate to track for the NEXT settle, from the
+    // (possibly just-updated) anchor object's fresh geometry — always
+    // freshly derived rather than carried forward, so a changed anchor or a
+    // disconnected previous candidate self-heals with no special-case
+    // recovery path. Requires a resolved object offsetTop to convert
+    // candidate positions into the object-LOCAL frame intraBefore uses
+    // (see the intra-object branch's own comment above for why local,
+    // not global).
+    const anchorEl = anchorName ? registeredEls.current.get(anchorName) : undefined;
+    if (anchorEl && wrapperRect && afterOffsetTop !== undefined) {
+      const candidateEls = findIntraObjectAnchorCandidates(anchorEl);
+      const candidateGeometry = candidateEls.map((el) => ({
+        offsetTop: el.getBoundingClientRect().top - wrapperRect.top - afterOffsetTop,
+        height: (el as HTMLElement).offsetHeight,
+      }));
+      // The intersection window must be expressed in the SAME (object-
+      // local) frame the candidates now are — offset the column's global
+      // scroll window by the object's own offsetTop.
+      const idx = selectIntraObjectAnchorIndex(
+        candidateGeometry,
+        scrollOffsetRef.current - afterOffsetTop,
+        viewportHeightRef.current,
+      );
+      lastSettledIntraAnchorRef.current =
+        idx !== null
+          ? { objName: anchorName!, el: candidateEls[idx]!, offsetTop: candidateGeometry[idx]!.offsetTop }
+          : null;
+    } else {
+      lastSettledIntraAnchorRef.current = null;
     }
 
     lastSettledGeometryRef.current = new Map(geometryStore.current);

@@ -253,6 +253,22 @@ Feature: Scene Scroll
     Then the column's scroll offset is unaffected
     Because only growth above the visible window requires compensation
 
+  Scenario: A prepend inside a single focused object's own interior is compensated too (F10)
+    Given a scrolled column whose focused content is items within a single object (e.g. rows in a list)
+    When new items are added above the currently-visible item
+    Then the column's scroll offset adjusts to keep that item visually stable
+    Because object-level anchoring alone is blind to growth WITHIN an
+    object — its own offsetTop never moves from its own growth — so this
+    tracks the visible item itself, one grain finer
+    Note: suppressed when the column is scrolled all the way to the top
+    (offset 0) — mirrors native scroll anchoring, which never corrects at
+    scrollTop 0 so newly-arrived content at the top stays discoverable
+    rather than being invisibly scrolled past
+    Note: composes additively with object-level anchoring when both fire in
+    the same update (a preceding sibling object growing AND this object's
+    own interior changing at once) — the two corrections stack rather than
+    double-counting
+
   Scenario: A follow-the-end column opens already at the newest content
     Given a column configured to follow the end (anchor="end")
     When it first becomes focused
