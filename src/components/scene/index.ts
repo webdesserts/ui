@@ -7,5 +7,5 @@ export { SceneObject } from "./SceneObject";
 export type { SceneObjectProps } from "./SceneObject";
 export { useCamera } from "./useCamera";
 export type { CameraState, CameraRect } from "./useCamera";
-export { useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
+export { useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_TOUCH_POWER, DEFAULT_TOUCH_TIME_CONSTANT, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
 export type { SceneConfig } from "./useSceneConfig";

@@ -349,7 +349,7 @@ export function SceneColumn({
 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration, stiffness, damping, padding, slowMo, peekOffset } = useSceneConfig();
+  const { duration, stiffness, damping, touchPower, touchTimeConstant, padding, slowMo, peekOffset } = useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
@@ -820,6 +820,14 @@ export function SceneColumn({
           velocity,
           min: 0,
           max: maxScrollRef.current,
+          // F13 commit 3: iOS-feel flywheel constants (the classic
+          // power/timeConstant pair), Michael-tunable via the dev
+          // TuningPanel — threaded through SceneConfig exactly like
+          // stiffness/damping (see useSceneConfig.tsx's
+          // DEFAULT_TOUCH_POWER/DEFAULT_TOUCH_TIME_CONSTANT for the shipped
+          // defaults).
+          power: touchPower,
+          timeConstant: touchTimeConstant,
           // Reuses Scene's configured spring constants for the boundary bounce
           // so the touch-release feel matches wheel/keyboard's spring physics,
           // rather than introducing a third unrelated set of magic numbers —

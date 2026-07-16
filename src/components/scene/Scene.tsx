@@ -1,7 +1,7 @@
 import React, { createContext, isValidElement, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
-import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
+import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_TOUCH_POWER, DEFAULT_TOUCH_TIME_CONSTANT, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
 import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
@@ -179,6 +179,16 @@ export interface SceneProps {
   stiffness?: number;
   /** Spring damping for position/size animations. Defaults to DEFAULT_DAMPING (30). */
   damping?: number;
+  /**
+   * `power` for touch-release inertia (Motion's `type: "inertia"` decay).
+   * Defaults to DEFAULT_TOUCH_POWER (0.4).
+   */
+  touchPower?: number;
+  /**
+   * `timeConstant` (ms) for touch-release inertia. Defaults to
+   * DEFAULT_TOUCH_TIME_CONSTANT (325).
+   */
+  touchTimeConstant?: number;
   /** CSS perspective distance (in px) for depth deck 3D effect. Defaults to DEFAULT_PERSPECTIVE (800). */
   perspective?: number;
   /**
@@ -2027,6 +2037,8 @@ export function Scene({
   slowMo = false,
   stiffness = DEFAULT_STIFFNESS,
   damping = DEFAULT_DAMPING,
+  touchPower = DEFAULT_TOUCH_POWER,
+  touchTimeConstant = DEFAULT_TOUCH_TIME_CONSTANT,
   perspective = DEFAULT_PERSPECTIVE,
   peekOffset = DEFAULT_PEEK_OFFSET,
 }: SceneProps) {
@@ -2181,7 +2193,7 @@ export function Scene({
   return (
     <SceneFirstPaintContext.Provider value={firstPaintRef}>
     <SceneConfigContext.Provider
-      value={{ stiffness, damping, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo: effectiveSlowMo }}
+      value={{ stiffness, damping, touchPower, touchTimeConstant, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo: effectiveSlowMo }}
     >
       <CameraContext.Provider
         value={{

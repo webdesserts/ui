@@ -6,7 +6,8 @@
  * change during an active fling (C6), touch-action CSS + thumb hit target
  * (C7), and the scrollbar thumb's own touch-drag (C11 — its first test
  * coverage in this suite; the thumb's drag logic predates S3). Also covers
- * F13 commit 1's native touchmove ownership/preventDefault gating.
+ * F13 commit 1's native touchmove ownership/preventDefault gating and
+ * commit 3's tunable touch inertia params.
  *
  * PointerEvents are dispatched directly via element.dispatchEvent() — this
  * repo runs vitest-browser tests in real Chromium (not jsdom), so
@@ -16,10 +17,11 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { render } from "vitest-browser-react";
+import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneColumn, SceneObject } from "../src";
+import { MotionSeamContext } from "../src/components/scene/motionSeam";
 import { TestWrapper } from "./test-wrapper";
-import { wait, waitForAnimationFrame } from "./utils/animation";
+import { wait, waitForAnimationFrame, createMotionSeamRecorder } from "./utils/animation";
 
 /**
  * Constructs a real `Touch` for `fireNativeTouchMove` below. `target` must
@@ -593,6 +595,72 @@ describe("Scene touch — release inertia", () => {
     await wait(1500);
     const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
     expect(Math.abs(settled - maxScroll)).toBeLessThan(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F13 commit 3: tunable touch inertia params (power/timeConstant)
+// ---------------------------------------------------------------------------
+
+describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
+  test("touchPower/touchTimeConstant reach the release-time inertia call — a floatier tuning produces a measurably longer coast", async () => {
+    // Motion's type:"inertia" AnimationPlaybackControls.duration is its own
+    // computed settle time for the decay physics — a precise, deterministic
+    // read of what power/timeConstant actually produced (same technique
+    // this suite's slowMo test uses for stiffness/damping — see
+    // scene.test.tsx's "Scene debug — live slowMo toggle" describe block).
+    // Two independent renders with drastically different tuning (rather
+    // than one render re-tuned mid-fling) avoids any dependency on the two
+    // flicks' own-tracked velocities matching exactly — the assertion below
+    // only needs the floaty config's duration to CLEARLY exceed the snappy
+    // one's, robust to ordinary sampling jitter between the two flicks.
+    async function flingDurationWith(touchPower: number, touchTimeConstant: number): Promise<number> {
+      const recorder = createMotionSeamRecorder();
+      const { getByTestId } = await render(
+        <TestWrapper fullPage>
+          <MotionSeamContext.Provider value={recorder}>
+            <Scene touchPower={touchPower} touchTimeConstant={touchTimeConstant}>
+              <SceneColumn name="col">
+                <SceneObject name="panel" focused>
+                  <div data-testid="content" style={{ width: 400, height: 2000 }} />
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </MotionSeamContext.Provider>
+        </TestWrapper>,
+      );
+      await waitForAnimationFrame();
+
+      const scene = getByTestId("scene").element() as HTMLElement;
+      const column = scene.querySelector("[data-column]") as HTMLElement;
+      const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+      const rect = contentWrapper.getBoundingClientRect();
+      const startX = rect.left + rect.width / 2;
+      const startY = rect.top + 50;
+
+      firePointer(contentWrapper, "pointerdown", startX, startY);
+      await waitForAnimationFrame();
+      for (let i = 1; i <= 5; i++) {
+        firePointer(contentWrapper, "pointermove", startX, startY - i * 40);
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      firePointer(contentWrapper, "pointerup", startX, startY - 5 * 40);
+
+      const controls = recorder.controls.get("scrollY:col");
+      expect(controls).toBeDefined();
+      const duration = controls!.duration;
+      // cleanup() (not unmount()) between mounts within one test — matches
+      // this suite's established pattern (scene.test.tsx) for remounting
+      // without colliding on the shared data-testid="scene" the second
+      // render below would otherwise duplicate.
+      await cleanup();
+      return duration;
+    }
+
+    const snappyDuration = await flingDurationWith(0.1, 50);
+    const floatyDuration = await flingDurationWith(0.9, 2000);
+
+    expect(floatyDuration).toBeGreaterThan(snappyDuration * 3);
   });
 });
 

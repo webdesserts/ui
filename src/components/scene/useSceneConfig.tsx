@@ -6,6 +6,18 @@ export const DEFAULT_DAMPING = 30;
 export const DEFAULT_COLUMN_GAP = 16;
 export const DEFAULT_PERSPECTIVE = 800;
 export const DEFAULT_PEEK_OFFSET = 12;
+/**
+ * `power` for touch-release inertia (Motion's `type: "inertia"` decay) —
+ * the classic iOS deceleration flywheel constant. Lower = the coast decays
+ * (and stops) sooner.
+ */
+export const DEFAULT_TOUCH_POWER = 0.4;
+/**
+ * `timeConstant` (ms) for touch-release inertia — how quickly the decay's
+ * velocity falls off. Lower = a snappier, shorter coast; higher = a
+ * floatier, longer one. 325 mirrors iOS's own native scroll-release feel.
+ */
+export const DEFAULT_TOUCH_TIME_CONSTANT = 325;
 
 /** Shared configuration for the Scene system. */
 export interface SceneConfig {
@@ -13,6 +25,16 @@ export interface SceneConfig {
   stiffness: number;
   /** Spring damping for position/size animations. */
   damping: number;
+  /**
+   * `power` for touch-release inertia (Motion's `type: "inertia"` decay).
+   * Michael-tunable — see DEFAULT_TOUCH_POWER's own doc comment.
+   */
+  touchPower: number;
+  /**
+   * `timeConstant` (ms) for touch-release inertia. Michael-tunable — see
+   * DEFAULT_TOUCH_TIME_CONSTANT's own doc comment.
+   */
+  touchTimeConstant: number;
   /** CSS perspective distance (in px) for depth deck 3D effect. */
   perspective: number;
   /** Padding (in px) around the stage content. */
@@ -41,6 +63,8 @@ export interface SceneConfig {
 const defaultConfig: SceneConfig = {
   stiffness: DEFAULT_STIFFNESS,
   damping: DEFAULT_DAMPING,
+  touchPower: DEFAULT_TOUCH_POWER,
+  touchTimeConstant: DEFAULT_TOUCH_TIME_CONSTANT,
   perspective: DEFAULT_PERSPECTIVE,
   padding: 0,
   columnGap: DEFAULT_COLUMN_GAP,

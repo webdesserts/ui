@@ -7,6 +7,8 @@ import {
   useCamera,
   DEFAULT_STIFFNESS,
   DEFAULT_DAMPING,
+  DEFAULT_TOUCH_POWER,
+  DEFAULT_TOUCH_TIME_CONSTANT,
   DEFAULT_COLUMN_GAP,
   DEFAULT_PERSPECTIVE,
 } from "../../src";
@@ -687,6 +689,8 @@ function DemoSection({
 export interface SceneTuning {
   stiffness: number;
   damping: number;
+  touchPower: number;
+  touchTimeConstant: number;
   perspective: number;
   columnGap: number;
   padding: number;
@@ -705,6 +709,8 @@ export interface SceneTuning {
 const defaultTuning: SceneTuning = {
   stiffness: DEFAULT_STIFFNESS,
   damping: DEFAULT_DAMPING,
+  touchPower: DEFAULT_TOUCH_POWER,
+  touchTimeConstant: DEFAULT_TOUCH_TIME_CONSTANT,
   perspective: DEFAULT_PERSPECTIVE,
   columnGap: DEFAULT_COLUMN_GAP,
   padding: 0,
@@ -757,6 +763,8 @@ function TuningPanel({
   }> = [
     { key: "stiffness", label: "Stiffness", min: 10, max: 500, step: 10 },
     { key: "damping", label: "Damping", min: 1, max: 50, step: 1 },
+    { key: "touchPower", label: "Touch Power", min: 0.1, max: 1, step: 0.05 },
+    { key: "touchTimeConstant", label: "Touch Time Const", min: 50, max: 1000, step: 25 },
     { key: "perspective", label: "Perspective", min: 200, max: 2000, step: 50 },
     { key: "columnGap", label: "Column Gap", min: 0, max: 64, step: 4 },
     { key: "padding", label: "Padding", min: 0, max: 48, step: 4 },
