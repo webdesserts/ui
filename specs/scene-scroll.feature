@@ -262,11 +262,28 @@ Feature: Scene Scroll
   # --- Consumer Scroll Override ---
 
   Scenario: Consumer adds internal scroll to a SceneObject
-    Given a focused SceneObject with internal scrolling and a height of 100%
+    Given a focused SceneObject with internal scrolling sized via a
+    container-query height unit (e.g. height: 100cqh)
     Then the SceneObject should scroll its content internally
     And no column-level vertical scrollbar should appear for that column
     Note: when a SceneObject handles its own internal scrolling, the column
     itself does not overflow, so no column-level scrollbar is needed
+    Note: a literal height: 100% does NOT resolve here (probe-confirmed,
+    F8c interior contract). CSS only resolves a descendant's percentage
+    height against an ancestor whose OWN height is explicitly specified,
+    not content-derived — and every ancestor up to the column's content
+    wrapper is deliberately auto-height (the column measures its own
+    content by observing that auto height). A min-height floor on the
+    SceneObject's own wrapper does not help either — an ancestor's
+    min-height does not make its "specified height" explicit for a
+    child's percentage-resolution purposes, confirmed empirically here,
+    and additionally risks inflating a multi-focused-object column's
+    summed content height and spawning an unwanted scrollbar. Scene's
+    viewport sets container-type: size, so container query units (cqh)
+    resolve correctly instead — this is the documented, sanctioned
+    pattern for "fill the available height" (F8 interior contract plan,
+    adjudication 2). True percentage-height support would require a
+    future CSS mechanism this plan does not attempt to build.
 
   # --- Touch ---
 

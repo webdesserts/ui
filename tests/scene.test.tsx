@@ -8538,6 +8538,55 @@ describe("Scene consumer scroll override", () => {
     expect(scrollbar).toBeNull();
   });
 
+  // F8c interior contract, percentage-height commit: specs/scene-scroll.feature's
+  // "Consumer adds internal scroll to a SceneObject" scenario claimed a literal
+  // height: 100% works — probe-confirmed FALSE (every ancestor up to the
+  // column's content wrapper is deliberately auto-height, so a descendant's
+  // percentage height never resolves; a min-height floor on the SceneObject's
+  // own wrapper doesn't help either). This test is the corrected scenario's
+  // pin: height: 100cqh, the documented cqh-blessed pattern (adjudication 2),
+  // resolving against Scene's own container-type: size viewport.
+  //
+  // TestWrapper height is deliberately 500 — DIFFERENT from the real
+  // Chromium page viewport (800px, vitest.config.ts). Container query units
+  // without a query container fall back to the browser's own small-viewport
+  // size (a real gate-round finding: an earlier version of this test used
+  // the default 800px TestWrapper height, which coincidentally equals the
+  // browser viewport, so the assertion passed even with Scene's own
+  // containerType: "size" severed — not discriminating). 500 vs 800 forces
+  // a real mismatch unless Scene's own container genuinely governs cqh.
+  test("SceneObject with internal scroll sized via height: 100cqh — no column scrollbar appears (F8c: the cqh-blessed contract pattern)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage height={500}>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: "100cqh", overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+
+    // Resolves to the 500px TestWrapper height (Scene's own container-type:
+    // size box) — not the natural unconstrained content height (3000px, a
+    // failed-to-resolve percentage's fallback), not 0, and NOT the real
+    // 800px browser viewport (which is what a severed containerType would
+    // produce via cqh's no-container fallback — see the note above).
+    expect(island.getBoundingClientRect().height).toBe(500);
+
+    const scrollbar = scene.querySelector("[data-scrollbar]");
+    expect(scrollbar).toBeNull();
+  });
+
   // F8a interior claim gate: the motivating bug. An island that fills its
   // column (maxScroll=0, isScrollable=false) sits alongside another
   // Scene-scrollable focused column. Before the claim gate, Scene would
