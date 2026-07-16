@@ -253,13 +253,43 @@ Feature: Scene Scroll
     Then the column's scroll offset is unaffected
     Because only growth above the visible window requires compensation
 
+  Scenario: A follow-the-end column opens already at the newest content
+    Given a column configured to follow the end (anchor="end")
+    When it first becomes focused
+    Then its scroll position starts at the bottom (maxScroll)
+    Note: composes with the swap-reset model — anchor="end" overrides the
+    default top-alignment on first focus and on a within-column swap
+
+  Scenario: A follow-the-end column stays pinned while new content arrives
+    Given a follow-the-end column scrolled to the bottom
+    When new content is added
+    Then the column's scroll offset moves to keep showing the bottom
+    And the arrival of new content is not animated
+
+  Scenario: Scrolling away from the end releases the follow-the-end pin
+    Given a follow-the-end column pinned at the bottom
+    When the user scrolls upward
+    Then the pin releases
+    And subsequent content arrivals no longer force the scroll position
+
+  Scenario: Scrolling back to the end re-engages the follow-the-end pin
+    Given a follow-the-end column with its pin released
+    When the user scrolls back within a small threshold of the bottom
+    Then the pin re-engages
+    And subsequent content arrivals resume following the end
+    Note: threshold is 2px, empirically measured — a real fractional wheel
+    tick can land slightly short of the reported maxScroll (maxScroll
+    resolves through offsetHeight, an integer; a wheel-driven offset stays
+    exactly fractional)
+
   Scenario: Content-driven scroll changes jump; intent-driven scroll changes spring
     Given a focused, scrollable column
     When the user scrolls via wheel, keyboard, or touch
     Then the resulting scroll change animates with a spring
     But when scroll position adjusts due to content growth/shrinkage above
-    the window, or a maxScroll shrink (viewport resize or content
-    shrinking below the current offset)
+    the window, a follow-the-end pin keeping the offset at maxScroll, or a
+    maxScroll shrink (viewport resize or content shrinking below the
+    current offset)
     Then the resulting scroll change applies instantly, without animation
 
   # --- Alignment & Centering ---

@@ -193,6 +193,71 @@ describe("Scene touch — 1:1 finger drag", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F9 commit 2 scope addition: content-growth compensation firing WHILE the
+// user is actively touch-dragging. handleContentPointerMove computes its
+// offset from a dragStartOffset baseline captured once at gesture start —
+// without rebasing that baseline by a mid-drag compensation delta, the very
+// NEXT pointermove tick silently overwrites the correction (a flash-then-
+// revert), since it recomputes from the now-stale baseline.
+// ---------------------------------------------------------------------------
+
+describe("Scene touch — content-growth compensation during an active drag (F9)", () => {
+  test("a mid-drag compensation event rebases the drag's own baseline — no flash-then-revert on the next pointermove", async () => {
+    // Multi-focused-object stacking: "top" (grows mid-drag) above "bottom"
+    // (where the drag scrolls to). total=1300, viewport=800, maxScroll=500.
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Start the drag and move up 350px — well past "top" (only 300px tall),
+    // so "bottom" becomes the anchor: offset lands at 350, window [350,1150)
+    // no longer intersects "top"'s pre-growth [0,300) range.
+    firePointer(contentWrapper, "pointerdown", 200, 1000);
+    await waitForAnimationFrame();
+    firePointer(contentWrapper, "pointermove", 200, 650); // deltaY=-350
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("350");
+
+    // Content grows above the anchor WHILE still dragging (isDragging still
+    // true — no pointerup/pointercancel yet). "bottom"'s offsetTop shifts
+    // +200 (300 -> 500) — compensation applies +200 to the CURRENT offset
+    // (350 -> 550) same-frame, and must rebase dragStartOffset by the same
+    // +200 so the gesture's own math stays coherent going forward.
+    await rerender(build(500));
+    expect(column.getAttribute("data-scroll-offset")).toBe("550");
+
+    // Continue the SAME drag (same dragStartY=1000, never restarted) to
+    // clientY=600 — a further 50px up from the previous 650, i.e. 400px up
+    // from the original 1000 in total. Without the rebase, this would
+    // recompute from the STALE pre-growth baseline (0) and land at 400,
+    // silently discarding the +200 compensation (the flash-then-revert
+    // bug). With the rebase, it correctly lands at 600 (400px of raw drag
+    // + the 200px compensation, both preserved).
+    firePointer(contentWrapper, "pointermove", 200, 600);
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("600");
+
+    firePointer(contentWrapper, "pointerup", 200, 600);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // C4/C5: Release inertia + boundary clamp (real mode — inertia has no
 // instant-mode equivalent, forecast-gate plan §2)
 // ---------------------------------------------------------------------------

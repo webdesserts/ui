@@ -364,3 +364,34 @@ export function selectAnchorObject(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Follow-the-end pin threshold (F9 commit 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Threshold (px) within which a scroll offset counts as "at the end" for
+ * the `anchor="end"` follow-the-end pin state machine — probe-measured,
+ * not guessed. A single real fractional wheel tick (deltaY=499.7 against a
+ * maxScroll of 500.5) landed 1.3px short of the reported maxScroll in
+ * testing: `data-max-scroll` resolves through `offsetHeight`, an integer
+ * per the CSSOM spec (it rounds the true fractional layout box), while a
+ * wheel-driven offset stays exactly fractional — so the design doc's
+ * proposed "within 1px" would have missed a genuinely natural scroll-to-
+ * the-bottom gesture. 2px clears that observed 1.3px gap with a small
+ * margin while staying tight enough that the pin doesn't feel like it
+ * re-engages from noticeably far away.
+ */
+export const END_PIN_THRESHOLD_PX = 2;
+
+/**
+ * True when `offset` is within END_PIN_THRESHOLD_PX of `maxScroll` — the
+ * single check used symmetrically for both release ("moved away from the
+ * end", when false) and re-pin ("scrolled back to the end", when true) in
+ * the `anchor="end"` pin state machine. Evaluated at the same site as
+ * every user-initiated write, against whatever offset that write is
+ * driving toward.
+ */
+export function isAtScrollEnd(offset: number, maxScroll: number): boolean {
+  return maxScroll - offset <= END_PIN_THRESHOLD_PX;
+}

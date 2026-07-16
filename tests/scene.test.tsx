@@ -4455,6 +4455,261 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F9 commit 2: anchor="end" follow-the-end pin state machine
+// ---------------------------------------------------------------------------
+
+describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
+  test("mounts pinned at maxScroll (opens at the newest content)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // maxScroll = 1200 - 800 = 400.
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+  });
+
+  test("new content while pinned keeps the offset at maxScroll — same-frame, no animation", async () => {
+    const recorder = createMotionSeamRecorder();
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col" anchor="end">
+              <SceneObject name="panel" focused>
+                <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    await wait(1000); // let the mount-pinned spring (real mode) settle
+    expect(parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-400, 0);
+
+    const controlsBefore = recorder.controls.get(`scrollY:col`);
+
+    // Grow content — new maxScroll = 1600 - 800 = 800.
+    await rerender(build(1600));
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-800);
+    // No new animate() call — jump, not spring.
+    expect(recorder.controls.get(`scrollY:col`)).toBe(controlsBefore);
+  });
+
+  test("a user upward scroll releases the pin — subsequent content arrivals no longer force the offset", async () => {
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-400); // pinned at mount
+
+    // Scroll UP (away from the end) — deltaY negative.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+
+    // New content arrives — must NOT force the offset back to the (new) end.
+    await rerender(build(1600));
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+  });
+
+  test("scrolling back within the threshold of maxScroll re-engages the pin", async () => {
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Release the pin.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+
+    // Scroll back to exactly maxScroll (well within the 2px threshold).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-400);
+
+    // Re-pinned — new content should now force the offset again.
+    await rerender(build(1600));
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-800);
+  });
+
+  test("swapping to a different object within the column re-pins (composes with A2)", async () => {
+    // Uses data-scroll-offset (not contentWrapper.style.top) for the swap
+    // assertions — established precedent from the pre-existing "Scene
+    // swap-reset scroll model" tests: style.top = combinedTop =
+    // -(topOffset + scrollOffset), and topOffset (a SEPARATE mechanism
+    // that shifts a single newly-focused object into view) can transiently
+    // still reflect the pre-swap in-flow layout for one commit before the
+    // no-longer-focused sibling finishes exiting flow — a real timing
+    // interaction unrelated to anchor="end", probe-confirmed while
+    // debugging this exact test (style.top read -2000 — topOffset(1200,
+    // stale) + scrollOffset(800, already correct) — while
+    // data-scroll-offset already correctly read "800" in the same
+    // instant). data-scroll-offset isolates the value this test actually
+    // cares about.
+    const build = (aFocused: boolean, bHeight = 1600) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="a" focused={aFocused}>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+            <SceneObject name="b" focused={!aFocused}>
+              <div data-testid="content-b" style={{ width: 400, height: bHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(true));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("400"); // pinned to a's maxScroll (1200-800)
+
+    // Release the pin on "a".
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => column.getAttribute("data-scroll-offset")).toBe("100");
+
+    // Swap focus to "b" — a real swap, not a park/return with the same
+    // arrangement (which would restore, not re-pin — see the A2 extension's
+    // own comment).
+    await rerender(build(false));
+
+    // Re-pinned to b's maxScroll (1600-800=800).
+    expect(column.getAttribute("data-scroll-offset")).toBe("800");
+
+    // Confirm the re-pin genuinely holds: new content arriving still forces
+    // the offset (proves this isn't a coincidental one-time value match).
+    await rerender(build(false, 2000));
+    expect(column.getAttribute("data-scroll-offset")).toBe("1200");
+  });
+
+  test("a maxScroll shrink (viewport/content-driven, not user intent) never re-pins a released column, even when the clamp lands exactly at the new maxScroll", async () => {
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Release the pin, scrolled well short of the end.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+
+    // Shrink content so the new maxScroll clamps the offset to EXACTLY the
+    // new maxScroll (100) — a value that would trivially satisfy
+    // isAtScrollEnd if it were (wrongly) evaluated here.
+    await rerender(build(900)); // new maxScroll = 900-800=100, offset clamps 100->100
+
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+
+    // Prove the pin genuinely did NOT re-engage: further content growth
+    // must NOT force the offset (it would, if pinnedRef were wrongly true).
+    await rerender(build(1300)); // new maxScroll = 500, would force -500 if pinned
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 5c: Keyboard scroll + scroll position management
 // ---------------------------------------------------------------------------
 

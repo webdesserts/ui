@@ -28,6 +28,7 @@ import {
   isInteractiveElement,
   mapScrollKeyToCommand,
   selectAnchorObject,
+  isAtScrollEnd,
   type ScrollCommand,
 } from "./inputController";
 
@@ -253,6 +254,17 @@ export interface SceneColumnProps {
    * `transform`).
    */
   className?: string;
+  /**
+   * Follow-the-end pin mode (F9 commit 2 — the chat/log pattern). Default
+   * `"none"`: plain anchoring-stabilized scroll (F9 commit 1). `"end"`:
+   * the column starts pinned at maxScroll on first focus and on any
+   * within-column swap (composes with A2's swap-reset), stays pinned to
+   * maxScroll as new content arrives (same-frame, no animation — a
+   * content-driven change, not a navigation), releases the moment the
+   * user scrolls away from the end, and re-engages once the user scrolls
+   * back within a small threshold of maxScroll.
+   */
+  anchor?: "none" | "end";
 }
 
 /**
@@ -278,7 +290,13 @@ export interface SceneColumnProps {
  *   </SceneObject>
  * </SceneColumn>
  */
-export function SceneColumn({ name, children, objectGap = 0, className }: SceneColumnProps) {
+export function SceneColumn({
+  name,
+  children,
+  objectGap = 0,
+  className,
+  anchor = "none",
+}: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
   const { duration, stiffness, damping, padding, slowMo, peekOffset } = useSceneConfig();
@@ -382,6 +400,34 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // clears this ref itself (see handleContentPointerDown, the maxScroll-
   // shrink clamp effect below).
   const scrollYSpringTargetRef = useRef<number | null>(null);
+
+  // F9 commit 2: whether this column's follow-the-end pin is currently
+  // engaged (anchor="end" only — always false/unused for anchor="none").
+  // Starts pinned per the design doc's "Initial mount of an anchor='end'
+  // column starts pinned at end" rule. The growth-while-pinned effect
+  // below is what actually DELIVERS that on a true first mount (see its
+  // own comment — geometryStore isn't measured yet when A2's swap-reset
+  // effect runs on the very first commit, so A2's own mount-time
+  // computation is a harmless no-op there); A2 is what matters for a
+  // GENUINE within-column swap between already-registered objects.
+  // Updated at every user-initiated write site (wheel/keyboard/scrollbar/
+  // touch-drag/fling) via updatePinnedState — evaluated against the
+  // resulting/target offset, not delta sign (a positive-delta command
+  // issued while already at maxScroll is a no-op, not a release trigger;
+  // touch drag's sign convention is inverted from wheel's). Deliberately
+  // NEVER touched by the maxScroll-shrink clamp effect or by F9 commit 1's
+  // own anchoring-compensation/pin-follow writes — those are content/
+  // viewport-driven corrections, not user intent, and must never be
+  // classified as a release or re-pin signal.
+  const pinnedRef = useRef(anchor === "end");
+
+  // F9 commit 2: the single check used at every user-initiated write site
+  // to decide release ("moved away from the end") vs re-pin ("scrolled
+  // back to the end") — a no-op for anchor="none" columns.
+  const updatePinnedState = (offset: number, maxScrollValue: number) => {
+    if (anchor !== "end") return;
+    pinnedRef.current = isAtScrollEnd(offset, maxScrollValue);
+  };
 
   driveScrollYRef.current = (target: number) => {
     if (duration === 0) {
@@ -570,6 +616,41 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
     }
   }, [maxScroll, scrollY]);
 
+  // F9 commit 2: while pinned (anchor="end"), new content arriving keeps
+  // the offset at maxScroll — same-frame, no animation (a content-driven
+  // change, not a navigation, same jump-not-spring rule as the clamp
+  // effect above). Deliberately unconditional on maxScroll's direction
+  // (unlike the clamp effect, which only fires on shrink past the current
+  // offset) — a pinned column always tracks the CURRENT maxScroll exactly,
+  // whichever way it moved. A no-op for anchor="none" (pinnedRef stays
+  // permanently false there, since updatePinnedState only ever sets it
+  // when anchor==="end").
+  //
+  // This is ALSO what actually delivers "starts pinned at mount" in
+  // practice, not the A2 swap-reset effect below — probe-confirmed while
+  // debugging this slice: on a column's true first-ever render,
+  // geometryStore hasn't been measured yet (children register in the SAME
+  // commit but the very first remeasure happens moments before A2 reads
+  // it), so A2's own freshMaxScroll computes as 0 at that instant — a
+  // harmless no-op there (scrollOffsetRef already starts at 0 too), NOT
+  // the mechanism doing the real work. `contentHeight`/`maxScroll` REACT
+  // STATE settles one render later, and THIS effect reacts to that first
+  // real transition (0 -> the true maxScroll) while pinnedRef is already
+  // true from its initial useRef(anchor==="end") value — that's the
+  // actual mount-pin path. A2's own override is what uniquely matters for
+  // a GENUINE swap (switching to an already-registered, already-measured
+  // object) — defeat-check-confirmed: severing A2's override broke only
+  // the swap-re-pins test, not the mount-pin test; severing THIS effect
+  // broke both.
+  useEffect(() => {
+    if (anchor === "end" && pinnedRef.current) {
+      scrollOffsetRef.current = maxScroll;
+      setScrollOffset(maxScroll);
+      scrollY.jump(maxScroll); // NOT driveScrollYRef — must not spring
+      scrollYSpringTargetRef.current = null;
+    }
+  }, [maxScroll, scrollY, anchor]);
+
   // Single write-path closure (S5 input controller) for every scroll command
   // source: wheel (via the registry below), keyboard, touch release (fling),
   // and the Scrollbar thumb (pointer-drag and keyboard). Non-fling commands
@@ -583,6 +664,17 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   const applyScrollCommand = useCallback(
     (cmd: ScrollCommand) => {
       if (cmd.type === "fling") {
+        // F9 commit 2 / adjudication 2 (velocity-sign-at-initiation,
+        // ACCEPTED): from a pinned state the only possible fling is
+        // away-from-end — release immediately at initiation rather than
+        // waiting for the coast to settle. Re-pin (below, at each fling
+        // sub-branch's own settled destination) covers both a fling that
+        // begins unpinned but settles at the end, and the S3 boundary-
+        // bounce case (an overshooting fling whose own boundary spring
+        // pulls it back to maxScroll has RETURNED to the end).
+        if (anchor === "end" && pinnedRef.current) {
+          pinnedRef.current = false;
+        }
         if (duration === 0) {
           // Instant mode: inertia has no meaningful instant equivalent — just
           // settle at the clamped release position (forecast-gate plan §2).
@@ -590,7 +682,9 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           // branch returns before the inertia code below), so scrollY
           // shouldn't normally be out of bounds here, but the same bound-on-
           // release invariant as the real-mode path below applies if it ever is.
-          scrollY.set(Math.max(0, Math.min(maxScrollRef.current, scrollY.get())));
+          const clamped = Math.max(0, Math.min(maxScrollRef.current, scrollY.get()));
+          scrollY.set(clamped);
+          updatePinnedState(clamped, maxScrollRef.current);
           return;
         }
 
@@ -633,6 +727,10 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
             motionSeam?.registerControls(`scrollY:${name}`, controls);
             motionSeam?.registerTarget?.(`scrollY:${name}`, clamped);
           }
+          // clamped IS the final destination in both branches above
+          // (whether an animation was needed to get there or it was
+          // already there) — re-pin (or stay released) against it now.
+          updatePinnedState(clamped, maxScrollRef.current);
           return;
         }
 
@@ -654,6 +752,12 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           // without pinning values.
           bounceStiffness: stiffness,
           bounceDamping: damping,
+          // F9 commit 2: re-pin (or stay released) once the coast genuinely
+          // settles — the only point at which the final resting offset is
+          // knowable for a physics-based multi-frame deceleration.
+          onComplete: () => {
+            updatePinnedState(scrollY.get(), maxScrollRef.current);
+          },
         });
         motionSeam?.registerControls(`scrollY:${name}`, controls);
         // No registerTarget here (F4 active-springs panel): an inertia
@@ -683,8 +787,14 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       scrollOffsetRef.current = nextOffset;
       setScrollOffset(nextOffset);
       driveScrollYRef.current(nextOffset);
+      // F9 commit 2: release/re-pin against the target this command is
+      // driving toward, evaluated at the SAME site as the write (not
+      // waiting for the spring to visually finish) — the user's intent
+      // (and thus the pin transition) is clear the moment the command is
+      // issued.
+      updatePinnedState(nextOffset, maxScrollRef.current);
     },
-    [duration, transition, motionSeam, name, stiffness, damping, scrollY],
+    [duration, transition, motionSeam, name, stiffness, damping, scrollY, anchor],
   );
 
   // Mirrors driveScrollYRef's ref pattern: the wheel/keyboard effects below
@@ -753,6 +863,17 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   objectGapRef.current = objectGap;
   const columnFocusedRef = useRef(columnFocused);
   columnFocusedRef.current = columnFocused;
+
+  // Touch pan drag state (moved up from its original declaration point,
+  // right before the touch pointer handlers below, so F9's content-growth
+  // compensation wrapper — declared before those handlers — can read
+  // isDragging/dragStartOffset too; see that wrapper's own comment on the
+  // mid-drag rebase). dragStartY/dragStartOffset capture the gesture's
+  // starting pointer position and scroll offset at handleContentPointerDown
+  // time; isDragging gates handleContentPointerMove.
+  const dragStartY = useRef(0);
+  const dragStartOffset = useRef(0);
+  const isDragging = useRef(false);
 
   // Bulk-remeasures every registered object's offsetTop/height relative to
   // the content wrapper (the rect-delta technique — invariant under the
@@ -901,6 +1022,20 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
           scrollOffsetRef.current = corrected;
           setScrollOffset(corrected);
           applyScrollYDeltaRef.current(appliedDelta);
+          // F9 commit 2 scope addition: rebase the active touch drag's own
+          // baseline by the same delta so the gesture's math stays
+          // coherent through a mid-drag compensation event. Without this,
+          // handleContentPointerMove recomputes newOffset from
+          // dragStartOffset every pointermove tick — a STALE baseline
+          // relative to the just-applied compensation — silently
+          // overwriting the correction on the very next tick (a flash-
+          // then-revert). Rebasing dragStartOffset by the same delta
+          // preserves the user's finger-anchored expectation: the finger
+          // still tracks the SAME visual content it started on, just now
+          // correctly offset by however much content shifted above it.
+          if (isDragging.current) {
+            dragStartOffset.current += appliedDelta;
+          }
         }
       }
     }
@@ -1179,7 +1314,6 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       0,
       effectiveViewportHeight > 0 ? freshContentHeight - effectiveViewportHeight : 0,
     );
-
     const entry = scrollOffsetStore.get(name);
     let nextOffset: number;
 
@@ -1220,13 +1354,34 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       // newly focused simultaneously, the FIRST newly-focused one in DOM
       // order governs — objectStates is already in DOM order, so the first
       // match is exactly that.
+      //
+      // F9 commit 2: anchor="end" overrides resetAlignment on a swap or
+      // first-ever focus — reset-to-end unless overridden, per the design
+      // doc. In practice this branch's own freshMaxScroll is 0 (a
+      // harmless no-op) on a column's TRUE first-ever render, since
+      // geometryStore hasn't been measured yet at that instant — see
+      // pinnedRef's own comment for why the growth-while-pinned effect,
+      // not this branch, is what actually delivers "starts pinned at
+      // mount." This branch is what uniquely matters for a GENUINE
+      // within-column swap, where geometryStore already holds real
+      // measurements from a prior commit. Deliberately NOT applied to the
+      // "unchanged arrangement, restore saved position" branch above — a
+      // park/return with the pin already released before parking should
+      // restore where the user actually left it, not force them back to
+      // the bottom.
       const newlyFocused = objectStates.find((o) => o.focused);
-      nextOffset = newlyFocused?.resetAlignment === "center" ? freshMaxScroll / 2 : 0;
+      nextOffset =
+        anchor === "end"
+          ? freshMaxScroll
+          : newlyFocused?.resetAlignment === "center"
+            ? freshMaxScroll / 2
+            : 0;
     }
 
     scrollOffsetRef.current = nextOffset;
     setScrollOffset(nextOffset);
     driveScrollYRef.current(nextOffset);
+    updatePinnedState(nextOffset, freshMaxScroll);
     // Keep the store's offset/key in sync so a LATER swap within the same
     // focused session compares against the truly-latest arrangement, not a
     // stale entry from before this column was even refocused (contentHeightAtSave
@@ -1648,10 +1803,6 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
   // preserved; the spec's Touch scenarios are finger-only).
   // -------------------------------------------------------------------------
 
-  const dragStartY = useRef(0);
-  const dragStartOffset = useRef(0);
-  const isDragging = useRef(false);
-
   const handleContentPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!columnFocused || !isScrollable) return;
@@ -1711,8 +1862,12 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
       if (duration === 0) {
         setScrollOffset(newOffset);
       }
+      // F9 commit 2: the one entry point that bypasses applyScrollCommand
+      // entirely (§2c) — release/re-pin evaluated live, every tick, same
+      // as every other user-initiated write site.
+      updatePinnedState(newOffset, maxScrollRef.current);
     },
-    [duration, scrollY],
+    [duration, scrollY, anchor],
   );
 
   const handleContentPointerUp = useCallback(

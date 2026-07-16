@@ -13,6 +13,8 @@ import {
   isInteractiveElement,
   mapScrollKeyToCommand,
   selectAnchorObject,
+  isAtScrollEnd,
+  END_PIN_THRESHOLD_PX,
   type AnchorCandidate,
   type AnchorGeometry,
 } from "../src/components/scene/inputController";
@@ -543,5 +545,35 @@ describe("selectAnchorObject", () => {
       second: { offsetTop: 0, height: 300 },
     });
     expect(selectAnchorObject(objectStates, geometryStore, 0, 800)).toBe("second");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isAtScrollEnd (F9 commit 2)
+// ---------------------------------------------------------------------------
+
+describe("isAtScrollEnd", () => {
+  test("offset exactly at maxScroll is at the end", () => {
+    expect(isAtScrollEnd(500, 500)).toBe(true);
+  });
+
+  test("offset within the threshold below maxScroll is at the end", () => {
+    expect(isAtScrollEnd(500 - END_PIN_THRESHOLD_PX, 500)).toBe(true);
+  });
+
+  test("offset just beyond the threshold below maxScroll is NOT at the end", () => {
+    expect(isAtScrollEnd(500 - END_PIN_THRESHOLD_PX - 0.01, 500)).toBe(false);
+  });
+
+  test("offset far from maxScroll is NOT at the end", () => {
+    expect(isAtScrollEnd(0, 500)).toBe(false);
+  });
+
+  test("maxScroll of 0 (content fits, nothing to scroll): offset 0 counts as at the end", () => {
+    expect(isAtScrollEnd(0, 0)).toBe(true);
+  });
+
+  test("probe-motivated case: a real fractional wheel tick 1.3px short of maxScroll counts as at the end", () => {
+    expect(isAtScrollEnd(499.7, 501)).toBe(true);
   });
 });
