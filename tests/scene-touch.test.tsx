@@ -5,7 +5,8 @@
  * (C3), release inertia + boundary clamp (C4, defeat-checked at C5), focus
  * change during an active fling (C6), touch-action CSS + thumb hit target
  * (C7), and the scrollbar thumb's own touch-drag (C11 — its first test
- * coverage in this suite; the thumb's drag logic predates S3).
+ * coverage in this suite; the thumb's drag logic predates S3). Also covers
+ * F13 commit 1's native touchmove ownership/preventDefault gating.
  *
  * PointerEvents are dispatched directly via element.dispatchEvent() — this
  * repo runs vitest-browser tests in real Chromium (not jsdom), so
@@ -19,6 +20,43 @@ import { render } from "vitest-browser-react";
 import { Scene, SceneColumn, SceneObject } from "../src";
 import { TestWrapper } from "./test-wrapper";
 import { wait, waitForAnimationFrame } from "./utils/animation";
+
+/**
+ * Constructs a real `Touch` for `fireNativeTouchMove` below. `target` must
+ * be the element the touch is dispatched on for Chromium to accept it.
+ */
+function makeTouch(el: Element, clientX: number, clientY: number, identifier = 0): Touch {
+  return new Touch({ identifier, target: el, clientX, clientY });
+}
+
+/**
+ * Dispatches a real native `touchmove` (via plain `element.dispatchEvent`,
+ * NOT CDP's `Input.dispatchTouchEvent`) and returns the event so its
+ * `defaultPrevented` can be inspected. This is a genuinely different
+ * mechanism from the CDP-driven touch input this file's touch-action tests
+ * document as bypassing touch-action gating in this harness (see "Real
+ * native vertical touch-scroll cannot be observed..." below) — plain JS
+ * event dispatch runs registered listeners (including non-passive ones)
+ * synchronously and exactly like production, so `defaultPrevented` here is
+ * a direct, reliable read of whether SceneColumn's native listener called
+ * `preventDefault()`. What it does NOT prove is that a real browser's
+ * native page-pan gesture engine actually stops scrolling when
+ * preventDefault is called during a LIVE finger gesture — that's the
+ * on-device check of record (Michael's real iOS Safari device confirmed
+ * the compounding-scroll bug this exact mechanism fixes; see F13's task
+ * brief ground truth item 1).
+ */
+function fireNativeTouchMove(el: Element, touches: Touch[]): TouchEvent {
+  const event = new TouchEvent("touchmove", {
+    touches,
+    targetTouches: touches,
+    changedTouches: touches,
+    bubbles: true,
+    cancelable: true,
+  });
+  el.dispatchEvent(event);
+  return event;
+}
 
 /** Dispatches a synthetic touch PointerEvent on `el`. */
 function firePointer(
@@ -730,6 +768,139 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
     expect(getComputedStyle(thumb).touchAction).toBe("none");
     const width = thumb.getBoundingClientRect().width;
     expect(width).toBeGreaterThanOrEqual(24);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F13 commit 1: native (non-passive) touchmove preventDefault gating
+// ---------------------------------------------------------------------------
+
+describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)", () => {
+  test("a predominantly-vertical drag claims ownership — a subsequent native touchmove is prevented", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    // Well past the slop, purely vertical — decides "vertical" ownership.
+    firePointer(contentWrapper, "pointermove", startX, startY - 50);
+    await waitForAnimationFrame();
+
+    const event = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX, startY - 50)]);
+    expect(event.defaultPrevented).toBe(true);
+
+    firePointer(contentWrapper, "pointerup", startX, startY - 50);
+  });
+
+  test("a predominantly-horizontal drag releases ownership — a subsequent native touchmove is NOT prevented", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    // Well past the slop, purely horizontal — decides "horizontal" ownership
+    // (releases: isDragging goes false, native pan-x camera panning owns it).
+    firePointer(contentWrapper, "pointermove", startX + 50, startY);
+    await waitForAnimationFrame();
+
+    const event = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX + 50, startY)]);
+    expect(event.defaultPrevented).toBe(false);
+
+    firePointer(contentWrapper, "pointerup", startX + 50, startY);
+  });
+
+  test("multi-touch (a second finger joining) is never prevented, even after a single-finger vertical claim", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    firePointer(contentWrapper, "pointermove", startX, startY - 50);
+    await waitForAnimationFrame();
+
+    // A single-touch touchmove is prevented (same claim as the first test).
+    const singleTouch = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX, startY - 50)]);
+    expect(singleTouch.defaultPrevented).toBe(true);
+
+    // A second finger joins — the SAME gesture's ownership was already
+    // decided "vertical", but multi-touch must never be prevented (native
+    // pinch-zoom must proceed unobstructed).
+    const multiTouch = fireNativeTouchMove(contentWrapper, [
+      makeTouch(contentWrapper, startX, startY - 50, 0),
+      makeTouch(contentWrapper, startX + 40, startY - 30, 1),
+    ]);
+    expect(multiTouch.defaultPrevented).toBe(false);
+
+    firePointer(contentWrapper, "pointerup", startX, startY - 50);
+  });
+
+  test("a column that isn't Scene-scrollable never prevents native touchmove (no listener attached)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              {/* Content fits the viewport — maxScroll is 0, isScrollable is false. */}
+              <div data-testid="content" style={{ width: 400, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    const event = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX, startY)]);
+    expect(event.defaultPrevented).toBe(false);
   });
 });
 

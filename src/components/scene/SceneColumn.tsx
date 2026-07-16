@@ -33,7 +33,10 @@ import {
   findDeepestIntraObjectAnchor,
   findScrollToTarget,
   computeNearestEdgeScrollOffset,
+  classifyTouchGestureDirection,
+  shouldPreventTouchMove,
   type ScrollCommand,
+  type TouchGestureOwnership,
 } from "./inputController";
 
 // ---------------------------------------------------------------------------
@@ -1008,10 +1011,22 @@ export function SceneColumn({
   // isDragging/dragStartOffset too; see that wrapper's own comment on the
   // mid-drag rebase). dragStartY/dragStartOffset capture the gesture's
   // starting pointer position and scroll offset at handleContentPointerDown
-  // time; isDragging gates handleContentPointerMove.
+  // time; isDragging gates handleContentPointerMove. dragStartX (F13 commit
+  // 1) is the horizontal twin, needed only for direction disambiguation
+  // (classifyTouchGestureDirection) — the vertical tracking math itself
+  // never reads it.
   const dragStartY = useRef(0);
+  const dragStartX = useRef(0);
   const dragStartOffset = useRef(0);
   const isDragging = useRef(false);
+
+  // F13 commit 1: this gesture's decided touch ownership (undecided until
+  // cumulative movement clears the slop — see classifyTouchGestureDirection's
+  // own doc comment). Reset to "undecided" at every handleContentPointerDown;
+  // decided once, permanently, by handleContentPointerMove; read by the
+  // native (non-passive) touchmove listener below to decide whether to
+  // preventDefault.
+  const touchOwnershipRef = useRef<TouchGestureOwnership>("undecided");
 
   // Bulk-remeasures every registered object's offsetTop/height relative to
   // the content wrapper (the rect-delta technique — invariant under the
@@ -2221,7 +2236,11 @@ export function SceneColumn({
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
       isDragging.current = true;
       dragStartY.current = e.clientY;
+      dragStartX.current = e.clientX;
       dragStartOffset.current = scrollOffsetRef.current;
+      // F13 commit 1: fresh gesture — ownership is decided anew by
+      // handleContentPointerMove below (classifyTouchGestureDirection).
+      touchOwnershipRef.current = "undecided";
       // A bare .set() does NOT stop an in-flight animate()-driven animation
       // (its own rAF loop keeps overwriting the value — probe-confirmed at
       // source: MotionValue.set() never calls .stop()). A coasting inertia
@@ -2254,6 +2273,32 @@ export function SceneColumn({
   const handleContentPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!isDragging.current) return;
+
+      // F13 commit 1: direction disambiguation. Still within the slop on
+      // both axes — do nothing yet; classifyTouchGestureDirection's own
+      // doc comment covers why waiting costs nothing (the offset math
+      // below always measures from the FIXED drag start, so deciding
+      // "vertical" on a later move still applies the full accumulated
+      // delta in one step, with no lag).
+      if (touchOwnershipRef.current === "undecided") {
+        const dx = e.clientX - dragStartX.current;
+        const dy = e.clientY - dragStartY.current;
+        const decision = classifyTouchGestureDirection(dx, dy);
+        touchOwnershipRef.current = decision;
+        if (decision === "horizontal") {
+          // Release entirely — native pan-x camera panning owns this
+          // gesture from here on; the native touchmove listener below
+          // reads this same ref and will never preventDefault for it.
+          isDragging.current = false;
+          return;
+        }
+        if (decision === "undecided") {
+          return; // still ambiguous — nothing to apply yet
+        }
+        // decision === "vertical" — fall through and apply this move's
+        // full accumulated delta below, same as every subsequent move.
+      }
+
       // 1:1 finger tracking: the finger moving down (deltaY positive) should
       // move the content down too (content "attached" to the finger), which
       // means scrollOffset DECREASES — content top = -(topOffset+scrollOffset).
@@ -2312,6 +2357,39 @@ export function SceneColumn({
     },
     [duration, scrollY, applyScrollCommand],
   );
+
+  // F13 commit 1: native (non-passive) touchmove listener. React's
+  // synthetic pointer/touch event system can't reliably do passive:false
+  // (events are delegated at the ROOT, and React special-cases touch
+  // listeners as passive by default for scroll-perf reasons) — a
+  // preventDefault() that actually blocks the browser's native page-pan
+  // requires a listener attached directly to the DOM node, {passive:
+  // false}. Device-confirmed necessary even though touch-action computes
+  // correctly (see the touchAction style below): Safari's gesture engine
+  // doesn't reliably honor it over Scene's transformed subtree, so
+  // preventDefault is the load-bearing layer, touch-action the (correct,
+  // but insufficient alone) belt.
+  //
+  // Reads touchOwnershipRef rather than deciding direction itself — per
+  // the Pointer Events spec, pointermove always fires before the
+  // corresponding native touchmove for the same physical sample, so by
+  // the time this listener runs, handleContentPointerMove above has
+  // already made this move's ownership decision (shouldPreventTouchMove,
+  // inputController.ts, also folds in the multi-touch/pinch exemption —
+  // see its own doc comment). Gated the same as the touchAction style
+  // below (only meaningful when Scene owns this column's vertical scroll).
+  useEffect(() => {
+    const el = contentWrapperRef.current;
+    if (!el || !columnFocused || !isScrollable) return;
+
+    const handleNativeTouchMove = (e: TouchEvent) => {
+      if (shouldPreventTouchMove(touchOwnershipRef.current, e.touches.length)) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", handleNativeTouchMove);
+  }, [columnFocused, isScrollable]);
 
   return (
     <ColumnContext.Provider value={{ register, withinColumnDepths }}>

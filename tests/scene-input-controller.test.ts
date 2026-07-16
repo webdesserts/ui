@@ -20,6 +20,9 @@ import {
   findDeepestIntraObjectAnchor,
   findScrollToTarget,
   computeNearestEdgeScrollOffset,
+  classifyTouchGestureDirection,
+  shouldPreventTouchMove,
+  TOUCH_DIRECTION_SLOP_PX,
   type AnchorCandidate,
   type AnchorGeometry,
 } from "../src/components/scene/inputController";
@@ -976,5 +979,66 @@ describe("computeNearestEdgeScrollOffset", () => {
   test("target flush against the window's edges (touching, not overlapping) still counts as visible — no movement", () => {
     // window [0, 800) — target [0, 800) exactly fills it.
     expect(computeNearestEdgeScrollOffset(0, 800, 0, 800, 5000)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyTouchGestureDirection / shouldPreventTouchMove (F13 commit 1)
+// ---------------------------------------------------------------------------
+
+describe("classifyTouchGestureDirection", () => {
+  test("movement under the slop on both axes is undecided", () => {
+    expect(classifyTouchGestureDirection(0, 0)).toBe("undecided");
+    expect(classifyTouchGestureDirection(TOUCH_DIRECTION_SLOP_PX - 1, TOUCH_DIRECTION_SLOP_PX - 1)).toBe(
+      "undecided",
+    );
+  });
+
+  test("predominantly vertical movement past the slop claims vertical", () => {
+    expect(classifyTouchGestureDirection(2, 50)).toBe("vertical");
+    expect(classifyTouchGestureDirection(-2, -50)).toBe("vertical");
+  });
+
+  test("predominantly horizontal movement past the slop releases to horizontal", () => {
+    expect(classifyTouchGestureDirection(50, 2)).toBe("horizontal");
+    expect(classifyTouchGestureDirection(-50, -2)).toBe("horizontal");
+  });
+
+  test("exactly at the slop on one axis, zero on the other decides by magnitude", () => {
+    expect(classifyTouchGestureDirection(0, TOUCH_DIRECTION_SLOP_PX)).toBe("vertical");
+    expect(classifyTouchGestureDirection(TOUCH_DIRECTION_SLOP_PX, 0)).toBe("horizontal");
+  });
+
+  test("an exact tie between axes decides horizontal (decline-to-claim default)", () => {
+    expect(classifyTouchGestureDirection(30, 30)).toBe("horizontal");
+    expect(classifyTouchGestureDirection(-30, 30)).toBe("horizontal");
+  });
+
+  test("decision is based on cumulative movement from the fixed start point, not axis sign", () => {
+    // A gesture that's drifted mostly down-and-slightly-right is still vertical.
+    expect(classifyTouchGestureDirection(15, 200)).toBe("vertical");
+  });
+});
+
+describe("shouldPreventTouchMove", () => {
+  test("a single-touch vertical claim is prevented", () => {
+    expect(shouldPreventTouchMove("vertical", 1)).toBe(true);
+  });
+
+  test("a single-touch horizontal release is never prevented", () => {
+    expect(shouldPreventTouchMove("horizontal", 1)).toBe(false);
+  });
+
+  test("an undecided single-touch gesture is never prevented", () => {
+    expect(shouldPreventTouchMove("undecided", 1)).toBe(false);
+  });
+
+  test("multi-touch (pinch) is never prevented, even mid-vertical-claim", () => {
+    // A single finger can decide "vertical" before a second finger joins —
+    // the moment the gesture becomes multi-touch, native pinch-zoom must
+    // proceed unobstructed regardless of the earlier single-finger decision.
+    expect(shouldPreventTouchMove("vertical", 2)).toBe(false);
+    expect(shouldPreventTouchMove("horizontal", 2)).toBe(false);
+    expect(shouldPreventTouchMove("undecided", 2)).toBe(false);
   });
 });

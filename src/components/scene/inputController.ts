@@ -606,3 +606,67 @@ export function computeNearestEdgeScrollOffset(
 
   return Math.max(0, Math.min(maxScroll, next));
 }
+
+// ---------------------------------------------------------------------------
+// Touch gesture ownership disambiguation (F13 commit 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * A touch gesture's decided ownership: "undecided" until cumulative movement
+ * clears TOUCH_DIRECTION_SLOP_PX, then "vertical" or "horizontal" ONCE,
+ * permanently, for the gesture's lifetime — see
+ * `classifyTouchGestureDirection`'s own doc comment for how the decision is
+ * made and how SceneColumn's touch-pan block uses each outcome.
+ */
+export type TouchGestureOwnership = "undecided" | "vertical" | "horizontal";
+
+/**
+ * Slop (px) a touch gesture's cumulative movement must clear, on EITHER
+ * axis, before ownership is decided — small movements are ambiguous (could
+ * still be the start of either gesture, or a tap), so nothing is claimed or
+ * released until the finger has genuinely committed to a direction.
+ */
+export const TOUCH_DIRECTION_SLOP_PX = 10;
+
+/**
+ * Classifies a touch gesture's ownership from its cumulative movement since
+ * touchstart (`dx`/`dy`, both measured from the SAME fixed start point —
+ * never from the previous sample, so a wobbly finger that reverses
+ * direction mid-gesture doesn't re-trigger the decision). Below the slop on
+ * BOTH axes: "undecided" — callers must apply neither vertical tracking nor
+ * horizontal release yet. Once cleared: whichever axis has the larger
+ * magnitude wins, decided once for the rest of the gesture (an exact tie
+ * goes to "horizontal" — declining to claim is the safer default, since a
+ * wrongly-claimed vertical gesture blocks the camera's horizontal pan
+ * entirely, while a wrongly-released horizontal gesture just misses one
+ * scroll tick that the next move corrects).
+ *
+ * Deliberately unaware of touch COUNT (pinch/multi-touch) — that's a
+ * separate, orthogonal concern folded into `shouldPreventTouchMove` below,
+ * not this function, so each stays independently testable.
+ */
+export function classifyTouchGestureDirection(dx: number, dy: number): TouchGestureOwnership {
+  if (Math.abs(dx) < TOUCH_DIRECTION_SLOP_PX && Math.abs(dy) < TOUCH_DIRECTION_SLOP_PX) {
+    return "undecided";
+  }
+  return Math.abs(dy) > Math.abs(dx) ? "vertical" : "horizontal";
+}
+
+/**
+ * Whether a native `touchmove` should be `preventDefault()`-ed, blocking the
+ * browser's own page-pan gesture engine from running SIMULTANEOUSLY with
+ * Scene's JS vertical pan — device-confirmed necessary (see SceneColumn's
+ * touch-pan block doc comment): `touch-action: pan-x pinch-zoom` computes
+ * correctly on iOS Safari but isn't reliably honored over Scene's
+ * transformed subtree, so explicit `preventDefault()` is the load-bearing
+ * layer, not touch-action alone.
+ *
+ * Multi-touch is NEVER claimed regardless of `ownership` — a single-finger
+ * vertical claim decided before a second finger joins must not go on
+ * blocking the browser's native pinch-zoom once the gesture becomes a
+ * pinch.
+ */
+export function shouldPreventTouchMove(ownership: TouchGestureOwnership, touchCount: number): boolean {
+  if (touchCount > 1) return false;
+  return ownership === "vertical";
+}
