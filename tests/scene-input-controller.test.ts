@@ -23,8 +23,13 @@ import {
   classifyTouchGestureDirection,
   shouldPreventTouchMove,
   TOUCH_DIRECTION_SLOP_PX,
+  computeReleaseVelocity,
+  MAX_FLING_VELOCITY,
+  TOUCH_VELOCITY_WINDOW_MS,
+  TOUCH_VELOCITY_STALE_MS,
   type AnchorCandidate,
   type AnchorGeometry,
+  type VelocitySample,
 } from "../src/components/scene/inputController";
 
 function makeWheelEvent(init: Partial<WheelEventInit> = {}): WheelEvent {
@@ -1040,5 +1045,85 @@ describe("shouldPreventTouchMove", () => {
     expect(shouldPreventTouchMove("vertical", 2)).toBe(false);
     expect(shouldPreventTouchMove("horizontal", 2)).toBe(false);
     expect(shouldPreventTouchMove("undecided", 2)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeReleaseVelocity (F13 commit 2)
+// ---------------------------------------------------------------------------
+
+describe("computeReleaseVelocity", () => {
+  function sample(t: number, offset: number): VelocitySample {
+    return { t, offset };
+  }
+
+  test("fewer than 2 samples in the window is zero velocity", () => {
+    expect(computeReleaseVelocity([], 1000)).toBe(0);
+    expect(computeReleaseVelocity([sample(990, 40)], 1000)).toBe(0);
+  });
+
+  test("computes average velocity (px/s) across the sample window, sign matching offset direction", () => {
+    // offset increases 0 -> 100 over 50ms => 100/0.05s = 2000 px/s.
+    const samples = [sample(950, 0), sample(1000, 100)];
+    expect(computeReleaseVelocity(samples, 1000)).toBeCloseTo(2000, 0);
+  });
+
+  test("negative offset movement produces negative velocity", () => {
+    const samples = [sample(950, 100), sample(1000, 0)];
+    expect(computeReleaseVelocity(samples, 1000)).toBeCloseTo(-2000, 0);
+  });
+
+  test("samples older than the window are excluded from the calculation", () => {
+    const samples = [
+      sample(500, 9999), // ancient, outside the window — must not skew the result
+      sample(950, 0),
+      sample(1000, 100),
+    ];
+    expect(computeReleaseVelocity(samples, 1000)).toBeCloseTo(2000, 0);
+  });
+
+  test("a sample exactly at the window boundary is included", () => {
+    const boundaryT = 1000 - TOUCH_VELOCITY_WINDOW_MS;
+    const samples = [sample(boundaryT, 0), sample(1000, 50)];
+    expect(computeReleaseVelocity(samples, 1000)).toBeGreaterThan(0);
+  });
+
+  test("a sample just outside the window is excluded", () => {
+    const justOutsideT = 1000 - TOUCH_VELOCITY_WINDOW_MS - 1;
+    const samples = [sample(justOutsideT, 0), sample(999, 1)]; // <2 remaining once excluded
+    expect(computeReleaseVelocity(samples, 1000)).toBe(0);
+  });
+
+  test("a stale newest sample (finger already stopped before release) is zero velocity", () => {
+    const samples = [sample(1000 - TOUCH_VELOCITY_STALE_MS - 5, 0), sample(1000 - TOUCH_VELOCITY_STALE_MS - 1, 40)];
+    expect(computeReleaseVelocity(samples, 1000)).toBe(0);
+  });
+
+  test("a newest sample just within the staleness threshold still counts", () => {
+    const samples = [sample(1000 - TOUCH_VELOCITY_STALE_MS - 10, 0), sample(1000 - TOUCH_VELOCITY_STALE_MS, 40)];
+    expect(computeReleaseVelocity(samples, 1000)).toBeGreaterThan(0);
+  });
+
+  test("clamps to MAX_FLING_VELOCITY on an implausibly large delta/dt ratio", () => {
+    const samples = [sample(999, 0), sample(1000, 100000)];
+    expect(computeReleaseVelocity(samples, 1000)).toBe(MAX_FLING_VELOCITY);
+  });
+
+  test("clamps to -MAX_FLING_VELOCITY symmetrically", () => {
+    const samples = [sample(999, 100000), sample(1000, 0)];
+    expect(computeReleaseVelocity(samples, 1000)).toBe(-MAX_FLING_VELOCITY);
+  });
+
+  test("zero net movement across the window is zero velocity", () => {
+    const samples = [sample(950, 50), sample(975, 80), sample(1000, 50)];
+    expect(computeReleaseVelocity(samples, 1000)).toBe(0);
+  });
+
+  test("averages across the full window rather than just the last two samples", () => {
+    // A fast early burst followed by a slower tail — the oldest-to-newest
+    // average (2200 px/s) differs clearly from just the last two samples'
+    // own instantaneous rate (400 px/s), proving the whole window is used.
+    const samples = [sample(900, 0), sample(950, 200), sample(1000, 220)];
+    expect(computeReleaseVelocity(samples, 1000)).toBeCloseTo(2200, 0);
   });
 });

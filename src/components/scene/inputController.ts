@@ -670,3 +670,68 @@ export function shouldPreventTouchMove(ownership: TouchGestureOwnership, touchCo
   if (touchCount > 1) return false;
   return ownership === "vertical";
 }
+
+// ---------------------------------------------------------------------------
+// Touch release velocity (F13 commit 2)
+// ---------------------------------------------------------------------------
+
+/** A single (timestamp, scroll offset) sample from an active touch drag. */
+export interface VelocitySample {
+  /** `performance.now()` at the time of this sample, in ms. */
+  t: number;
+  /** The column's scroll offset at this sample. */
+  offset: number;
+}
+
+/**
+ * Ceiling (px/s) on a computed release velocity — an iOS-realistic bound on
+ * how fast a real finger flick can plausibly be. Clamps out the physically
+ * impossible spikes event-timing jitter can otherwise produce (e.g. two
+ * samples landing in the same animation frame with a near-zero `dt`, which
+ * would blow the delta/dt ratio up arbitrarily).
+ */
+export const MAX_FLING_VELOCITY = 4000;
+
+/** How far back (ms) `computeReleaseVelocity` looks for samples to average over. */
+export const TOUCH_VELOCITY_WINDOW_MS = 100;
+
+/**
+ * A release counts as "the finger was already still" (zero velocity, no
+ * fling) once the newest sample in the window is this many ms old —
+ * distinguishes a deliberate hold-then-release from a genuine flick that
+ * happens to have its last sample land slightly before the up event.
+ */
+export const TOUCH_VELOCITY_STALE_MS = 80;
+
+/**
+ * Computes a touch-release velocity (px/s) from a ring buffer of recent
+ * drag samples, own-tracked by SceneColumn rather than read from
+ * `scrollY.getVelocity()` at release time — see SceneColumn's own doc
+ * comment on `handleContentPointerUp` for why a MotionValue's velocity
+ * tracking is unreliable exactly at a pointer release (a 30ms window-based
+ * cache that a fast release can land just outside of, plus it silently
+ * inflates when a mid-coast compensation event has just jumped the value).
+ * This tracker sidesteps both: it only ever looks at genuine drag samples,
+ * never at anything Motion itself wrote.
+ *
+ * - Samples older than `TOUCH_VELOCITY_WINDOW_MS` before `now` are ignored.
+ * - Fewer than 2 samples survive that filter, OR the newest surviving
+ *   sample is already `TOUCH_VELOCITY_STALE_MS` old (the finger stopped
+ *   moving before lifting — a deliberate hold, not a flick) → 0.
+ * - Otherwise: the average velocity across the surviving window (oldest to
+ *   newest sample), clamped to `±MAX_FLING_VELOCITY`.
+ */
+export function computeReleaseVelocity(samples: VelocitySample[], now: number): number {
+  const recent = samples.filter((s) => now - s.t <= TOUCH_VELOCITY_WINDOW_MS);
+  if (recent.length < 2) return 0;
+
+  const newest = recent[recent.length - 1]!;
+  if (now - newest.t > TOUCH_VELOCITY_STALE_MS) return 0;
+
+  const oldest = recent[0]!;
+  const dt = newest.t - oldest.t;
+  if (dt <= 0) return 0;
+
+  const raw = ((newest.offset - oldest.offset) / dt) * 1000;
+  return Math.max(-MAX_FLING_VELOCITY, Math.min(MAX_FLING_VELOCITY, raw));
+}

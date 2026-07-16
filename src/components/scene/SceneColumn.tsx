@@ -35,8 +35,10 @@ import {
   computeNearestEdgeScrollOffset,
   classifyTouchGestureDirection,
   shouldPreventTouchMove,
+  computeReleaseVelocity,
   type ScrollCommand,
   type TouchGestureOwnership,
+  type VelocitySample,
 } from "./inputController";
 
 // ---------------------------------------------------------------------------
@@ -1027,6 +1029,15 @@ export function SceneColumn({
   // native (non-passive) touchmove listener below to decide whether to
   // preventDefault.
   const touchOwnershipRef = useRef<TouchGestureOwnership>("undecided");
+
+  // F13 commit 2: ring buffer of (timestamp, offset) samples from the
+  // active drag, own-tracked so release velocity doesn't depend on
+  // scrollY.getVelocity() at release time — see computeReleaseVelocity's
+  // own doc comment for why that read is unreliable exactly when it
+  // matters. Reset at every handleContentPointerDown; pushed to by every
+  // handleContentPointerMove; consumed once, at release, by
+  // handleContentPointerUp.
+  const velocitySamplesRef = useRef<VelocitySample[]>([]);
 
   // Bulk-remeasures every registered object's offsetTop/height relative to
   // the content wrapper (the rect-delta technique — invariant under the
@@ -2241,6 +2252,10 @@ export function SceneColumn({
       // F13 commit 1: fresh gesture — ownership is decided anew by
       // handleContentPointerMove below (classifyTouchGestureDirection).
       touchOwnershipRef.current = "undecided";
+      // F13 commit 2: fresh gesture — the velocity tracker must never see
+      // samples left over from a PRIOR drag (computeReleaseVelocity has no
+      // other way to know they're stale).
+      velocitySamplesRef.current = [];
       // A bare .set() does NOT stop an in-flight animate()-driven animation
       // (its own rAF loop keeps overwriting the value — probe-confirmed at
       // source: MotionValue.set() never calls .stop()). A coasting inertia
@@ -2308,6 +2323,11 @@ export function SceneColumn({
         Math.min(maxScrollRef.current, dragStartOffset.current - deltaY),
       );
       scrollOffsetRef.current = newOffset;
+      // F13 commit 2: own release-velocity tracker — see
+      // computeReleaseVelocity's own doc comment. Pushed every move
+      // regardless of duration; instant mode never reads the buffer (see
+      // handleContentPointerUp below), so this is harmless there.
+      velocitySamplesRef.current.push({ t: performance.now(), offset: newOffset });
       // F9 commit 2: the one entry point that bypasses applyScrollCommand
       // entirely (§2c) — release/re-pin evaluated live, every tick, same
       // as every other user-initiated write site. F9 commit 3: ordered
@@ -2341,21 +2361,21 @@ export function SceneColumn({
       // final drag position even though real mode skipped per-tick renders.
       setScrollOffset(releaseOffset);
 
-      // scrollY.getVelocity() called directly, NOT a cached useVelocity()
-      // derived value — fix-round, residual-velocity re-fling defect: a
-      // cached value only refreshes on a scrollY "change" event or an
-      // elapsed animation frame tick, neither of which is guaranteed to have
-      // happened yet in a fast grab->release (probe-confirmed: it would
-      // still read the pre-grab fling's velocity indefinitely in a same-tick
-      // sequence). getVelocity() is always computed fresh, so it correctly
-      // reflects handleContentPointerDown's scrollY.jump() reset above.
-      // Skipped in instant mode (duration===0) — inertia has no meaningful
-      // instant equivalent (forecast-gate plan §2) and applyScrollCommand's
-      // fling branch never reads velocity in that case anyway.
-      const velocity = duration === 0 ? 0 : scrollY.getVelocity();
+      // F13 commit 2: own release-velocity tracker (computeReleaseVelocity,
+      // inputController.ts) rather than scrollY.getVelocity() at release —
+      // see that function's own doc comment for why a MotionValue read here
+      // is unreliable exactly when it matters (a 30ms internal cache window
+      // a fast release can land just outside of, and — since commit 4 — a
+      // value a mid-coast compensation event may have just jumped with no
+      // real finger movement behind it). Skipped in instant mode — inertia
+      // has no meaningful instant equivalent (forecast-gate plan §2) and
+      // applyScrollCommand's fling branch never reads velocity in that case
+      // anyway.
+      const velocity =
+        duration === 0 ? 0 : computeReleaseVelocity(velocitySamplesRef.current, performance.now());
       applyScrollCommand({ type: "fling", velocity });
     },
-    [duration, scrollY, applyScrollCommand],
+    [duration, applyScrollCommand],
   );
 
   // F13 commit 1: native (non-passive) touchmove listener. React's
