@@ -411,16 +411,20 @@ export function SceneColumn({
   // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
   // for inertia's min/max in commit 2.
   const scrollY = useMotionValue(0);
-  // Release velocity is read via scrollY.getVelocity() directly at release
-  // time (not useVelocity(scrollY)) — probe-confirmed (fix-round,
-  // residual-velocity re-fling): useVelocity's derived value is a CACHED
-  // signal that only refreshes on a "change" event or an elapsed animation
-  // frame tick, neither of which happens in a same-tick grab->release (a
-  // fast tap during a coasting fling) — it would keep reporting the fling's
-  // pre-grab velocity indefinitely in that case. getVelocity() is always
-  // computed fresh with no caching, so it correctly reflects
-  // scrollY.jump()'s velocity-tracking reset (see handleContentPointerDown)
-  // even within the same synchronous tick.
+  // scrollY.getVelocity() is used at TWO call sites, both mid-animation
+  // (never at release — F13 commit 2 replaced the release-time read with
+  // computeReleaseVelocity's own drag-sample tracker; see its doc comment
+  // for why a MotionValue read is unreliable exactly there): the mid-coast
+  // re-fling capture in applyScrollYDeltaRef (F13 commit 4) and the
+  // in-flight-spring-retarget capture just below it. Both are valid
+  // precisely because they're mid-animation, not post-jump/release —
+  // getVelocity() is always computed fresh with no caching, so it
+  // correctly reflects the currently-running animation's real velocity;
+  // the staleness class this used to guard against (probe-confirmed:
+  // useVelocity(scrollY)'s CACHED signal, which only refreshes on a
+  // "change" event or an elapsed animation frame tick — neither guaranteed
+  // in a same-tick grab->release) was specific to the RELEASE-time read
+  // this file no longer makes.
   const motionSeam = useMotionSeam();
   useEffect(() => {
     motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
@@ -886,15 +890,14 @@ export function SceneColumn({
           return;
         }
 
-        // velocity is scrollY.getVelocity(), read directly by the caller at
-        // release time — NOT a cached useVelocity() derived value — fix-round,
-        // residual-velocity re-fling defect: a cached value only refreshes on
-        // a scrollY "change" event or an elapsed animation frame tick,
-        // neither of which is guaranteed to have happened yet in a fast
-        // grab->release (probe-confirmed: it would still read the pre-grab
-        // fling's velocity indefinitely in a same-tick sequence).
-        // getVelocity() is always computed fresh, so it correctly reflects
-        // handleContentPointerDown's scrollY.jump() reset.
+        // F13 commit 2: velocity is computeReleaseVelocity's own drag-sample
+        // tracker (handleContentPointerUp), not a scrollY MotionValue read
+        // at release — see that function's own doc comment for why a
+        // MotionValue read is unreliable exactly at a pointer release (a
+        // cached signal that can land just outside its own refresh window
+        // on a fast grab->release, plus — since commit 4 — corruption from
+        // a mid-coast compensation jump that never reflects real finger
+        // movement).
         const velocity = cmd.velocity;
 
         // Fix-round round 2 (gate finding: 203px drift on a genuinely
