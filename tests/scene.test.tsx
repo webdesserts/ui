@@ -8483,4 +8483,262 @@ describe("Scene consumer scroll override", () => {
     const scrollbar = scene.querySelector("[data-scrollbar]");
     expect(scrollbar).toBeNull();
   });
+
+  // F8a interior claim gate: the motivating bug. An island that fills its
+  // column (maxScroll=0, isScrollable=false) sits alongside another
+  // Scene-scrollable focused column. Before the claim gate, Scene would
+  // still claim wheel-over-the-island because A10's "exactly one scrollable
+  // focused column" fallback fires — routing the delta to the SIBLING
+  // column while the cursor is over the island, and the island (which
+  // should have handled it) is never given the chance.
+  //
+  // Real (non-passive, script-dispatched) wheel events do not trigger a
+  // browser's default scroll action in this test environment (verified
+  // empirically — see the F8a worker report) — matching every other wheel
+  // test in this file, these tests assert Scene's OWN state (the sibling
+  // column's `top`) plus `notPrevented` (dispatchEvent's return value, true
+  // iff preventDefault was never called) as the proxy for "declined to
+  // route, native scroll gets to run."
+  test("wheel over an interior overflow-y:auto island declines to route — the sibling Scene-scrollable column does not move (F8a claim gate)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sibling-col">
+            <SceneObject name="sibling-obj" focused>
+              <div data-testid="sibling-content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+
+    const notPrevented = island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(siblingContentWrapper.style.top || "0")).toBe(0);
+    expect(notPrevented).toBe(true);
+  });
+
+  // Sanity control: the island alone (no co-focused scrollable sibling).
+  // Even without the claim gate, this case already declines today (nothing
+  // scrollable is registered under Scene, so decideWheelTargetColumn/A10
+  // find zero candidates) — it doesn't discriminate old vs. new code on its
+  // own, but confirms the primary regression test's sibling column is what
+  // actually exercises the gate, not some other masking effect.
+  test("sanity control: wheel over the island with no sibling column still declines to route", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+
+    const notPrevented = island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(notPrevented).toBe(true);
+  });
+
+  test("overscroll-behavior-y: auto (default) at the island's edge chains outward — the sibling column claims it exactly like today", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sibling-col">
+            <SceneObject name="sibling-obj" focused>
+              <div data-testid="sibling-content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    island.scrollTop = island.scrollHeight - island.clientHeight; // bottom edge
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+
+    island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(siblingContentWrapper.style.top || "0")).toBe(-60);
+  });
+
+  test("overscroll-behavior-y: contain at the island's edge dead-stops — neither the island nor the sibling column moves", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto", overscrollBehaviorY: "contain" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sibling-col">
+            <SceneObject name="sibling-obj" focused>
+              <div data-testid="sibling-content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    island.scrollTop = island.scrollHeight - island.clientHeight; // bottom edge
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+
+    const notPrevented = island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(siblingContentWrapper.style.top || "0")).toBe(0);
+    expect(notPrevented).toBe(true);
+  });
+
+  test("composed pipeline: interior island declines to Scene, and the existing pointer-column routing still handles two Scene-scrollable columns unmodified", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused>
+              <div data-testid="content-b" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    const colBContent = colB.querySelector("[data-column-content]") as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+    const colARect = colA.getBoundingClientRect();
+
+    // Wheel over the island: the claim gate consumes it — neither Scene
+    // column moves.
+    const islandNotPrevented = island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(islandNotPrevented).toBe(true);
+    expect(parseFloat(colAContent.style.top || "0")).toBe(0);
+    expect(parseFloat(colBContent.style.top || "0")).toBe(0);
+
+    // Wheel over column A: the gate declines (no interior scroll container
+    // there), falling through to the unchanged pointer-hit-test routing —
+    // exactly the pre-existing "multiple scrollable focused columns"
+    // behavior (scene.test.tsx's S5 describe block, unmodified).
+    colA.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 60,
+        clientX: colARect.left + colARect.width / 2,
+        clientY: colARect.top + colARect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+
+    expect(parseFloat(colAContent.style.top || "0")).toBe(-60);
+    expect(parseFloat(colBContent.style.top || "0")).toBe(0);
+  });
 });

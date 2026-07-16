@@ -8,6 +8,7 @@ import { describe, test, expect } from "vitest";
 import {
   normalizeWheelDelta,
   decideWheelTargetColumn,
+  interiorCanConsume,
   isEditableElement,
   isInteractiveElement,
   mapScrollKeyToCommand,
@@ -112,6 +113,162 @@ describe("decideWheelTargetColumn", () => {
       expect(result).toBeNull();
     } finally {
       viewport.remove();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// interiorCanConsume (F8a)
+// ---------------------------------------------------------------------------
+
+describe("interiorCanConsume", () => {
+  function makeBoundary(): HTMLElement {
+    const boundary = document.createElement("div");
+    boundary.setAttribute("data-column", "test");
+    document.body.appendChild(boundary);
+    return boundary;
+  }
+
+  /**
+   * A real overflow-y:auto scroll container with genuine overflow (a filler
+   * child taller than the container itself), appended under `parent`.
+   */
+  function makeScrollContainer(
+    parent: Element,
+    opts: { overscrollBehaviorY?: string } = {},
+  ): HTMLElement {
+    const container = document.createElement("div");
+    container.style.height = "100px";
+    container.style.overflowY = "auto";
+    if (opts.overscrollBehaviorY) {
+      container.style.overscrollBehaviorY = opts.overscrollBehaviorY;
+    }
+    const filler = document.createElement("div");
+    filler.style.height = "300px";
+    container.appendChild(filler);
+    parent.appendChild(container);
+    return container;
+  }
+
+  test("consumable mid-scroll: a real overflow-y:auto container that can still move consumes the delta", () => {
+    const boundary = makeBoundary();
+    const container = makeScrollContainer(boundary);
+    container.scrollTop = 50; // maxScroll is 300-100=200 — neither edge
+    try {
+      expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true);
+      expect(interiorCanConsume(container, boundary, "y", -10)).toBe(true);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("at the bottom edge with overscroll-behavior-y: auto (default) declines — nothing further to chain to here", () => {
+    const boundary = makeBoundary();
+    const container = makeScrollContainer(boundary);
+    container.scrollTop = container.scrollHeight - container.clientHeight; // bottom edge
+    try {
+      expect(interiorCanConsume(container, boundary, "y", 10)).toBe(false);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("fractional scrollTop settling ~0.5px short of the integer max (subpixel/non-integer devicePixelRatio rounding, MDN-documented) still registers as at-edge — declines and chains outward instead of dead-stopping wheel input", () => {
+    const boundary = makeBoundary();
+    const container = makeScrollContainer(boundary); // real overflow-y:auto, scrollHeight=300 clientHeight=100 -> maxScrollTop=200
+    // Stub scrollTop to the exact fractional value rather than relying on a
+    // real browser's actual clamping to reproduce a specific subpixel
+    // shortfall deterministically (precedent: scene.test.tsx:2973's
+    // clientHeight stub).
+    Object.defineProperty(container, "scrollTop", { value: 199.5, configurable: true });
+    try {
+      expect(interiorCanConsume(container, boundary, "y", 10)).toBe(false);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("at the bottom edge with overscroll-behavior-y: contain dead-stops — still consumes so Scene doesn't also react", () => {
+    const boundary = makeBoundary();
+    const container = makeScrollContainer(boundary, { overscrollBehaviorY: "contain" });
+    container.scrollTop = container.scrollHeight - container.clientHeight; // bottom edge
+    try {
+      expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("no scroll container in the path declines — including a [data-column-content]-alike wrapper carrying no overflow CSS (defensive: today's production wrapper never matches by attribute alone)", () => {
+    const boundary = makeBoundary();
+    const contentWrapperAlike = document.createElement("div");
+    contentWrapperAlike.setAttribute("data-column-content", "");
+    // No overflow CSS set — mirrors production ([data-column-content] itself
+    // carries no overflow declaration today) but give it real overflow
+    // (scrollHeight > clientHeight) so this proves overflow-y is the actual
+    // gate, not an incidental size coincidence.
+    contentWrapperAlike.style.height = "100px";
+    boundary.appendChild(contentWrapperAlike);
+    const tall = document.createElement("div");
+    tall.style.height = "300px";
+    contentWrapperAlike.appendChild(tall);
+    try {
+      expect(interiorCanConsume(tall, boundary, "y", 10)).toBe(false);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("nested islands: an inner container at its own edge (auto) declines, and the walk continues outward to find the consumable outer one", () => {
+    const boundary = makeBoundary();
+    const outer = document.createElement("div");
+    outer.style.height = "300px";
+    outer.style.overflowY = "auto";
+    boundary.appendChild(outer);
+
+    const spacer = document.createElement("div");
+    spacer.style.height = "1000px"; // ensures outer itself overflows
+    outer.appendChild(spacer);
+
+    const inner = document.createElement("div");
+    inner.style.height = "100px";
+    inner.style.overflowY = "auto";
+    spacer.appendChild(inner); // nested inside outer's own overflowing content
+
+    const innerFiller = document.createElement("div");
+    innerFiller.style.height = "300px";
+    inner.appendChild(innerFiller);
+
+    outer.scrollTop = 50; // mid-scroll — outer can still move either direction
+    inner.scrollTop = 0; // inner is at its own top edge
+
+    try {
+      // Scrolling up: inner is at its top edge and declines (default auto),
+      // so the walk continues outward and finds the outer container, which
+      // can still move.
+      expect(interiorCanConsume(inner, boundary, "y", -10)).toBe(true);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("target IS the column boundary: declines immediately, nothing to walk", () => {
+    const boundary = makeBoundary();
+    try {
+      expect(interiorCanConsume(boundary, boundary, "y", 10)).toBe(false);
+    } finally {
+      boundary.remove();
+    }
+  });
+
+  test("zero delta always declines, even over a mid-scroll container", () => {
+    const boundary = makeBoundary();
+    const container = makeScrollContainer(boundary);
+    container.scrollTop = 50;
+    try {
+      expect(interiorCanConsume(container, boundary, "y", 0)).toBe(false);
+    } finally {
+      boundary.remove();
     }
   });
 });

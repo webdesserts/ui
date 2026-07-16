@@ -13,7 +13,12 @@ import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { MotionSeamContext, type MotionSeamRegistration } from "./motionSeam";
-import { normalizeWheelDelta, decideWheelTargetColumn, type ScrollCommand } from "./inputController";
+import {
+  normalizeWheelDelta,
+  decideWheelTargetColumn,
+  interiorCanConsume,
+  type ScrollCommand,
+} from "./inputController";
 import { animate, motion, useMotionValue, useReducedMotion, type AnimationPlaybackControls, type MotionValue } from "motion/react";
 
 /**
@@ -1739,6 +1744,19 @@ function SceneViewport({
       // letting the browser's native pinch-zoom pass through untouched.
       const scaledDeltaY = normalizeWheelDelta(e, el.clientHeight);
       if (scaledDeltaY === null) return;
+
+      // F8a interior claim gate: give a real interior scroll container (e.g.
+      // a consumer's own overflow-y: auto island) first refusal on the
+      // delta before Scene claims the event for column routing. e.target is
+      // already the innermost element (the listener bubbles from the
+      // viewport), so no elementFromPoint hit-test is needed here.
+      const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
+      if (eventColumn && interiorCanConsume(e.target as Element, eventColumn, "y", scaledDeltaY)) {
+        // The interior element can consume the delta itself — decline to
+        // route or preventDefault, letting the browser's native scroll
+        // proceed exactly as it would outside a Scene.
+        return;
+      }
 
       const column = decideWheelTargetColumn(el, e.clientX, e.clientY);
       if (!column) return;

@@ -69,6 +69,101 @@ export function decideWheelTargetColumn(
 }
 
 // ---------------------------------------------------------------------------
+// Interior scroll claim gate (F8a)
+// ---------------------------------------------------------------------------
+
+/**
+ * A real, currently-overflowing vertical scroll container:
+ * `overflow-y: auto|scroll` (opting in to browser-managed scrolling) AND
+ * `scrollHeight > clientHeight` (there's actually something to scroll — an
+ * `overflow-y: auto` element with fitting content never matches).
+ * `[data-column-content]` itself carries no `overflow` CSS today (confirmed
+ * by reading its style block), so it never accidentally matches here — this
+ * is intentionally NOT special-cased by attribute; a defensive test covers
+ * the case in case a future edit adds `overflow` there.
+ */
+function isVerticalScrollContainer(el: Element): boolean {
+  const overflowY = getComputedStyle(el).overflowY;
+  if (overflowY !== "auto" && overflowY !== "scroll") return false;
+  return el.scrollHeight > el.clientHeight;
+}
+
+/**
+ * Effective `overscroll-behavior-y` for `el`, falling back to the shorthand
+ * `overscroll-behavior` when the Y-specific longhand isn't declared. Both
+ * resolve to the initial value `"auto"` when neither is set.
+ */
+function effectiveOverscrollBehaviorY(el: Element): string {
+  const style = getComputedStyle(el);
+  const longhand = style.getPropertyValue("overscroll-behavior-y").trim();
+  if (longhand) return longhand;
+  return style.getPropertyValue("overscroll-behavior").trim() || "auto";
+}
+
+/**
+ * True when a real, currently-scrollable ancestor of `target` — walking up
+ * to (but never including) `columnBoundary` — can consume `delta` itself.
+ * When true, the caller must decline to route/preventDefault the event and
+ * let the browser's native scroll proceed; the interior element handles it
+ * exactly as it would outside a Scene. This is the wheel half of the "once
+ * inside a Scene object, normal CSS/JS just works" contract (F8 interior
+ * contract plan).
+ *
+ * - A candidate = `isVerticalScrollContainer(el)`.
+ * - A candidate that can still move further in `delta`'s direction consumes
+ *   — return true immediately.
+ * - A candidate at its edge in that direction defers to its own
+ *   `overscroll-behavior-y`: `contain`/`none` means the consumer's own CSS
+ *   says "don't chain past this edge" — still consume (dead-stop; the
+ *   caller must not also react). The default `auto` declines at this
+ *   candidate and the walk continues outward (natural scroll-chaining) to
+ *   the next ancestor.
+ * - Reaching `columnBoundary` (exclusive) with no consuming candidate found
+ *   — decline (return false).
+ *
+ * `axis` is threaded through (rather than hardcoded) so F8b's touch
+ * interior contract can reuse this walk; the wheel caller always passes
+ * `"y"` — Scene's wheel handler only ever routes the Y axis — so only Y
+ * semantics are implemented here today; no unused X-axis logic.
+ */
+export function interiorCanConsume(
+  target: Element,
+  columnBoundary: Element,
+  axis: "y",
+  delta: number,
+): boolean {
+  if (axis !== "y" || delta === 0) return false;
+
+  const movingForward = delta > 0;
+
+  let el: Element | null = target;
+  while (el && el !== columnBoundary) {
+    if (isVerticalScrollContainer(el)) {
+      const node = el as HTMLElement;
+      const maxScrollTop = node.scrollHeight - node.clientHeight;
+      // 1px epsilon on the forward edge only: `scrollTop` is fractional and
+      // on non-integer devicePixelRatio displays can settle permanently a
+      // fraction of a pixel short of the integer `maxScrollTop` (MDN's
+      // documented caveat) — without the tolerance, at-edge never
+      // registers, the gate never declines, and wheel input goes dead at
+      // the island's visual edge instead of chaining outward. The `<= 0`
+      // bottom edge needs no epsilon: scrollTop clamps at exactly 0.
+      const atEdge = movingForward
+        ? node.scrollTop >= maxScrollTop - 1
+        : node.scrollTop <= 0;
+      if (!atEdge) return true;
+
+      const overscroll = effectiveOverscrollBehaviorY(el);
+      if (overscroll === "contain" || overscroll === "none") return true;
+      // "auto" (the default): decline at this candidate, keep walking outward.
+    }
+    el = el.parentElement;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Interactive/editable element exemption (D1, DELTA-1)
 // ---------------------------------------------------------------------------
 
