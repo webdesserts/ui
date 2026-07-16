@@ -1085,8 +1085,23 @@ export function SceneColumn({
    * content-wrapper-relative — see remeasureGeometryWithAnchorCompensation's
    * own comment for why the local frame is what lets this compose
    * additively with the object-level diff instead of double-counting.
+   *
+   * F12: `height` (offsetHeight, transform-immune — the H11 discipline) is
+   * the anchor's own measured height at settle time, used to detect
+   * in-place growth (vs. a sibling insertion) at the next settle. `witness`
+   * is the deepest in-view element intersecting the line just below the
+   * anchor's bottom edge, stored the same LOCAL-offsetTop way — the element
+   * whose movement reveals a prepend BETWEEN the anchor and itself, when the
+   * anchor itself hasn't moved or grown. See the compensation branch below
+   * for the full witness-fallback rationale.
    */
-  const lastSettledIntraAnchorRef = useRef<{ objName: string; el: Element; offsetTop: number } | null>(null);
+  const lastSettledIntraAnchorRef = useRef<{
+    objName: string;
+    el: Element;
+    offsetTop: number;
+    height: number;
+    witness: { el: Element; offsetTop: number } | null;
+  } | null>(null);
 
   // F9 anchoring-as-default: wraps remeasureGeometry with content-growth
   // scroll-position compensation, mirroring native browser scroll
@@ -1255,7 +1270,12 @@ export function SceneColumn({
         // keeps the original suppression. Evaluated against the RUNNING
         // offset (post any object-level write above), matching where this
         // branch's own correction, if applied, would land.
-        if (intraDelta !== 0 && (anchor === "end" || scrollOffsetRef.current > 0)) {
+        // F12: shared write path for both intra-object corrections below
+        // (the anchor-delta branch and the witness-delta fallback) — the
+        // SAME fresh-maxScroll-then-clamp-then-apply sequence the
+        // object-level branch above uses, factored once so the witness
+        // fallback can never drift from the anchor branch's own mechanism.
+        const applyIntraCorrection = (delta: number) => {
           const freshContentHeight = computeFocusedContentHeight(
             objectStatesRef.current,
             geometryStore.current,
@@ -1265,10 +1285,7 @@ export function SceneColumn({
             0,
             viewportHeightRef.current > 0 ? freshContentHeight - viewportHeightRef.current : 0,
           );
-          const corrected = Math.max(
-            0,
-            Math.min(freshMaxScroll, scrollOffsetRef.current + intraDelta),
-          );
+          const corrected = Math.max(0, Math.min(freshMaxScroll, scrollOffsetRef.current + delta));
           const appliedDelta = corrected - scrollOffsetRef.current;
           scrollOffsetRef.current = corrected;
           setScrollOffset(corrected);
@@ -1278,6 +1295,40 @@ export function SceneColumn({
           // dragStartOffset when they compose in the same settle.
           if (isDragging.current) {
             dragStartOffset.current += appliedDelta;
+          }
+        };
+
+        if (intraDelta !== 0 && (anchor === "end" || scrollOffsetRef.current > 0)) {
+          applyIntraCorrection(intraDelta);
+        } else {
+          // F12: witness-element fallback, scoped to anchor="end" only (the
+          // anchor mode declares content direction — see the offset-0
+          // suppression comment above; a "none" column never witnesses).
+          // Handles the case F11's guard didn't: a STATIONARY element above
+          // the real prepend point (a "load earlier" affordance, a date
+          // header) is itself the tracked anchor, so it never moves on a
+          // prepend below it — intraDelta stays 0 and the branch above
+          // never fires. The witness (the deepest in-view element just
+          // below the anchor's bottom edge, recorded at the last settle —
+          // see the record site below) reveals that exact case: if IT moved
+          // while the anchor's own top AND height stayed put, something was
+          // inserted between them.
+          const witness = anchor === "end" && intraDelta === 0 ? intraBefore.witness : null;
+          if (witness && witness.el.isConnected) {
+            // Anchor's own height growing in place (e.g. an image loading
+            // inside it) is NOT a sibling insertion — that keeps native
+            // hold-the-top semantics, same as any other in-place growth.
+            // offsetHeight (not getBoundingClientRect, per H11) matches how
+            // `height` was captured at settle time.
+            const afterAnchorHeight = (intraBefore.el as HTMLElement).offsetHeight;
+            if (afterAnchorHeight === intraBefore.height) {
+              const afterWitnessGlobalOffsetTop = witness.el.getBoundingClientRect().top - wrapperRect.top;
+              const afterWitnessLocalOffsetTop = afterWitnessGlobalOffsetTop - afterOffsetTop;
+              const witnessDelta = afterWitnessLocalOffsetTop - witness.offsetTop;
+              if (witnessDelta !== 0) {
+                applyIntraCorrection(witnessDelta);
+              }
+            }
           }
         }
       }
@@ -1305,8 +1356,39 @@ export function SceneColumn({
         scrollOffsetRef.current,
         viewportHeightRef.current,
       );
-      lastSettledIntraAnchorRef.current =
-        match !== null ? { objName: anchorName!, el: match.el, offsetTop: match.offsetTop - afterOffsetTop } : null;
+      if (match !== null) {
+        // F12: witness bookkeeping, scoped to anchor="end" (see the
+        // compensation branch above for the fallback rationale). The
+        // witness is the deepest in-view element intersecting the line
+        // just below the anchor's own bottom edge — reusing the SAME
+        // recursive descent as the anchor selection above, just with a
+        // single-point "window" (a 0-height viewport at the line) instead
+        // of the real viewport window, so the same DOM-order/sticky-
+        // exclusion/deepest-match rules apply identically. No witness when
+        // that line falls at or past the bottom of the current viewport
+        // window — the anchor fills the rest of the visible area, so
+        // nothing below it is currently displaceable-and-visible, correctly
+        // a no-op. The line is always past the viewport's top edge here:
+        // match's own selection already guarantees
+        // match.offsetTop + match.height > scrollOffsetRef.current.
+        const witnessLine = match.offsetTop + match.height + 1;
+        const witnessMatch =
+          anchor === "end" && witnessLine < scrollOffsetRef.current + viewportHeightRef.current
+            ? findDeepestIntraObjectAnchor(anchorEl, wrapperRect, witnessLine, 0)
+            : null;
+        lastSettledIntraAnchorRef.current = {
+          objName: anchorName!,
+          el: match.el,
+          offsetTop: match.offsetTop - afterOffsetTop,
+          height: match.height,
+          witness:
+            witnessMatch !== null
+              ? { el: witnessMatch.el, offsetTop: witnessMatch.offsetTop - afterOffsetTop }
+              : null,
+        };
+      } else {
+        lastSettledIntraAnchorRef.current = null;
+      }
     } else {
       lastSettledIntraAnchorRef.current = null;
     }

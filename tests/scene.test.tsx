@@ -5091,6 +5091,155 @@ describe("Scene declarative scrollTo (F11 commit 2)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// F12: witness-element anchoring
+// ---------------------------------------------------------------------------
+
+describe("Scene witness-element anchoring (F12)", () => {
+  const ROW_HEIGHT = 70;
+
+  // Mirrors MessageList's real DOM shape: a stationary "load earlier
+  // messages" affordance ABOVE the rows, then the rows themselves, then a
+  // sticky composer. Round-4 CR-3 (scene-lab): at offset EXACTLY 0 the
+  // affordance — not a row — is the topmost in-view element, so it becomes
+  // the tracked F10/F10b anchor; a prepend BELOW it (loadOlder's real DOM
+  // shape) never moves the affordance's own offsetTop, so the pre-F12
+  // intraDelta path stayed 0 and never compensated.
+  function buildAffordancePipeline(rowIds: number[], affordanceHeight: number, anchor: "none" | "end") {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="chat" anchor={anchor}>
+            <SceneObject name="chat" focused>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <div data-testid="load-older" style={{ width: 400, height: affordanceHeight }}>
+                  load earlier messages
+                </div>
+                <div data-testid="rows-container">
+                  {rowIds.map((id) => (
+                    <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                      row {id}
+                    </div>
+                  ))}
+                </div>
+                <div data-testid="composer" style={{ position: "sticky", bottom: 0, height: 60, width: 400 }}>
+                  composer
+                </div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  // Drives the column to an exact offset from WHATEVER its current offset
+  // is (mount state differs by anchor mode — "end" mounts pinned at
+  // maxScroll, "none" mounts at 0), reading data-scroll-offset live rather
+  // than assuming a starting point. deltaY maps 1:1 onto the offset delta
+  // (established by every other wheel-driven test in this file — e.g. the
+  // scrollTo suite's `deltaY: 1000` producing offset "1000" from a mount-at-
+  // 0 start); `Scene duration={0}` in these fixtures makes the write land
+  // the same tick this polls for.
+  async function scrollColumnTo(scene: HTMLElement, column: HTMLElement, targetOffset: number) {
+    const currentOffset = Number(column.getAttribute("data-scroll-offset") ?? "0");
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: targetOffset - currentOffset,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-targetOffset, 5);
+    expect(column.getAttribute("data-scroll-offset")).toBe(String(targetOffset));
+  }
+
+  test("offset EXACTLY 0, stationary leading affordance: a prepend below it still compensates (the red→green pin — Peri's round-4 CR-3 shape)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 40, "end"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 0);
+
+    const row0Before = getByTestId("row-0").element() as HTMLElement;
+    const row0RectBefore = row0Before.getBoundingClientRect();
+
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 40, "end"));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("1400");
+    const row0After = getByTestId("row-0").element() as HTMLElement;
+    expect(row0After).toBe(row0Before);
+    expect(row0After.getBoundingClientRect().top).toBeCloseTo(row0RectBefore.top, 0);
+  });
+
+  test("offset 120 (the affordance already scrolled out of view, a real row is the anchor): still compensates — regression guard", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 40, "end"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 120);
+
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 40, "end"));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("1520");
+  });
+
+  test("mode-scoping, anchor=\"end\": a stationary affordance-as-anchor MID-scroll (not just at offset 0) still compensates on insertion below it", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 300, "end"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    // The 300px affordance is still the topmost in-view element at offset
+    // 100 (window [100, 900) still intersects [0, 300)) — the affordance is
+    // the tracked anchor here same as at offset 0, just not scrolled all
+    // the way to the top.
+    await scrollColumnTo(scene, column, 100);
+
+    const prependedIds = Array.from({ length: 5 }, (_, i) => -5 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 300, "end"));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("450"); // 100 + 5*70
+  });
+
+  test("mode-scoping, anchor=\"none\": the IDENTICAL insertion does NOT compensate (native hold-the-top; witness never recorded outside anchor=\"end\")", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 300, "none"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 100);
+
+    const prependedIds = Array.from({ length: 5 }, (_, i) => -5 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 300, "none"));
+
+    // Give it a beat to prove it genuinely stays, not just hasn't updated yet.
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("100");
+  });
+
+  test("anchor's own growth (no insertion) is NOT witness-compensated — in-place growth keeps native hold-the-top", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 40, "end"));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 0);
+
+    // Grow the affordance's OWN height (40 -> 140) — no row prepend, no
+    // other structural change. This is the same class of event the
+    // anchor-height guard exists for (e.g. an image loading inside a
+    // tracked anchor).
+    await rerender(buildAffordancePipeline(existingIds, 140, "end"));
+
+    await waitForAnimationFrame();
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // F9 commit 2: anchor="end" follow-the-end pin state machine
 // ---------------------------------------------------------------------------
 

@@ -270,6 +270,22 @@ Feature: Scene Scroll
     plain feed's offset-0 reader is; the anchor mode already declares
     content direction (end = the live edge new content arrives at; offset
     0 there is just far history, never the true top of a fixed document)
+    Note: a STATIONARY element positioned above the real insertion point
+    (e.g. a "load earlier" affordance, a date header) can itself become the
+    tracked anchor — it never moves on a prepend below it, so the anchor's
+    own delta stays zero and the compensation above would otherwise never
+    fire. On `anchor="end"` columns, a WITNESS — the deepest in-view element
+    just below the tracked anchor's bottom edge — is also tracked (F12): if
+    the witness moves while the anchor's own position AND height stay
+    unchanged, something was inserted between them, and the column
+    compensates by the witness's delta instead. The anchor's OWN height
+    growing in place (e.g. an image loading inside it) is NOT
+    witness-compensated — that keeps native hold-the-top semantics for
+    in-place growth, same as ungrown content elsewhere. `anchor="none"`
+    never tracks a witness at all — the anchor mode already declares
+    content direction, and a "none" column's plain native-anchoring mirror
+    has no notion of "content arriving ahead" that a reader's place in
+    history needs protecting from
     Note: composes additively with object-level anchoring when both fire in
     the same update (a preceding sibling object growing AND this object's
     own interior changing at once) — the two corrections stack rather than
