@@ -291,6 +291,12 @@ Feature: Scene Scroll
     maxScroll shrink (viewport resize or content shrinking below the
     current offset)
     Then the resulting scroll change applies instantly, without animation
+    Note: a column's `onScroll` prop, when provided, reports every one of
+    these scroll changes — user-initiated and content-driven alike — as a
+    `SceneScrollMetrics` snapshot (offset, maxScroll, contentHeight,
+    viewportHeight, and whether the follow-the-end pin is currently
+    engaged). It fires at the same per-tick cadence as the scroll offset
+    itself, not once per React render.
 
   # --- Alignment & Centering ---
 

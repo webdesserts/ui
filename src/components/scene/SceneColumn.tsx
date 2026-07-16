@@ -24,6 +24,7 @@ import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import type { FrozenSize } from "./types";
+import type { SceneScrollMetrics } from "./scrollMetrics";
 import {
   isInteractiveElement,
   mapScrollKeyToCommand,
@@ -265,6 +266,17 @@ export interface SceneColumnProps {
    * back within a small threshold of maxScroll.
    */
   anchor?: "none" | "end";
+  /**
+   * Fires on every scroll offset change (F9 commit 3) — user-initiated
+   * (wheel/keyboard/scrollbar/touch) AND content-driven (F9 commit 1's
+   * anchoring compensation, commit 2's pin-follow) alike, since both flow
+   * through the same underlying scroll value. rAF-batched, matching
+   * data-scroll-offset's own write cadence (a scrollY.on("change", ...)
+   * subscription — NOT a new rAF loop, and never forces a React
+   * re-render on its own). See SceneScrollMetrics' own doc comment for
+   * the cadence-staleness contract on maxScroll/contentHeight.
+   */
+  onScroll?: (metrics: SceneScrollMetrics) => void;
 }
 
 /**
@@ -296,6 +308,7 @@ export function SceneColumn({
   objectGap = 0,
   className,
   anchor = "none",
+  onScroll,
 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
@@ -428,6 +441,18 @@ export function SceneColumn({
     if (anchor !== "end") return;
     pinnedRef.current = isAtScrollEnd(offset, maxScrollValue);
   };
+
+  // F9 commit 3: populated by the onScroll subscription effect below with a
+  // function that re-emits the current SceneScrollMetrics on demand. Every
+  // updatePinnedState call site orders itself BEFORE the scrollY write that
+  // triggers onScroll's own change-event subscriber, so that subscriber's
+  // next firing already carries the correct anchored field — except the
+  // inertia settle callback (applyScrollCommand's fling branch), where the
+  // final scrollY value is already set by the animation driver by the time
+  // onComplete runs and decides the re-pin. That one site calls this ref
+  // directly to force a resync after updatePinnedState, since no further
+  // scrollY change event will fire on its own to carry the correction.
+  const resyncScrollMetricsRef = useRef<(() => void) | null>(null);
 
   driveScrollYRef.current = (target: number) => {
     if (duration === 0) {
@@ -594,6 +619,13 @@ export function SceneColumn({
   const maxScrollRef = useRef(maxScroll);
   maxScrollRef.current = maxScroll;
 
+  // F9 commit 3: ref mirror of contentHeight state, for onScroll's
+  // SceneScrollMetrics — the scrollY.on("change", ...) subscription below
+  // needs the CURRENT value at callback time, not whatever was captured
+  // when the effect last (re-)subscribed.
+  const contentHeightRef = useRef(contentHeight);
+  contentHeightRef.current = contentHeight;
+
   // Clamp scrollOffset to [0, maxScroll] whenever maxScroll changes (e.g. on
   // content resize or viewport resize). F9 adjudication 3: reclassified
   // from spring to jump — a maxScroll shrink is content/viewport-driven,
@@ -683,8 +715,14 @@ export function SceneColumn({
           // shouldn't normally be out of bounds here, but the same bound-on-
           // release invariant as the real-mode path below applies if it ever is.
           const clamped = Math.max(0, Math.min(maxScrollRef.current, scrollY.get()));
-          scrollY.set(clamped);
+          // F9 commit 3: updatePinnedState BEFORE the write — onScroll's
+          // subscriber fires synchronously off scrollY.set below, so
+          // pinnedRef must already reflect this release/re-pin decision or
+          // that one onScroll call would report the pre-transition anchored
+          // value (probe-confirmed: reversing this order left the LAST
+          // onScroll call of a release still reporting "end").
           updatePinnedState(clamped, maxScrollRef.current);
+          scrollY.set(clamped);
           return;
         }
 
@@ -754,9 +792,16 @@ export function SceneColumn({
           bounceDamping: damping,
           // F9 commit 2: re-pin (or stay released) once the coast genuinely
           // settles — the only point at which the final resting offset is
-          // knowable for a physics-based multi-frame deceleration.
+          // knowable for a physics-based multi-frame deceleration. F9
+          // commit 3: the animation driver has already set scrollY to its
+          // final value (and fired onScroll's own change-event subscriber
+          // for it) by the time onComplete runs, so updatePinnedState's
+          // decision here arrives too late for that subscriber to have
+          // reported it — force an explicit resync so the pin transition
+          // is still observable via onScroll.
           onComplete: () => {
             updatePinnedState(scrollY.get(), maxScrollRef.current);
+            resyncScrollMetricsRef.current?.();
           },
         });
         motionSeam?.registerControls(`scrollY:${name}`, controls);
@@ -786,13 +831,17 @@ export function SceneColumn({
       }
       scrollOffsetRef.current = nextOffset;
       setScrollOffset(nextOffset);
-      driveScrollYRef.current(nextOffset);
       // F9 commit 2: release/re-pin against the target this command is
       // driving toward, evaluated at the SAME site as the write (not
       // waiting for the spring to visually finish) — the user's intent
       // (and thus the pin transition) is clear the moment the command is
-      // issued.
+      // issued. F9 commit 3: ordered BEFORE driveScrollYRef below —
+      // instant mode (duration===0) writes scrollY synchronously, firing
+      // onScroll's change-event subscriber immediately, so pinnedRef must
+      // already carry this decision or that call would report the
+      // pre-transition anchored value.
       updatePinnedState(nextOffset, maxScrollRef.current);
+      driveScrollYRef.current(nextOffset);
     },
     [duration, transition, motionSeam, name, stiffness, damping, scrollY, anchor],
   );
@@ -1380,8 +1429,10 @@ export function SceneColumn({
 
     scrollOffsetRef.current = nextOffset;
     setScrollOffset(nextOffset);
-    driveScrollYRef.current(nextOffset);
+    // F9 commit 3: ordered BEFORE driveScrollYRef below — see the
+    // scrollBy/page/toTop/toBottom branch's identical comment above.
     updatePinnedState(nextOffset, freshMaxScroll);
+    driveScrollYRef.current(nextOffset);
     // Keep the store's offset/key in sync so a LATER swap within the same
     // focused session compares against the truly-latest arrangement, not a
     // stale entry from before this column was even refocused (contentHeightAtSave
@@ -1418,6 +1469,50 @@ export function SceneColumn({
     sync(scrollY.get());
     return scrollY.on("change", sync);
   }, [columnFocused, scrollY]);
+
+  // F9 commit 3: onScroll fires SceneScrollMetrics on every scrollY change
+  // — reuses the SAME subscription cadence as data-scroll-offset above
+  // (scrollY.on("change", ...), not a new rAF loop — per-tick, without
+  // forcing a React re-render). Fires uniformly for BOTH user-initiated
+  // writes (wheel/keyboard/scrollbar/touch) AND content-driven ones (F9
+  // commit 1's anchoring compensation, commit 2's pin-follow) — a natural
+  // consequence of subscribing to the single underlying scrollY value all
+  // of them flow through, and useful to the stated v1 consumer (a chat/
+  // log column wants to know the CURRENT offset for windowing thresholds
+  // regardless of why it changed).
+  //
+  // Cadence-staleness contract (forecast Finding 5): maxScroll/
+  // contentHeight are read from their own ref mirrors at CALLBACK time,
+  // not recomputed fresh. If ONLY those change with no accompanying
+  // scrollY movement (e.g. content grows BELOW the current window — F9
+  // commit 1's own documented no-op case), onScroll does not fire, and a
+  // consumer's last-received metrics can go stale on those two fields
+  // until the next scroll event. Accepted, not an oversight: the stated
+  // v1 consumer's windowing thresholds re-check on the next scroll
+  // anyway, so engineering an extra change-source to keep those two
+  // fields always-fresh isn't warranted.
+  useEffect(() => {
+    if (!onScroll) {
+      resyncScrollMetricsRef.current = null;
+      return;
+    }
+    const syncMetrics = (latest: number) => {
+      onScroll({
+        offset: latest,
+        maxScroll: maxScrollRef.current,
+        contentHeight: contentHeightRef.current,
+        viewportHeight: viewportHeightRef.current,
+        anchored: pinnedRef.current ? "end" : "none",
+      });
+    };
+    // See resyncScrollMetricsRef's own declaration comment — the inertia
+    // settle callback needs to force a resync after its own
+    // updatePinnedState call, since no further scrollY change event will
+    // fire on its own to carry the correction.
+    resyncScrollMetricsRef.current = () => syncMetrics(scrollY.get());
+    syncMetrics(scrollY.get());
+    return scrollY.on("change", syncMetrics);
+  }, [onScroll, scrollY]);
 
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0
@@ -1851,6 +1946,12 @@ export function SceneColumn({
         Math.min(maxScrollRef.current, dragStartOffset.current - deltaY),
       );
       scrollOffsetRef.current = newOffset;
+      // F9 commit 2: the one entry point that bypasses applyScrollCommand
+      // entirely (§2c) — release/re-pin evaluated live, every tick, same
+      // as every other user-initiated write site. F9 commit 3: ordered
+      // BEFORE scrollY.set below — see the scrollBy/page/toTop/toBottom
+      // branch's identical comment above.
+      updatePinnedState(newOffset, maxScrollRef.current);
       scrollY.set(newOffset);
       // React state (setScrollOffset) is skipped per-tick in real mode — the
       // content wrapper's visual position there is driven entirely by the
@@ -1862,10 +1963,6 @@ export function SceneColumn({
       if (duration === 0) {
         setScrollOffset(newOffset);
       }
-      // F9 commit 2: the one entry point that bypasses applyScrollCommand
-      // entirely (§2c) — release/re-pin evaluated live, every tick, same
-      // as every other user-initiated write site.
-      updatePinnedState(newOffset, maxScrollRef.current);
     },
     [duration, scrollY, anchor],
   );

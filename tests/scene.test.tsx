@@ -2,6 +2,7 @@ import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
 import { StrictMode, useLayoutEffect, useState } from "react";
 import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
+import type { SceneScrollMetrics } from "../src/components/scene/scrollMetrics";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { MotionSeamContext } from "../src/components/scene/motionSeam";
 import { ColumnPositionContext, type ColumnPosition } from "../src/components/scene/ColumnPositionContext";
@@ -4706,6 +4707,207 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
     // must NOT force the offset (it would, if pinnedRef were wrongly true).
     await rerender(build(1300)); // new maxScroll = 500, would force -500 if pinned
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F9 commit 3: onScroll + SceneScrollMetrics
+// ---------------------------------------------------------------------------
+
+describe("Scene onScroll metrics (F9 commit 3)", () => {
+  test("fires with correct metrics on a user wheel scroll", async () => {
+    const calls: SceneScrollMetrics[] = [];
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => calls.at(-1)?.offset).toBe(300);
+
+    const latest = calls.at(-1)!;
+    expect(latest.offset).toBe(300);
+    expect(latest.maxScroll).toBe(400); // 1200-800
+    expect(latest.contentHeight).toBe(1200);
+    expect(latest.viewportHeight).toBe(800);
+    expect(latest.anchored).toBe("none"); // anchor="none" (default)
+  });
+
+  test("fires for content-driven anchoring-compensation changes too (F9 commit 1) — a natural consequence of subscribing to the single underlying scroll value", async () => {
+    const calls: SceneScrollMetrics[] = [];
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
+            <SceneObject name="top" focused>
+              <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+            </SceneObject>
+            <SceneObject name="bottom" focused>
+              <div data-testid="bottom-content" style={{ width: 400, height: 1000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => calls.at(-1)?.offset).toBe(400);
+
+    calls.length = 0;
+    await rerender(build(500)); // +200 above the anchor -> compensation fires
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.at(-1)!.offset).toBe(600);
+  });
+
+  test("fires for pin-follow changes too (F9 commit 2), with anchored transitioning correctly across pin/release", async () => {
+    const calls: SceneScrollMetrics[] = [];
+    const build = (contentHeight: number) => (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" anchor="end" onScroll={(m) => calls.push(m)}>
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: contentHeight }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(1200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    await expect.poll(() => calls.at(-1)?.offset).toBe(400); // pinned at mount
+    expect(calls.at(-1)!.anchored).toBe("end");
+
+    calls.length = 0;
+    await rerender(build(1600)); // grow while pinned -> pin-follow fires
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.at(-1)!.offset).toBe(800);
+    expect(calls.at(-1)!.anchored).toBe("end");
+
+    // Release the pin.
+    calls.length = 0;
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBe(-500);
+
+    expect(calls.at(-1)!.anchored).toBe("none");
+  });
+
+  test("anchored reads \"none\" for an anchor=\"none\" column even while scrolled to maxScroll (never confused with the pin)", async () => {
+    const calls: SceneScrollMetrics[] = [];
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    // Scroll all the way to maxScroll (400) — numerically identical to a
+    // pinned anchor="end" column's resting offset, but this column was
+    // never configured with anchor="end".
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 400,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await expect.poll(() => calls.at(-1)?.offset).toBe(400);
+
+    expect(calls.at(-1)!.anchored).toBe("none");
+  });
+
+  test("fires multiple times during a single real-mode spring transition — per-tick cadence, not gated to one React commit", async () => {
+    const calls: SceneScrollMetrics[] = [];
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene>
+          <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 1200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const columnRect = column.getBoundingClientRect();
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 300,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await wait(1000); // let the real spring fully settle
+
+    // A real spring interpolates over many frames — if onScroll only fired
+    // once per REACT COMMIT (rather than per raw scrollY tick, matching
+    // data-scroll-offset's own cadence), this would be a small, fixed
+    // number regardless of the transition's real duration.
+    expect(calls.length).toBeGreaterThan(5);
+    expect(calls.at(-1)!.offset).toBeCloseTo(300, 0);
   });
 });
 

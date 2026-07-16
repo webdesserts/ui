@@ -2,6 +2,7 @@ export { Scene } from "./Scene";
 export type { SceneProps } from "./Scene";
 export { SceneColumn } from "./SceneColumn";
 export type { SceneColumnProps } from "./SceneColumn";
+export type { SceneScrollMetrics } from "./scrollMetrics";
 export { SceneObject } from "./SceneObject";
 export type { SceneObjectProps } from "./SceneObject";
 export { useCamera } from "./useCamera";
