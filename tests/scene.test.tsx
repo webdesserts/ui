@@ -5104,13 +5104,18 @@ describe("Scene witness-element anchoring (F12)", () => {
   // the tracked F10/F10b anchor; a prepend BELOW it (loadOlder's real DOM
   // shape) never moves the affordance's own offsetTop, so the pre-F12
   // intraDelta path stayed 0 and never compensated.
-  function buildAffordancePipeline(rowIds: number[], affordanceHeight: number, anchor: "none" | "end") {
+  function buildAffordancePipeline(
+    rowIds: number[],
+    affordanceHeight: number,
+    anchor: "none" | "end",
+    gap = 0,
+  ) {
     return (
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="chat" anchor={anchor}>
             <SceneObject name="chat" focused>
-              <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap }}>
                 <div data-testid="load-older" style={{ width: 400, height: affordanceHeight }}>
                   load earlier messages
                 </div>
@@ -5236,6 +5241,44 @@ describe("Scene witness-element anchoring (F12)", () => {
 
     await waitForAnimationFrame();
     expect(column.getAttribute("data-scroll-offset")).toBe("0");
+  });
+
+  test("offset EXACTLY 0, stationary leading affordance, flex `gap` between it and the rows (Peri's real spacing — round-5 CR-3 shape): a prepend below it still compensates", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 40, "end", 12));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 0);
+
+    const row0Before = getByTestId("row-0").element() as HTMLElement;
+    const row0RectBefore = row0Before.getBoundingClientRect();
+
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 40, "end", 12));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("1400");
+    const row0After = getByTestId("row-0").element() as HTMLElement;
+    expect(row0After).toBe(row0Before);
+    expect(row0After.getBoundingClientRect().top).toBeCloseTo(row0RectBefore.top, 0);
+  });
+
+  test("a LARGE gap (200px, first row still in view): still compensates — the window reaches past arbitrary gap sizes, not just a typical 12px", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildAffordancePipeline(existingIds, 40, "end", 200));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    await scrollColumnTo(scene, column, 0);
+
+    const row0Before = getByTestId("row-0").element() as HTMLElement;
+    const row0RectBefore = row0Before.getBoundingClientRect();
+
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildAffordancePipeline([...prependedIds, ...existingIds], 40, "end", 200));
+
+    expect(column.getAttribute("data-scroll-offset")).toBe("1400");
+    const row0After = getByTestId("row-0").element() as HTMLElement;
+    expect(row0After).toBe(row0Before);
+    expect(row0After.getBoundingClientRect().top).toBeCloseTo(row0RectBefore.top, 0);
   });
 });
 

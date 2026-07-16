@@ -1359,22 +1359,35 @@ export function SceneColumn({
       if (match !== null) {
         // F12: witness bookkeeping, scoped to anchor="end" (see the
         // compensation branch above for the fallback rationale). The
-        // witness is the deepest in-view element intersecting the line
-        // just below the anchor's own bottom edge — reusing the SAME
-        // recursive descent as the anchor selection above, just with a
-        // single-point "window" (a 0-height viewport at the line) instead
-        // of the real viewport window, so the same DOM-order/sticky-
-        // exclusion/deepest-match rules apply identically. No witness when
-        // that line falls at or past the bottom of the current viewport
-        // window — the anchor fills the rest of the visible area, so
-        // nothing below it is currently displaceable-and-visible, correctly
-        // a no-op. The line is always past the viewport's top edge here:
-        // match's own selection already guarantees
+        // witness is the deepest in-view element intersecting a WINDOW
+        // from just below the anchor's own bottom edge to the end of the
+        // current viewport — reusing the SAME recursive descent as the
+        // anchor selection above. F12b: a single-point scan (a 0-height
+        // "viewport" at the line) dies in inter-sibling gaps (flex `gap`,
+        // margins) — the line can land in dead space between the anchor's
+        // wrapper and the next real sibling, so nothing intersects it and
+        // the descent stops one level up with no usable witness. Widening
+        // to a window means the same straddle predicate
+        // (`offsetTop < windowEnd && offsetTop + height > windowStart`)
+        // still excludes the anchor's own wrapper (its bottom edge sits at
+        // or before windowStart, so it fails the straddle) while landing on
+        // the first real element below it regardless of gap size —
+        // containers spanning the window still descend to their first
+        // qualifying child, same as before. No witness when that line falls
+        // at or past the bottom of the current viewport window — the anchor
+        // fills the rest of the visible area, so nothing below it is
+        // currently displaceable-and-visible, correctly a no-op. The line
+        // is always past the viewport's top edge here: match's own
+        // selection already guarantees
         // match.offsetTop + match.height > scrollOffsetRef.current.
+        // Accepted bound (documented): a SECOND stationary element stacked
+        // between the anchor and the insert point re-creates the
+        // blindness — same class, revisit on evidence.
         const witnessLine = match.offsetTop + match.height + 1;
+        const viewportEnd = scrollOffsetRef.current + viewportHeightRef.current;
         const witnessMatch =
-          anchor === "end" && witnessLine < scrollOffsetRef.current + viewportHeightRef.current
-            ? findDeepestIntraObjectAnchor(anchorEl, wrapperRect, witnessLine, 0)
+          anchor === "end" && witnessLine < viewportEnd
+            ? findDeepestIntraObjectAnchor(anchorEl, wrapperRect, witnessLine, viewportEnd - witnessLine)
             : null;
         lastSettledIntraAnchorRef.current = {
           objName: anchorName!,

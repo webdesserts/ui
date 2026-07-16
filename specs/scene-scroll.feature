@@ -286,6 +286,11 @@ Feature: Scene Scroll
     content direction, and a "none" column's plain native-anchoring mirror
     has no notion of "content arriving ahead" that a reader's place in
     history needs protecting from
+    Note: the witness scan is a WINDOW to the end of the viewport, not a
+    single point at the anchor's bottom edge (F12b) — a point can land in
+    dead space between the anchor and the next real sibling (a flex `gap`,
+    margins) and find nothing to track, so the scan widens to reach past
+    any inter-sibling spacing
     Note: composes additively with object-level anchoring when both fire in
     the same update (a preceding sibling object growing AND this object's
     own interior changing at once) — the two corrections stack rather than
