@@ -266,6 +266,24 @@ Feature: Scene
     Then the fixed object should be 400px
     And the flexible object should fill the remaining 600px
 
+  # --- Interior Contract ---
+
+  # Once you're in the bounds of your SceneObject, everything "just
+  # works" — you use normal CSS, you use normal JS. Some extra config
+  # and rules make sense for the SceneObject itself, since it's not
+  # operating in a normal layout anymore — but everything INSIDE it
+  # should behave as a consumer would expect outside a Scene too.
+  # Scrollviews inside a SceneObject should still scroll no matter what.
+  #
+  # The concrete per-modality guarantees (wheel, touch, keyboard) live in
+  # specs/scene-scroll.feature's "Scroll Interaction", "Consumer Scroll
+  # Override", "Touch", and "Scroll Position" sections. There is one
+  # accepted, documented limitation to this contract: a column that is
+  # BOTH Scene-scrollable AND contains an interior native-scroll
+  # container shares its scroll-ownership restriction between the two,
+  # across all three input modalities — don't mix Scene-scrollable
+  # content and a native-scroll container in the same column.
+
   # --- Gaps ---
 
   # Gaps are configurable at two levels: between columns (scene-level)

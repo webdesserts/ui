@@ -80,6 +80,25 @@ Feature: Scene Scroll
     columns are simultaneously scrollable; with only one, there's no
     ambiguity to resolve and no dead margins in the viewport
 
+  Scenario: An interior scroll container consumes wheel input before the column claims it
+    Given a focused SceneObject with its own overflow-y: auto scroll container
+    When the user scrolls vertically with the cursor over that container
+    Then the container should scroll itself natively
+    And the Scene should not claim the wheel input for column routing
+    Because a real, currently-scrollable interior container gets first
+    refusal on the delta — only once it declines does the column-routing
+    above apply, exactly as if nothing about the container's outer column
+    were involved
+
+  Scenario: Wheel input chains outward once the interior container reaches its scroll edge
+    Given a focused SceneObject's interior scroll container, scrolled to its bottom edge
+    When the user continues scrolling vertically in the same direction
+    Then further wheel input should chain to the column's own scroll, like
+    ordinary nested scroll containers outside a Scene
+    But if the interior container declares overscroll-behavior: contain (or
+    none), wheel input at its edge should dead-stop there instead — the
+    consumer's own CSS says not to chain past this edge
+
   Scenario: Diagonal trackpad gesture scrolls both axes simultaneously
     Given a scene that overflows horizontally
     And a focused column that overflows vertically
@@ -197,6 +216,16 @@ Feature: Scene Scroll
     When the user presses Page Down
     Then the right column should scroll down
     And the left column should not move
+
+  Scenario: An interior scroll container keeps its own arrow keys when it fills the column
+    Given a focused SceneObject with its own overflow-y: auto scroll
+    container that fills the whole column (the column itself has nothing
+    left to scroll)
+    And keyboard focus is inside that container
+    When the user presses an arrow key
+    Then the container should keep the key for its own native scrolling
+    Because the column's own keyboard handler only intercepts scroll keys
+    when the column itself has something to scroll
 
   Scenario: Focus change during active scroll
     Given the user is actively scrolling
