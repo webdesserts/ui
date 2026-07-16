@@ -260,10 +260,16 @@ Feature: Scene Scroll
     Because object-level anchoring alone is blind to growth WITHIN an
     object — its own offsetTop never moves from its own growth — so this
     tracks the visible item itself, one grain finer
-    Note: suppressed when the column is scrolled all the way to the top
-    (offset 0) — mirrors native scroll anchoring, which never corrects at
-    scrollTop 0 so newly-arrived content at the top stays discoverable
-    rather than being invisibly scrolled past
+    Note: at offset 0, whether this suppresses is MODE-SCOPED to the
+    column's `anchor` prop (F11) — `anchor="none"` suppresses (mirrors
+    native scroll anchoring, which never corrects at scrollTop 0 so
+    newly-arrived content at the top stays discoverable rather than being
+    invisibly scrolled past); `anchor="end"` compensates at ANY offset
+    including 0 — a reader scrolled to 0 on a follow-the-end column is
+    holding their place in HISTORY, not "at a discoverable top" the way a
+    plain feed's offset-0 reader is; the anchor mode already declares
+    content direction (end = the live edge new content arrives at; offset
+    0 there is just far history, never the true top of a fixed document)
     Note: composes additively with object-level anchoring when both fire in
     the same update (a preceding sibling object growing AND this object's
     own interior changing at once) — the two corrections stack rather than

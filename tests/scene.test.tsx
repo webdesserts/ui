@@ -4462,11 +4462,11 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
 describe("Scene intra-object content-growth anchoring (F10)", () => {
   const ROW_HEIGHT = 70;
 
-  function buildRows(ids: number[]) {
+  function buildRows(ids: number[], anchor: "none" | "end" = "none") {
     return (
       <TestWrapper fullPage>
         <Scene duration={0}>
-          <SceneColumn name="col">
+          <SceneColumn name="col" anchor={anchor}>
             <SceneObject name="rows" focused>
               {ids.map((id) => (
                 <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
@@ -4547,9 +4547,14 @@ describe("Scene intra-object content-growth anchoring (F10)", () => {
     expect(column.getAttribute("data-scroll-offset")).toBe("1000");
   });
 
-  test("offset-exactly-0 suppression: a prepend while scrolled to the very top does NOT compensate — new content stays discoverable at the top (native-anchoring-mirroring policy)", async () => {
+  test("offset-exactly-0 suppression: a prepend while scrolled to the very top does NOT compensate — new content stays discoverable at the top (native-anchoring-mirroring policy, anchor=\"none\" only — F11 mode-scopes this)", async () => {
     const existingIds = Array.from({ length: 50 }, (_, i) => i);
-    const { rerender, getByTestId } = await render(buildRows(existingIds));
+    // anchor="none" pinned EXPLICITLY (F11): the suppression is now
+    // mode-scoped — this test's own default-anchor reliance would no
+    // longer make it obvious WHICH branch is under test now that
+    // anchor="end" behaves oppositely at offset 0 (see the F11 describe
+    // block below).
+    const { rerender, getByTestId } = await render(buildRows(existingIds, "none"));
     const scene = getByTestId("scene").element() as HTMLElement;
     const column = scene.querySelector("[data-column]") as HTMLElement;
 
@@ -4557,7 +4562,7 @@ describe("Scene intra-object content-growth anchoring (F10)", () => {
     expect(column.getAttribute("data-scroll-offset")).toBe("0");
 
     const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
-    await rerender(buildRows([...prependedIds, ...existingIds]));
+    await rerender(buildRows([...prependedIds, ...existingIds], "none"));
 
     // Suppressed: the offset stays at 0 rather than jumping to 1400 to
     // "preserve" the old row 0's position — the newly-prepended content is
@@ -4761,6 +4766,92 @@ describe("Scene recursive intra-object anchor descent (F10b)", () => {
     const row14After = getByTestId("row-14").element() as HTMLElement;
     expect(row14After).toBe(row14Before);
     expect(row14After.getBoundingClientRect().top).toBeCloseTo(row14RectBefore.top, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F11 commit 1: offset-0 suppression policy, mode-scoped
+// ---------------------------------------------------------------------------
+
+describe("Scene offset-0 policy mode-scoping (F11 commit 1)", () => {
+  const ROW_HEIGHT = 70;
+
+  // Mirrors Peri's real CR-3 pipeline shape (the parked LiveChatHarness
+  // repro, extracted from their commit 06588863): an anchor="end" column
+  // with a flex-column stack (rows + a sticky composer) — same structural
+  // shape as F10b's own chat pipeline test, just anchor="end" here instead
+  // of "none". F10's original suppression fired unconditionally at offset
+  // 0, producing Peri's exact zero-compensation signature once their
+  // reader scrolled all the way back to the oldest loaded message.
+  function buildChatPipeline(rowIds: number[]) {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="chat" anchor="end">
+            <SceneObject name="chat" focused>
+              <div data-testid="flex-stack" style={{ display: "flex", flexDirection: "column" }}>
+                <div data-testid="rows-container">
+                  {rowIds.map((id) => (
+                    <div key={id} data-testid={`row-${id}`} style={{ width: 400, height: ROW_HEIGHT }}>
+                      row {id}
+                    </div>
+                  ))}
+                </div>
+                <div data-testid="composer" style={{ position: "sticky", bottom: 0, height: 60, width: 400 }}>
+                  composer
+                </div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  test("a prepend while scrolled to offset 0 on an anchor=\"end\" column DOES compensate — the reader is holding their place in history, not at a discoverable top (Peri's real CR-3 pipeline shape)", async () => {
+    const existingIds = Array.from({ length: 50 }, (_, i) => i);
+    const { rerender, getByTestId } = await render(buildChatPipeline(existingIds));
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+
+    // Mounts pinned at maxScroll. Release the pin and scroll all the way to
+    // offset 0 (a huge negative deltaY, clamped) — the exact CR-3 scenario:
+    // the reader has read back to the oldest currently-loaded message,
+    // which is genuinely ON SCREEN at the top.
+    const columnRect = column.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -100000,
+        clientX: columnRect.left + columnRect.width / 2,
+        clientY: columnRect.top + columnRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // Poll contentWrapper's OWN rendered top (not just data-scroll-offset)
+    // before capturing a "before" rect below — same rationale as every
+    // other F10/F10b test in this file (a raw wheel event's React-state
+    // write needs an actual commit to catch up).
+    await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(0, 5);
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+
+    const row0Before = getByTestId("row-0").element() as HTMLElement;
+    const row0RectBefore = row0Before.getBoundingClientRect();
+
+    // Prepend 20 NEW keyed rows before the existing 50 (loadOlder's shape).
+    const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
+    await rerender(buildChatPipeline([...prependedIds, ...existingIds]));
+
+    // Compensates by exactly the prepended height (20 * 70) — UNLIKE
+    // anchor="none"'s offset-0 suppression (the sibling test above), since
+    // this reader is holding their place in history, not discoverable-top-
+    // of-a-live-feed.
+    expect(column.getAttribute("data-scroll-offset")).toBe("1400");
+
+    const row0After = getByTestId("row-0").element() as HTMLElement;
+    expect(row0After).toBe(row0Before);
+    expect(row0After.getBoundingClientRect().top).toBeCloseTo(row0RectBefore.top, 0);
   });
 });
 

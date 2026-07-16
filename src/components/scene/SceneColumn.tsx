@@ -1151,15 +1151,23 @@ export function SceneColumn({
         const afterIntraGlobalOffsetTop = intraBefore.el.getBoundingClientRect().top - wrapperRect.top;
         const afterIntraLocalOffsetTop = afterIntraGlobalOffsetTop - afterOffsetTop;
         const intraDelta = afterIntraLocalOffsetTop - intraBefore.offsetTop;
-        // Offset-exactly-0 suppression (F10 design amendment's open policy
-        // point, resolved): mirrors native scroll anchoring, which never
-        // corrects at scrollTop 0 — new top content stays discoverable
-        // there rather than being invisibly scrolled past. A chat/log
-        // consumer's own loadOlder threshold fires above 0 in practice, so
-        // this does not interfere with that use case. Evaluated against the
-        // RUNNING offset (post any object-level write above), matching
-        // where this branch's own correction, if applied, would land.
-        if (intraDelta !== 0 && scrollOffsetRef.current > 0) {
+        // Offset-exactly-0 suppression, MODE-SCOPED to anchor="none" (F11
+        // fix — Peri's CR-3, source-confirmed): F10's original suppression
+        // fired for every column, but a real anchor="end" reader who has
+        // scrolled all the way to offset 0 is holding their place in
+        // HISTORY, not "at the top with nothing above yet" the way a plain
+        // anchor="none" feed's offset-0 reader is. The anchor mode already
+        // declares content direction — "end" = the live edge (new content
+        // arrives ahead, at maxScroll; offset 0 is just far history) vs.
+        // "none"'s plain native-anchoring mirror (offset 0 IS the true
+        // top — mirrors native scroll anchoring, which never corrects at
+        // scrollTop 0 so newly-arrived top content stays discoverable
+        // there rather than being invisibly scrolled past). So anchor="end"
+        // compensates at ANY offset, including exactly 0; anchor="none"
+        // keeps the original suppression. Evaluated against the RUNNING
+        // offset (post any object-level write above), matching where this
+        // branch's own correction, if applied, would land.
+        if (intraDelta !== 0 && (anchor === "end" || scrollOffsetRef.current > 0)) {
           const freshContentHeight = computeFocusedContentHeight(
             objectStatesRef.current,
             geometryStore.current,
