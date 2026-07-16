@@ -492,6 +492,19 @@ export interface IntraObjectAnchorMatch {
 }
 
 /**
+ * Tolerance (px) for the store-time re-verification below: two
+ * `getBoundingClientRect()` reads of the SAME element, taken microseconds
+ * apart in the SAME synchronous pass, are trusted as consistent when they
+ * agree within this margin. Mirrors this file's existing fractional-
+ * rounding-class precedents at the same magnitude —
+ * `END_PIN_THRESHOLD_PX` (a real ~1.3px fractional-wheel-tick gap,
+ * probe-measured) and `interiorCanConsume`'s 1px `scrollTop` epsilon
+ * (MDN-documented) — rather than inventing a new number for what's the
+ * same underlying class of measurement noise one level deeper.
+ */
+export const STORE_VERIFY_TOLERANCE_PX = 2;
+
+/**
  * Finds the DEEPEST element intersecting the current scroll window within
  * `objectEl` (F10b's recursive refinement of F10's one-level descent).
  * F10's `findIntraObjectAnchorCandidates` + `selectIntraObjectAnchorIndex`
@@ -509,9 +522,48 @@ export interface IntraObjectAnchorMatch {
  * the anchor line": at each level, selects the topmost non-sticky/fixed
  * candidate whose range intersects the window; if that candidate itself
  * has further candidates of its own, descends into it and repeats.
- * Terminates when the selected candidate has no further candidates (a
- * genuine leaf/terminal item, e.g. an actual row) or when no candidate at
- * a level intersects the window at all.
+ * Terminates in one of TWO distinct ways: (a) a genuine leaf — the
+ * selected candidate has no further element children to descend into
+ * (e.g. an actual row, or a heading with only text content) — `best` is
+ * trusted as-is, no extra work; (b) a "gave up" termination — the
+ * selected candidate DOES have children, but NONE of them currently
+ * intersect the scan window (e.g. the window moved out from under it
+ * between when it WON selection at the level above and when its own
+ * children got scanned). Case (b) is where F14's teleport bug lived:
+ * `best` was trusted at the SHALLOW level's measurement with no check
+ * that measurement was even still accurate, so a spurious/incorrect
+ * intersection result at the level above — the reselection landing on a
+ * candidate whose TRUE position turns out to be nowhere near the window
+ * — got silently stored as fact, and the next settle would "correct"
+ * toward that fiction by however far away the truth actually was
+ * (probe-confirmed: a stub-forced reselection 3 sections away, landing
+ * outside the window so its own children never intersected it, replayed
+ * as an exact section-distance jump on the very next settle; 1-2 sections
+ * away, still within the window, self-corrected because the deeper
+ * descent reached a genuinely-remeasured leaf instead).
+ *
+ * F14 fix: on a "gave up" termination with a non-null `best`, re-read
+ * `best.el`'s rect ONE more time (same `wrapperRect` frame) and compare
+ * against the offsetTop already recorded for it. Agreeing within
+ * `STORE_VERIFY_TOLERANCE_PX` means the shallow measurement was genuinely
+ * accurate — a real case where a wrapper's own interior legitimately has
+ * no in-view children right now (e.g. a padding gap) but the wrapper
+ * itself IS the correct anchor — and `best` is trusted exactly as before.
+ * Disagreeing means the level-above selection was NOT trustworthy —
+ * return `null` instead of the fiction; the caller's carry-forward
+ * machinery already self-heals a `null` result on the very next settle by
+ * design (no special-case recovery needed, per this function's own
+ * carry-forward caller). A genuine-leaf termination never reaches this
+ * check — no extra reads on the common (correct) path.
+ *
+ * Honest limitation: the re-read happens microseconds after the
+ * (potentially lying) read that won selection one level up, in the SAME
+ * synchronous pass — this catches a bad measurement that was already
+ * stale by the time it mattered, but a transient that persists for the
+ * ENTIRE remeasure pass (i.e., both reads see the same wrong value) would
+ * still agree and pass verification. This closes the amplification for
+ * a same-pass measurement discrepancy; it does not by itself prove or
+ * rule out any particular on-device trigger.
  *
  * Operates entirely in the SAME content-wrapper-relative (global) frame
  * `wrapperRect` establishes — a single shared measurement across the whole
@@ -532,19 +584,35 @@ export function findDeepestIntraObjectAnchor(
 ): IntraObjectAnchorMatch | null {
   let current: Element = objectEl;
   let best: IntraObjectAnchorMatch | null = null;
+  let gaveUp = false;
 
   for (;;) {
     const candidateEls = findIntraObjectAnchorCandidates(current).filter((el) => !isStickyOrFixed(el));
+    if (candidateEls.length === 0) break; // genuine leaf — current has no further element children to descend into
+
     const candidateGeometry: AnchorGeometry[] = candidateEls.map((el) => ({
       offsetTop: el.getBoundingClientRect().top - wrapperRect.top,
       height: (el as HTMLElement).offsetHeight,
     }));
     const idx = selectIntraObjectAnchorIndex(candidateGeometry, scrollOffset, viewportHeight);
-    if (idx === null) break; // nothing intersects at this level — stop; `best` already holds the deepest match so far
+    if (idx === null) {
+      // "Gave up": current HAS children, but none intersect the window
+      // right now — best (if any, from one level up) needs verification
+      // below before it can be trusted.
+      gaveUp = true;
+      break;
+    }
 
     const selected = candidateEls[idx]!;
     best = { el: selected, offsetTop: candidateGeometry[idx]!.offsetTop, height: candidateGeometry[idx]!.height };
     current = selected; // descend and try to go deeper
+  }
+
+  if (gaveUp && best !== null) {
+    const reread = best.el.getBoundingClientRect().top - wrapperRect.top;
+    if (Math.abs(reread - best.offsetTop) > STORE_VERIFY_TOLERANCE_PX) {
+      return null;
+    }
   }
 
   return best;
