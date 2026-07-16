@@ -609,64 +609,94 @@ describe("Scene touch — release inertia", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
-  test("touchPower/touchTimeConstant reach the release-time inertia call — a floatier tuning produces a measurably longer coast", async () => {
-    // Motion's type:"inertia" AnimationPlaybackControls.duration is its own
-    // computed settle time for the decay physics — a precise, deterministic
-    // read of what power/timeConstant actually produced (same technique
-    // this suite's slowMo test uses for stiffness/damping — see
-    // scene.test.tsx's "Scene debug — live slowMo toggle" describe block).
-    // Two independent renders with drastically different tuning (rather
-    // than one render re-tuned mid-fling) avoids any dependency on the two
-    // flicks' own-tracked velocities matching exactly — the assertion below
-    // only needs the floaty config's duration to CLEARLY exceed the snappy
-    // one's, robust to ordinary sampling jitter between the two flicks.
-    async function flingDurationWith(touchPower: number, touchTimeConstant: number): Promise<number> {
-      const recorder = createMotionSeamRecorder();
-      const { getByTestId } = await render(
-        <TestWrapper fullPage>
-          <MotionSeamContext.Provider value={recorder}>
-            <Scene touchPower={touchPower} touchTimeConstant={touchTimeConstant}>
-              <SceneColumn name="col">
-                <SceneObject name="panel" focused>
-                  <div data-testid="content" style={{ width: 400, height: 2000 }} />
-                </SceneObject>
-              </SceneColumn>
-            </Scene>
-          </MotionSeamContext.Provider>
-        </TestWrapper>,
-      );
-      await waitForAnimationFrame();
+  // Flicks a fresh render tuned to (touchPower, touchTimeConstant) and
+  // returns two independent observables: Motion's own computed .duration
+  // for the type:"inertia" AnimationPlaybackControls (same technique this
+  // suite's slowMo test uses for stiffness/damping — see scene.test.tsx's
+  // "Scene debug — live slowMo toggle" describe block), and the distance
+  // travelled by a fixed early time (300ms) after release. Each test below
+  // holds ONE knob fixed and varies only the other, so a broken prop→
+  // context threading for EITHER knob shows up as a flat (non-
+  // discriminating) result on its own dedicated test — a single combined-
+  // knob test can't tell which prop actually reached the call if only one
+  // of the two is wired correctly (gate finding: severing touchPower's
+  // threading left the original combined test green, since the duration
+  // delta was carried by timeConstant alone).
+  //
+  // Content is 6000px tall (not the 2000px a single-knob test would need)
+  // — probe-confirmed necessary for the power-isolation test below to stay
+  // clear of maxScroll within its measurement window even at the
+  // TuningPanel's own upper bound (power=1.0).
+  async function flingAndMeasure(
+    touchPower: number,
+    touchTimeConstant: number,
+  ): Promise<{ duration: number; distanceAt300ms: number }> {
+    const recorder = createMotionSeamRecorder();
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene touchPower={touchPower} touchTimeConstant={touchTimeConstant}>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div data-testid="content" style={{ width: 400, height: 6000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
 
-      const scene = getByTestId("scene").element() as HTMLElement;
-      const column = scene.querySelector("[data-column]") as HTMLElement;
-      const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
-      const rect = contentWrapper.getBoundingClientRect();
-      const startX = rect.left + rect.width / 2;
-      const startY = rect.top + 50;
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
 
-      firePointer(contentWrapper, "pointerdown", startX, startY);
-      await waitForAnimationFrame();
-      for (let i = 1; i <= 5; i++) {
-        firePointer(contentWrapper, "pointermove", startX, startY - i * 40);
-        await new Promise((r) => requestAnimationFrame(r));
-      }
-      firePointer(contentWrapper, "pointerup", startX, startY - 5 * 40);
-
-      const controls = recorder.controls.get("scrollY:col");
-      expect(controls).toBeDefined();
-      const duration = controls!.duration;
-      // cleanup() (not unmount()) between mounts within one test — matches
-      // this suite's established pattern (scene.test.tsx) for remounting
-      // without colliding on the shared data-testid="scene" the second
-      // render below would otherwise duplicate.
-      await cleanup();
-      return duration;
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    for (let i = 1; i <= 5; i++) {
+      firePointer(contentWrapper, "pointermove", startX, startY - i * 40);
+      await new Promise((r) => requestAnimationFrame(r));
     }
+    firePointer(contentWrapper, "pointerup", startX, startY - 5 * 40);
+    const releaseOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
 
-    const snappyDuration = await flingDurationWith(0.1, 50);
-    const floatyDuration = await flingDurationWith(0.9, 2000);
+    const controls = recorder.controls.get("scrollY:col");
+    expect(controls).toBeDefined();
+    const duration = controls!.duration;
 
-    expect(floatyDuration).toBeGreaterThan(snappyDuration * 3);
+    await wait(300);
+    const offsetAt300 = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+
+    // cleanup() (not unmount()) between mounts within one test — matches
+    // this suite's established pattern (scene.test.tsx) for remounting
+    // without colliding on the shared data-testid="scene" the next render
+    // would otherwise duplicate.
+    await cleanup();
+    return { duration, distanceAt300ms: offsetAt300 - releaseOffset };
+  }
+
+  test("touchTimeConstant reaches the release-time inertia call — a larger time constant produces a measurably longer coast (duration), touchPower held fixed", async () => {
+    const short = await flingAndMeasure(0.4, 50);
+    const long = await flingAndMeasure(0.4, 2000);
+    expect(long.duration).toBeGreaterThan(short.duration * 3);
+  });
+
+  test("touchPower reaches the release-time inertia call — a higher power produces a measurably longer coast distance, touchTimeConstant held fixed", async () => {
+    // .duration is deliberately NOT used here — probe-confirmed
+    // non-monotonic in power once the coast's amplitude approaches
+    // maxScroll (Motion's own boundary-catch spring takes over the
+    // reported duration at that point, e.g. power=1.5 measured a LOWER
+    // duration than power=0.1 at a 6000px column). Power scales the
+    // coast's total amplitude near-linearly (probe-confirmed: ~11x more
+    // distance at power=1.0 than power=0.1 by 300ms, vs duration's
+    // confounded, non-monotonic reading), so distance-by-a-fixed-early-time
+    // is the clean, monotonic signal for isolating this knob.
+    const low = await flingAndMeasure(0.1, 325);
+    const high = await flingAndMeasure(1.0, 325);
+    expect(high.distanceAt300ms).toBeGreaterThan(low.distanceAt300ms * 3);
   });
 });
 
@@ -744,6 +774,89 @@ describe("Scene touch — fling survives content-growth compensation (F13 commit
     const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
     expect(settled).toBeGreaterThanOrEqual(0);
     expect(settled).toBeLessThanOrEqual(maxScroll + 1);
+  });
+
+  test("after a fling settles NATURALLY, a LATER content-growth compensation applies as a plain jump — no new animate() call fires at rest", async () => {
+    // Covers the OTHER half of flingActiveRef's contract: it must be
+    // cleared not only by every INTERRUPTING write site (the sibling test
+    // above, and every clear site enumerated in flingActiveRef's own
+    // declaration) but also by the coast's own NATURAL completion
+    // (startInertiaFlingRef's onComplete). Without that clear, a fling that
+    // finishes on its own leaves the flag stuck true — so a LATER, entirely
+    // unrelated rest-state compensation (nothing in flight, no user
+    // gesture) would wrongly take applyScrollYDeltaRef's mid-fling
+    // re-fling branch and call startInertiaFlingRef again, animating at
+    // rest. That violates F9 commit 1's own no-animate-during-resting-
+    // compensation contract (see scene.test.tsx's "compensation applies as
+    // a jump — no spring/animate() call is invoked at rest" test for the
+    // non-fling sibling of this exact invariant) and re-exposes the
+    // checkCatchBoundary-at-creation drift this file's own F9 round-2 fix
+    // comment documents (a fresh type:"inertia" call springs even at
+    // velocity~0 if its starting keyframe is transiently out of bounds).
+    const recorder = createMotionSeamRecorder();
+    const build = (topHeight: number) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="top" focused>
+                <div data-testid="top-content" style={{ width: 400, height: topHeight }} />
+              </SceneObject>
+              <SceneObject name="bottom" focused>
+                <div data-testid="bottom-content" style={{ width: 400, height: 2000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+
+    const { rerender, getByTestId } = await render(build(300));
+    await waitForAnimationFrame();
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+
+    // Same flick as the sibling test — well past "top" so "bottom" becomes
+    // the anchor once growth arrives.
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    for (let i = 1; i <= 6; i++) {
+      firePointer(contentWrapper, "pointermove", startX, startY - i * 80);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    firePointer(contentWrapper, "pointerup", startX, startY - 6 * 80);
+
+    const controlsBeforeGrowth = recorder.controls.get("scrollY:col");
+    expect(controlsBeforeGrowth).toBeDefined();
+
+    // Wait for a genuine NATURAL settle — data-driven from Motion's own
+    // computed .duration (seconds) for THIS release's actual velocity,
+    // rather than a blind fixed guess: a fixed wait risks being too short
+    // for a fast flick (undercutting the "natural settle" premise this
+    // test depends on) or wastefully long for a slow one (inflating this
+    // file's total runtime under concurrent-suite load, where a longer
+    // file has more opportunity to collide with the known CPU-contention
+    // flake class documented elsewhere in this suite). .duration already
+    // includes any boundary-catch bounce Motion resolves at creation time
+    // (see this file's own F9 round-2 comment); +500ms margin covers
+    // real-world timer/scheduling slack.
+    await wait(controlsBeforeGrowth!.duration * 1000 + 500);
+
+    // Content grows above the anchor — a REST-state compensation now,
+    // nothing in flight.
+    await rerender(build(500));
+
+    // No NEW animate() call — the compensation applied via a plain jump,
+    // so the recorded controls reference is unchanged. Red under the
+    // gate's exact sever (removing startInertiaFlingRef's onComplete
+    // flingActiveRef clear): with the flag stuck true, this rest
+    // compensation wrongly re-flings, registering a NEW
+    // AnimationPlaybackControls and changing this reference.
+    expect(recorder.controls.get("scrollY:col")).toBe(controlsBeforeGrowth);
   });
 });
 
