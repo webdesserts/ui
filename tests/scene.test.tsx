@@ -4343,6 +4343,60 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     // its own ArrowDown for whatever internal purpose it has.
     expect(notPrevented).toBe(true);
   });
+
+  test("F8c: an interior overflow-y:auto scroll island that fills its column is implicitly keyboard-focusable, but the column's own handler already declines — no fix needed for this shape", async () => {
+    // F8c commit 1 finding (probe-confirmed at pickup): Chromium makes an
+    // unattributed overflow-y:auto element with real overflow implicitly
+    // keyboard-focusable (.focus() succeeds, getAttribute("tabindex") stays
+    // null) — isInteractiveElement would NOT exempt it via the tabindex
+    // path if the column's handler ever reached that check. But it never
+    // does here: the column's own keydown handler bails BEFORE consulting
+    // isInteractiveElement whenever the column itself has nothing to
+    // scroll (`if (maxScrollRef.current <= 0) return;`, SceneColumn.tsx) —
+    // exactly this shape, where the island absorbs all the column's
+    // overflow (maxScroll=0 for the column). This pins that finding as a
+    // regression guard; no production change was needed for this case.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+
+    island.focus();
+    // Confirms the implicit-focusability premise itself, not just the
+    // downstream consequence — without this, a future browser change that
+    // stopped making scroll regions implicitly focusable could silently
+    // turn this into a vacuous test.
+    expect(document.activeElement).toBe(island);
+    expect(island.getAttribute("tabindex")).toBeNull();
+
+    const notPrevented = island.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    // The column has nothing of its own to scroll — its handler declines
+    // before ever reaching isInteractiveElement, so the key is never
+    // hijacked; the island keeps it for whatever native/internal purpose.
+    expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
+    expect(notPrevented).toBe(true);
+  });
 });
 
 describe("Scene scroll position management", () => {
