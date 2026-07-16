@@ -1634,6 +1634,22 @@ export function SceneColumn({ name, children, objectGap = 0, className }: SceneC
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
+            // F8b interior contract: touch-action lives HERE now, not on
+            // the viewport (Scene.tsx) — scoped to exactly the same
+            // condition the pointer handlers below already gate on
+            // (columnFocused && isScrollable), so it restricts only a
+            // column that Scene itself needs to own vertical touch drag
+            // for. "pan-x pinch-zoom" (not bare "pan-x" — touch-action
+            // keywords are exclusive of anything not listed, so a bare
+            // "pan-x" would silently disable pinch-zoom too) excludes only
+            // vertical pan, handing it to handleContentPointerDown's own
+            // 1:1 drag below. When NOT Scene-scrollable (e.g. a focused
+            // SceneObject containing its own overflow-y:auto scroll
+            // island that fills the column), "auto" imposes nothing —
+            // combined with the viewport's own now-unrestricted
+            // touch-action, the island's interior vertical touch-pan is
+            // no longer blocked by any Scene-owned ancestor.
+            touchAction: columnFocused && isScrollable ? "pan-x pinch-zoom" : "auto",
           }}
         >
           {children}

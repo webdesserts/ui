@@ -285,9 +285,19 @@ Feature: Scene Scroll
     Given a scene that overflows horizontally
     When the user performs a horizontal touch gesture on the Camera viewport
     Then the camera should pan horizontally via native overflow scrolling
-    Because the Camera viewport uses touch-action: pan-x pinch-zoom to
-    preserve this while still allowing vertical column drag to be handled
-    by the column
+    Because the Camera viewport itself imposes no touch-action restriction
+    (touch-action: auto) — vertical pan is excluded only on a Scene-
+    scrollable focused column's own content wrapper (touch-action: pan-x
+    pinch-zoom, F8 interior contract), so vertical column drag stays owned
+    by that column without restricting any other content in the scene,
+    including a consumer's own interior scroll containers
+    Note: a column that contains BOTH Scene-scrollable content AND an
+    interior native-scroll island (e.g. a SceneObject with its own
+    overflow-y: auto) shares this restriction between them — the column's
+    touch-action: pan-x pinch-zoom (needed for the column's own drag) also
+    blocks vertical touch-pan on the island nested inside it. Known
+    limitation, accepted (F8 interior contract plan): don't mix
+    Scene-scrollable content and a native-scroll island in the same column.
 
   Scenario: The scrollbar thumb is touch-operable
     Given a vertical scrollbar is visible

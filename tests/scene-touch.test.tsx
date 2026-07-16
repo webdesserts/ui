@@ -505,7 +505,14 @@ describe("Scene touch — focus change during active scroll", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene touch — touch-action CSS and thumb hit target", () => {
-  test("the Camera viewport allows horizontal pan + pinch-zoom but not vertical pan", async () => {
+  // F8b interior contract: the viewport's touch-action changed ON PURPOSE
+  // (was "pan-x pinch-zoom" — a blanket ancestor-intersection restriction no
+  // interior descendant could ever loosen, the root cause of the F8b bug).
+  // It's now unrestricted ("auto") — the vertical-pan exclusion that used to
+  // live here moved DOWN to each column's own content wrapper, scoped to
+  // that column being Scene-scrollable (see the two tests below). This is
+  // the wheel gate's (F8a) sibling fix for touch.
+  test("the Camera viewport itself imposes no touch-action restriction — vertical exclusion moved to the column content wrapper (F8b)", async () => {
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -519,7 +526,60 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    expect(getComputedStyle(scene).touchAction).toBe("pan-x pinch-zoom");
+    expect(getComputedStyle(scene).touchAction).toBe("auto");
+  });
+
+  // Real native vertical touch-scroll cannot be observed via synthetic
+  // dispatchEvent/CDP touch injection in this test environment (probe-
+  // confirmed empirically at F8b pickup: a real overflow-y:auto container
+  // scrolled identically regardless of its ancestor's touch-action value —
+  // pan-x-only, none, and this repo's real Scene fixture all produced
+  // scrolling, meaning CDP-dispatched touch bypasses touch-action gating
+  // entirely in this harness, with or without Emulation.setTouchEmulation-
+  // Enabled). Verifying the computed touch-action CSS itself is therefore
+  // the honest, reliable proxy — the same standard the wheel work (F8a)
+  // used for "would a real native scroll be allowed to proceed", and
+  // exactly this file's own pre-existing idiom (the test above already
+  // asserted the viewport's touch-action this way, not a runtime gesture).
+  test("a Scene-scrollable focused column's content wrapper keeps pan-x + pinch-zoom, excluding vertical pan so the column's own JS drag owns it", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    expect(getComputedStyle(contentWrapper).touchAction).toBe("pan-x pinch-zoom");
+  });
+
+  test("a focused but NOT Scene-scrollable column's content wrapper (e.g. an interior overflow-y:auto island filling it) imposes no touch-action restriction of its own", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowY: "auto" }}
+              >
+                <div style={{ width: 400, height: 3000 }}>tall content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    expect(getComputedStyle(contentWrapper).touchAction).toBe("auto");
   });
 
   test("the scrollbar thumb hit target is touch-action:none and at least 24px wide", async () => {

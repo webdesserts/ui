@@ -1829,15 +1829,27 @@ function SceneViewport({
             height: "100%",
             overflowX: overflowsX ? "auto" : "hidden",
             overflowY: "hidden",
-            // Preserves native horizontal pan + pinch-zoom (bare "pan-x"
-            // would disable pinch-zoom — touch-action keywords are
-            // exclusive of anything not listed) while excluding vertical pan
-            // from the browser's own gesture recognition, so a vertical
-            // finger drag anywhere in this subtree is delivered as regular
-            // pointer events for SceneColumn's own 1:1 touch handlers to
-            // consume instead (spec: scene-scroll.feature "Horizontal camera
-            // pan continues to work via native scroll on touch").
-            touchAction: "pan-x pinch-zoom",
+            // F8b interior contract: NO touch-action restriction at this
+            // level. touch-action resolves as the INTERSECTION of an
+            // element's own value and every ancestor's up to the nearest
+            // gesture-owning ancestor — a descendant can never LOOSEN a
+            // restriction declared here, so a blanket declaration on this
+            // element (as it used to be: "pan-x pinch-zoom") permanently
+            // blocked vertical touch-pan for every descendant in the whole
+            // scene, including a consumer's own interior overflow-y:auto
+            // scroll island (the F8b bug — the touch-side twin of F8a's
+            // wheel bug). "auto" here means this element imposes nothing;
+            // the vertical-pan exclusion that used to live here now lives
+            // on each column's own content wrapper (SceneColumn.tsx,
+            // [data-column-content]), scoped to that column being
+            // Scene-scrollable — so it restricts only the column that
+            // needs to own vertical drag, never anything else in the tree.
+            // Horizontal camera pan is unaffected: "auto" is a strict
+            // superset of "pan-x pinch-zoom", so native overflow-x pan +
+            // pinch-zoom both still work exactly as before (spec:
+            // scene-scroll.feature "Horizontal camera pan continues to
+            // work via native scroll on touch").
+            touchAction: "auto",
             outline: debug ? "2px solid cyan" : undefined,
             // Thin scrollbar with transparent track so it doesn't eat into content space.
             scrollbarWidth: "thin",
