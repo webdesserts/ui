@@ -1194,7 +1194,11 @@ export function ScenePage() {
       <MultiFocusDemo tuning={tuning} />
       <StandardBlogDemo tuning={tuning} />
 
-      <TouchDebugOverlay />
+      {/* F17 fix round: gated behind the page-wide Debug toggle (default
+          off) rather than always-on — earned permanence as a tool (three
+          F17 mechanisms cracked with it this week) but not as a banner
+          visible on every load of the design page. */}
+      {tuning.debug && <TouchDebugOverlay />}
       <TuningPanel tuning={tuning} onChange={setTuning} />
     </div>
   );
