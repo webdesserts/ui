@@ -821,6 +821,26 @@ export function SceneColumn({
       // without pinning values.
       bounceStiffness: stiffness,
       bounceDamping: damping,
+      // F15 fix: every OTHER write path (scrollBy/page/toTop/toBottom/
+      // scrollTo) sets scrollOffsetRef to its TARGET synchronously at
+      // command-issue time — a deliberate "chase" model, so a second
+      // command mid-spring stacks on the intended destination, not
+      // wherever the animation currently visually is. A fling has no such
+      // fixed target: it coasts to wherever momentum runs out, so nothing
+      // wrote scrollOffsetRef during it, and it went stale for every
+      // consumer (a subsequent grab's dragStartOffset, wheel/keyboard's
+      // scrollBy delta base, the F9/F10 compensation clamps) for however
+      // long the coast ran — reproduced on-device (Michael's frozen
+      // snapshot: wrapperStyleTop jumped 370px on the next grab) and here
+      // via a stub-free harness test (tests/scene-model-sync.test.tsx).
+      // Ref-only, no setScrollOffset — this fires every animation frame
+      // for the whole coast, and forcing a React re-render that often is
+      // exactly the per-tick-render overhead the scrollY MotionValue
+      // pipeline exists to avoid (see handleContentPointerMove's own
+      // per-tick comment on the same tradeoff for 1:1 drag).
+      onUpdate: (latest) => {
+        scrollOffsetRef.current = latest;
+      },
       // F9 commit 2: re-pin (or stay released) once the coast genuinely
       // settles — the only point at which the final resting offset is
       // knowable for a physics-based multi-frame deceleration. F9
@@ -832,10 +852,18 @@ export function SceneColumn({
       // is still observable via onScroll. F13 commit 4: also clears
       // flingActiveRef — this is the coast's NATURAL settle (an
       // interruption instead clears it at its own write site — see the
-      // ref's own declaration for the full list).
+      // ref's own declaration for the full list). F15 fix: also flushes
+      // scrollOffsetRef/scrollOffset explicitly here (not relying purely
+      // on onUpdate's own last tick) — this is exactly the "sensible
+      // boundary" a natural settle represents, and it's the one point
+      // this file already forces an explicit resync for a DIFFERENT
+      // reason (onScroll), so the state write costs nothing extra here.
       onComplete: () => {
         flingActiveRef.current = false;
-        updatePinnedState(scrollY.get(), maxScrollRef.current);
+        const settled = scrollY.get();
+        scrollOffsetRef.current = settled;
+        setScrollOffset(settled);
+        updatePinnedState(settled, maxScrollRef.current);
         resyncScrollMetricsRef.current?.();
       },
     });
@@ -2347,7 +2375,6 @@ export function SceneColumn({
       isDragging.current = true;
       dragStartY.current = e.clientY;
       dragStartX.current = e.clientX;
-      dragStartOffset.current = scrollOffsetRef.current;
       // F13 commit 1: fresh gesture — ownership is decided anew by
       // handleContentPointerMove below (classifyTouchGestureDirection).
       touchOwnershipRef.current = "undecided";
@@ -2384,6 +2411,21 @@ export function SceneColumn({
       // it no-longer-active so a LATER compensation event doesn't try to
       // re-fling something that's no longer running).
       flingActiveRef.current = false;
+      // F15 fix: resync the model from scrollY AFTER the jump above, not
+      // before — a coasting fling's own onUpdate keeps scrollOffsetRef
+      // synced every animation frame, but this handler runs inside a
+      // pointer event, not necessarily aligned to a fresh tick. Deriving
+      // dragStartOffset from a guaranteed-fresh scrollY.get() read (the
+      // exact value the jump above just re-affirmed) removes any
+      // dependency on onUpdate's frame timing, and is correct for EVERY
+      // interruption this jump can cause (fling coast OR a mid-spring
+      // wheel/keyboard/scrollbar chase, per the jump's own comment above)
+      // — either way, once jump() halts it, 1:1 tracking should start from
+      // wherever the visual truly is now, not a stale queued destination.
+      const resynced = scrollY.get();
+      scrollOffsetRef.current = resynced;
+      setScrollOffset(resynced);
+      dragStartOffset.current = resynced;
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
     [columnFocused, isScrollable, scrollY],
