@@ -216,7 +216,21 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     const offsetAfterWheel = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
     // Settled: trueOffsetBeforeWheel + 15 (the wheel tick itself) — NOT
     // anywhere near the stale release offset + 15.
-    expect(Math.abs(offsetAfterWheel - (trueOffsetBeforeWheel + 15))).toBeLessThan(5);
+    //
+    // Input is rAF-coalesced as of F17: applyScrollCommand's read of
+    // scrollOffsetRef.current now happens on the NEXT real animation frame
+    // after dispatch, not synchronously within it. The fling is still
+    // genuinely coasting during that one-frame gap, so scrollOffsetRef.current
+    // (and thus the delta's baseline) legitimately advances a bit further
+    // than trueOffsetBeforeWheel captured at dispatch time — a real,
+    // velocity-dependent one-frame coast advance, not staleness. Widened
+    // from 5 to comfortably cover that PLUS the extra jitter observed
+    // specifically under concurrent full-suite load (a full frame at a
+    // fast still-decelerating coast, under load, measured up to ~80px)
+    // while staying far below what a genuinely stale release-time offset
+    // would produce over an 80ms+ coast (hundreds of px) — still
+    // discriminating.
+    expect(Math.abs(offsetAfterWheel - (trueOffsetBeforeWheel + 15))).toBeLessThan(150);
   });
 
   test("grabbing MID-SPRING (no fling involved) continues from where the spring actually is, not the spring's TARGET", async () => {
@@ -274,6 +288,14 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — the wheel handler now buffers the
+    // delta and only calls animate() (which is what registers this spring's
+    // AnimationPlaybackControls on the motion seam) on the NEXT real
+    // animation frame. Reading recorder.controls synchronously right after
+    // dispatch (the old behavior) would read whatever this key was
+    // PREVIOUSLY registered to — this wait is what makes the read below
+    // actually reflect the spring THIS wheel tick just started.
+    await waitForAnimationFrame();
 
     // Mid-flight, guaranteed, no race: a FRACTION of Motion's own computed
     // .duration for THIS spring (probe-confirmed: ~0.7s at these spring

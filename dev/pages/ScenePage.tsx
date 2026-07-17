@@ -393,22 +393,50 @@ function VerticalScrollDemo({ tuning }: { tuning: SceneTuning }) {
   return (
     <DemoSection
       title="Vertical scroll"
-      description="Content taller than the viewport. Scroll with trackpad/mouse wheel or keyboard (Arrow, Page, Home, End). Custom scrollbar appears at right edge."
+      description="Content taller than the viewport. Scroll with trackpad/mouse wheel or keyboard (Arrow, Page, Home, End). Custom scrollbar appears at right edge. F17 investigation: a red sticky footer 'composer' pinned at the bottom, inside a minHeight:100cqh flex wrapper — Michael's on-device report (feed 1106) is that this sometimes jumps to mid-screen during scroll on iOS PWA, then back on settle."
     >
       {(debugTarget) => (
         <Scene {...tuning}>
           <SceneColumn name="col">
             <SceneObject name="tall-content" focused style={{ width: 480 }}>
-              <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
-                {Array.from({ length: 12 }, (_, i) => (
-                  <div key={i} className="bg-white/5 rounded p-4">
-                    <h4 className="text-white/80 text-sm font-light">Section {i + 1}</h4>
-                    <p className="text-white/40 text-xs mt-1">
-                      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
-                      incididunt ut labore et dolore magna aliqua.
-                    </p>
-                  </div>
-                ))}
+              {/* F17: the CR-1-shaped fixture — a flex column with
+                  minHeight:100cqh wrapping scrollable content plus a
+                  position:sticky;bottom:0 composer sibling, matching the
+                  reported chat structure exactly (Peri's scene-lab 77
+                  handoff). data-testid="composer" is the tracked element
+                  the overlay below samples every frame. */}
+              <div
+                data-testid="sticky-footer-stack"
+                style={{ display: "flex", flexDirection: "column", minHeight: "100cqh" }}
+              >
+                <div className="bg-[lch(25_8_280)] rounded-sm p-6 flex flex-col gap-4">
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <div key={i} className="bg-white/5 rounded p-4">
+                      <h4 className="text-white/80 text-sm font-light">Section {i + 1}</h4>
+                      <p className="text-white/40 text-xs mt-1">
+                        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
+                        incididunt ut labore et dolore magna aliqua.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div
+                  data-testid="composer"
+                  style={{
+                    position: "sticky",
+                    bottom: 0,
+                    height: 56,
+                    background: "red",
+                    color: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  composer (should stay pinned here)
+                </div>
               </div>
               <CameraDebugPortal target={debugTarget} />
             </SceneObject>
@@ -833,6 +861,317 @@ function TuningPanel({
 // Page
 // ---------------------------------------------------------------------------
 
+// TEMPORARY touch-feel probe overlay (F13 investigation — remove after).
+// Tracks every touch gesture anywhere on the page: finger travel (clientY),
+// the nearest scene column's CONTENT travel (content-wrapper rect.top), and
+// the live ratio between them. 1.00 = content tracks the finger exactly;
+// >1 = content slides PAST the finger (Michael's report). Also reports the
+// post-release coast distance. Rendered as a fixed high-contrast readout.
+function TouchDebugOverlay() {
+  const [line, setLine] = useState("touch-probe armed — drag any scrollable column");
+  const [taLine, setTaLine] = useState("");
+  // F17: sticky-composer tracker. The Vertical scroll demo's composer
+  // (data-testid="composer") is position:sticky;bottom:0 and should render
+  // at a COMPLETELY STATIC viewport-relative rect.top throughout ANY
+  // scroll, drag, or coast — unlike content.top (expected to move), any
+  // frame-to-frame CHANGE in the composer's own rect.top is itself already
+  // the bug signal. Chromium harness probe (vitest-browser-react, F17 task
+  // 1) found ZERO deviation across a real fling, a wheel spring, and a
+  // grab-mid-coast interrupt — this overlay exists to find out whether
+  // WebKit differs, per Michael's on-device report (main feed 1106, via
+  // Peri's scene-lab 77 handoff: "sometimes jumps to the MIDDLE of the
+  // screen, then back to the bottom on settle").
+  const [composerLine, setComposerLine] = useState("composer-probe armed");
+  useEffect(() => {
+    // Parse-support check: what does THIS engine compute for the touch-action
+    // values Scene relies on? Safari lacks the `pinch-zoom` keyword — if the
+    // compound value is dropped as invalid, computed reads "auto" and native
+    // panning runs alongside the JS pan (the compounding-scroll bug).
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    el.style.touchAction = "pan-x pinch-zoom";
+    const compound = getComputedStyle(el).touchAction;
+    el.style.touchAction = "";
+    el.style.touchAction = "pan-x";
+    const plain = getComputedStyle(el).touchAction;
+    el.remove();
+    const live = document.querySelector("[data-column-content]");
+    const liveTa = live ? getComputedStyle(live).touchAction : "?";
+    setTaLine(`touch-action: set "pan-x pinch-zoom" → computed "${compound}" · set "pan-x" → "${plain}" · live column → "${liveTa}"`);
+  }, []);
+  useEffect(() => {
+    let startY: number | null = null;
+    let startContentTop: number | null = null;
+    let content: Element | null = null;
+    let lastFingerDelta = 0;
+    let lastContentDelta = 0;
+    let releaseContentTop: number | null = null;
+    let raf = 0;
+
+    const findContent = (target: Element | null): Element | null => {
+      const col = target?.closest("[data-column]");
+      return col?.querySelector("[data-column-content]") ?? null;
+    };
+
+    let colInfo = "";
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+      content = findContent(e.target as Element);
+      if (!content) return;
+      const col = content.closest("[data-column]");
+      colInfo = `col=${col?.getAttribute("data-column")} maxScroll=${col?.getAttribute("data-max-scroll") ?? "none"} ta=${getComputedStyle(content).touchAction}`;
+      startY = e.clientY;
+      startContentTop = content.getBoundingClientRect().top;
+      releaseContentTop = null;
+    };
+    // Per-frame sampler + TELEPORT DETECTOR: samples ground truth every rAF
+    // while a gesture is down; a content jump > 150px between two consecutive
+    // frames freezes a before/after snapshot of every candidate cause
+    // (finger clientY, offset/max-scroll attrs, visual-viewport height) so
+    // the mechanism names itself in one gesture.
+    //
+    // F14 additions (layer localization): three MORE positions sampled in
+    // the SAME frame, each one level higher in the DOM than the last, so a
+    // teleport's own layer names itself by WHICH of these jumps together
+    // with contentTop and which stay put — (1) wrapperStyleTop is the raw
+    // CSS `top` value Motion writes directly onto the content wrapper
+    // (composedTop = -(topOffsetMV + scrollY) — if THIS jumps while
+    // data-scroll-offset (scrollY) barely moves, the culprit is
+    // topOffsetMV/topOffset, not the scroll pipeline); (2) colRectTop is
+    // the OUTER [data-column] element's page position (should be rock
+    // stable — nothing in this demo moves a column); (3) stageRectTop is
+    // the [data-stage] element's page position (camera pan only ever
+    // writes `left`, never `top` — stageTransform is captured too in case
+    // something unexpected touches it); (4) sceneRectTop is the
+    // [data-testid="scene"] VIEWPORT's own page position — if the WHOLE
+    // viewport moved on the page (e.g. an earlier demo section on the SAME
+    // page changed height, pushing this one down), contentTop would jump
+    // by the exact same amount as sceneRectTop while NOTHING inside Scene's
+    // own coordinate system actually moved; the existing pageMark (h1)
+    // check can't catch this since the h1 sits ABOVE every demo section,
+    // not immediately above this one.
+    let lastClientY = 0;
+    let sampler = 0;
+    let prev: {
+      top: number;
+      y: number;
+      off: string | null;
+      max: string | null;
+      vv: number;
+      pageY: number;
+      markTop: number;
+      wrapperStyleTop: number;
+      colRectTop: number;
+      stageRectTop: number;
+      stageTransform: string;
+      sceneRectTop: number;
+    } | null = null;
+    let frozen = false;
+    const rm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // F17: composer tracker — runs alongside `sample`/`watch` below (the
+    // SAME two rAF loops, drag + coast), independent of the content
+    // teleport detector above. A sticky composer's rect.top should be
+    // COMPLETELY STATIC frame to frame throughout — any change at all is
+    // the bug signal, so this compares CONSECUTIVE frames (not a fixed
+    // threshold against a rest value the way the content detector does),
+    // and freezes on the very first deviation.
+    let composerPrevTop: number | null = null;
+    let composerFrozen = false;
+    const COMPOSER_EPSILON_PX = 1;
+    const checkComposer = () => {
+      if (composerFrozen) return;
+      const composer = document.querySelector("[data-testid='composer']");
+      if (!composer) return;
+      const col = composer.closest("[data-column]");
+      const off = parseFloat(col?.getAttribute("data-scroll-offset") ?? "0");
+      const max = parseFloat(col?.getAttribute("data-max-scroll") ?? "0");
+      // A rubber-band OVERSCROLL (off > max, e.g. mid-fling boundary
+      // catch) legitimately moves the composer by exactly the overscroll
+      // amount — probe-confirmed (Chromium, off-max Δ matched the
+      // composer's own Δ to within 0.02px): the composer is the flex
+      // column's last child, and sticky can never hold it further down
+      // than its OWN containing block's true edge, which the overscroll
+      // has pushed past the viewport's bottom. That's correct, expected
+      // physics, not the bug under investigation — skip the check
+      // entirely while out of the normal [0, max] range so it doesn't
+      // pollute a real device capture with expected boundary noise.
+      const inOverscroll = max > 0 && (off > max || off < 0);
+      const curTop = composer.getBoundingClientRect().top;
+      if (!inOverscroll && composerPrevTop !== null && Math.abs(curTop - composerPrevTop) > COMPOSER_EPSILON_PX) {
+        composerFrozen = true;
+        const contentWrapper = col?.querySelector("[data-column-content]") as HTMLElement | null;
+        setComposerLine(
+          `🚨 COMPOSER MOVED (should be pinned):\n` +
+            `composerTop ${composerPrevTop.toFixed(2)}→${curTop.toFixed(2)} (Δ${(curTop - composerPrevTop).toFixed(2)})\n` +
+            `off ${col?.getAttribute("data-scroll-offset") ?? "?"} · max ${col?.getAttribute("data-max-scroll") ?? "?"} · ` +
+            `wrapperStyleTop ${parseFloat(contentWrapper?.style.top || "0").toFixed(1)}`,
+        );
+        return;
+      }
+      // Baseline tracking continues through overscroll unconditionally —
+      // only the COMPARISON above is skipped there — so the very next
+      // in-bounds frame after an overscroll compares against a fresh
+      // baseline instead of a stale one from before entering it (which
+      // would otherwise manufacture a spurious deviation on exit).
+      composerPrevTop = curTop;
+      if (!composerFrozen) {
+        setComposerLine(
+          `composer tracking: top=${curTop.toFixed(2)}${inOverscroll ? " (in overscroll, not checked)" : ""}`,
+        );
+      }
+    };
+    const sample = () => {
+      if (!content || startY === null) return;
+      const col = content.closest("[data-column]");
+      const stage = document.querySelector("[data-stage]");
+      const scene = document.querySelector("[data-testid='scene']");
+      const cur = {
+        top: content.getBoundingClientRect().top,
+        y: lastClientY,
+        off: col?.getAttribute("data-scroll-offset") ?? null,
+        max: col?.getAttribute("data-max-scroll") ?? null,
+        vv: window.visualViewport?.height ?? 0,
+        pageY: window.scrollY,
+        // A stable page landmark OUTSIDE the Scene: the page's own <h1>.
+        // If ITS viewport position jumps in the same frame, the PAGE
+        // scrolled (Safari's own scroll anchoring adjusting document
+        // scroll) — if it holds still while content jumps, the movement is
+        // inside the Scene pipeline.
+        markTop: document.querySelector("h1")?.getBoundingClientRect().top ?? 0,
+        wrapperStyleTop: parseFloat((content as HTMLElement).style.top || "0"),
+        colRectTop: col?.getBoundingClientRect().top ?? 0,
+        stageRectTop: stage?.getBoundingClientRect().top ?? 0,
+        stageTransform: stage ? getComputedStyle(stage).transform : "?",
+        sceneRectTop: scene?.getBoundingClientRect().top ?? 0,
+      };
+      if (prev && !frozen && Math.abs(cur.top - prev.top) > 150) {
+        frozen = true;
+        setLine(
+          `🚨 TELEPORT in ONE frame:\n` +
+            `contentTop ${prev.top.toFixed(0)}→${cur.top.toFixed(0)} (Δ${(cur.top - prev.top).toFixed(0)}) · finger Δ${(cur.y - prev.y).toFixed(0)} · offset ${prev.off}→${cur.off} · maxScroll ${prev.max}→${cur.max}\n` +
+            `wrapperStyleTop ${prev.wrapperStyleTop.toFixed(1)}→${cur.wrapperStyleTop.toFixed(1)} (Δ${(cur.wrapperStyleTop - prev.wrapperStyleTop).toFixed(1)}) · colRectTop ${prev.colRectTop.toFixed(0)}→${cur.colRectTop.toFixed(0)} (Δ${(cur.colRectTop - prev.colRectTop).toFixed(0)})\n` +
+            `stageRectTop ${prev.stageRectTop.toFixed(0)}→${cur.stageRectTop.toFixed(0)} (Δ${(cur.stageRectTop - prev.stageRectTop).toFixed(0)}) · stageTransform ${prev.stageTransform}→${cur.stageTransform}\n` +
+            `sceneRectTop ${prev.sceneRectTop.toFixed(0)}→${cur.sceneRectTop.toFixed(0)} (Δ${(cur.sceneRectTop - prev.sceneRectTop).toFixed(0)})\n` +
+            `PAGE scrollY ${prev.pageY.toFixed(0)}→${cur.pageY.toFixed(0)} (Δ${(cur.pageY - prev.pageY).toFixed(0)}) · pageMark ${prev.markTop.toFixed(0)}→${cur.markTop.toFixed(0)} · vvH ${prev.vv.toFixed(0)}→${cur.vv.toFixed(0)} · rm ${rm}`,
+        );
+      }
+      prev = cur;
+      if (!frozen && startContentTop !== null) {
+        lastContentDelta = startContentTop - cur.top;
+        const ratio = Math.abs(lastFingerDelta) > 4 ? (lastContentDelta / lastFingerDelta).toFixed(2) : "—";
+        setLine(
+          `drag: finger ${lastFingerDelta.toFixed(0)}px · content ${lastContentDelta.toFixed(0)}px · ratio ${ratio} · off ${cur.off} max ${cur.max} · vvH ${cur.vv.toFixed(0)} · rm ${rm} · ${colInfo}`,
+        );
+      }
+      checkComposer();
+      sampler = requestAnimationFrame(sample);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (startY === null || !content || startContentTop === null) return;
+      lastClientY = e.clientY;
+      lastFingerDelta = startY - e.clientY;
+      if (!sampler) {
+        lastClientY = e.clientY;
+        prev = null;
+        frozen = false;
+        composerPrevTop = null;
+        composerFrozen = false;
+        sampler = requestAnimationFrame(sample);
+      }
+    };
+    const onUp = () => {
+      if (startY === null || !content) return;
+      cancelAnimationFrame(sampler);
+      sampler = 0;
+      if (frozen) {
+        startY = null;
+        return; // keep the frozen teleport snapshot on screen
+      }
+      const c = content;
+      releaseContentTop = c.getBoundingClientRect().top;
+      const fingerD = lastFingerDelta;
+      const contentD = lastContentDelta;
+      startY = null;
+      // watch the coast for 2s, then summarize the whole gesture
+      const t0 = performance.now();
+      const watch = () => {
+        const coast = releaseContentTop! - c.getBoundingClientRect().top;
+        const ratio = Math.abs(fingerD) > 4 ? (contentD / fingerD).toFixed(2) : "—";
+        setLine(`RELEASED: finger ${fingerD.toFixed(0)}px → content ${contentD.toFixed(0)}px (ratio ${ratio}) · coast ${(-coast).toFixed(0)}px`);
+        // F17: composer tracking continues through the coast — this is
+        // exactly where Michael's report (a jump "then back... on settle")
+        // most plausibly lives, since the Chromium harness probe found the
+        // drag phase alone already clean.
+        checkComposer();
+        if (performance.now() - t0 < 2000) raf = requestAnimationFrame(watch);
+      };
+      raf = requestAnimationFrame(watch);
+    };
+
+    // CANDIDATE FIX, applied live for on-device verification: while a
+    // single-finger gesture that started inside a column's content is
+    // active, preventDefault every touchmove (non-passive). This makes JS
+    // gesture ownership explicit instead of relying on the engine honoring
+    // touch-action over Scene's transformed subtree. If the page-scroll
+    // bleed stops and ratio reads ~1.00 with this active, the F13 fix
+    // mechanism is confirmed on the real device.
+    let ownGesture = false;
+    const onDownOwn = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      ownGesture = !!findContent(e.target as Element);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (ownGesture && e.touches.length === 1 && e.cancelable) e.preventDefault();
+    };
+    const onGestureEnd = () => {
+      ownGesture = false;
+    };
+    window.addEventListener("pointerdown", onDownOwn, { capture: true, passive: true });
+    window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    window.addEventListener("touchend", onGestureEnd, { capture: true, passive: true });
+    window.addEventListener("touchcancel", onGestureEnd, { capture: true, passive: true });
+
+    window.addEventListener("pointerdown", onDown, { capture: true, passive: true });
+    window.addEventListener("pointermove", onMove, { capture: true, passive: true });
+    window.addEventListener("pointerup", onUp, { capture: true, passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointerdown", onDownOwn, { capture: true } as EventListenerOptions);
+      window.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+      window.removeEventListener("touchend", onGestureEnd, { capture: true } as EventListenerOptions);
+      window.removeEventListener("touchcancel", onGestureEnd, { capture: true } as EventListenerOptions);
+      window.removeEventListener("pointerdown", onDown, { capture: true } as EventListenerOptions);
+      window.removeEventListener("pointermove", onMove, { capture: true } as EventListenerOptions);
+      window.removeEventListener("pointerup", onUp, { capture: true } as EventListenerOptions);
+    };
+  }, []);
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 99999,
+        background: "rgba(0,0,0,0.85)",
+        color: "#4ade80",
+        font: "600 13px/1.6 ui-monospace, monospace",
+        padding: "10px 12px",
+        pointerEvents: "none",
+        whiteSpace: "pre-wrap",
+      }}
+    >
+      {line}
+      {"\n"}
+      {taLine}
+      {"\n"}
+      {composerLine}
+    </div>,
+    document.body,
+  );
+}
+
 export function ScenePage() {
   const [tuning, setTuning] = useState<SceneTuning>(defaultTuning);
 
@@ -855,6 +1194,7 @@ export function ScenePage() {
       <MultiFocusDemo tuning={tuning} />
       <StandardBlogDemo tuning={tuning} />
 
+      <TouchDebugOverlay />
       <TuningPanel tuning={tuning} onChange={setTuning} />
     </div>
   );

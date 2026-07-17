@@ -6114,6 +6114,11 @@ describe("Scene scroll position management", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — the wheel handler now buffers the
+    // delta and applies it on the NEXT real animation frame, so this needs
+    // one extra waitForAnimationFrame() beyond what a single dispatch used
+    // to require.
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-300);
 
@@ -6189,6 +6194,11 @@ describe("Scene scroll edge cases", () => {
       }),
     );
 
+    // Input is rAF-coalesced as of F17 — the vertical (deltaY) write is
+    // buffered and applied on the NEXT real animation frame; deltaX's
+    // native horizontal scroll is unaffected (never routed through the
+    // coalescing buffer).
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     // Vertical: col1 should have scrolled by 150px
@@ -6304,6 +6314,8 @@ describe("Scene wheel input controller (S5)", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — needs one extra waitForAnimationFrame().
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-48);
@@ -6345,6 +6357,8 @@ describe("Scene wheel input controller (S5)", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — needs one extra waitForAnimationFrame().
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     expect(parseFloat(colAContent.style.top || "0")).toBe(-60);
@@ -6384,6 +6398,8 @@ describe("Scene wheel input controller (S5)", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — needs one extra waitForAnimationFrame().
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     expect(parseFloat(colBContent.style.top || "0")).toBe(-60);
@@ -9271,6 +9287,11 @@ describe("Scene scroll position restore", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — the wheel handler now buffers the
+    // delta and applies it on the NEXT real animation frame, so this needs
+    // one extra waitForAnimationFrame() beyond what a single dispatch used
+    // to require.
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-300);
 
@@ -10383,6 +10404,8 @@ describe("Scene consumer scroll override", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — needs one extra waitForAnimationFrame().
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     expect(parseFloat(siblingContentWrapper.style.top || "0")).toBe(-60);
@@ -10498,6 +10521,8 @@ describe("Scene consumer scroll override", () => {
         cancelable: true,
       }),
     );
+    // Input is rAF-coalesced as of F17 — needs one extra waitForAnimationFrame().
+    await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     expect(parseFloat(colAContent.style.top || "0")).toBe(-60);

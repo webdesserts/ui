@@ -1743,9 +1743,40 @@ function SceneViewport({
   // non-passive so preventDefault() is allowed — normalize -> decide ->
   // apply all run synchronously within the same event so preventDefault()
   // timing is preserved exactly as before.
+  //
+  // F17 commit 2: wheel-driven scrollBy deltas are BUFFERED per column and
+  // flushed as ONE applyScrollCommand call per real animation frame, rather
+  // than one call per wheel event. Mechanism this closes (F17 commit 1's
+  // own investigation, pinned at source): a real trackpad/wheel stream
+  // fires MULTIPLE events per animation frame, and applying each one
+  // immediately calls driveScrollYRef's spring-chase animate() call
+  // synchronously per event — so pairs of retargets can land with ~0ms
+  // elapsed between them (measured: 72 of 143 inter-retarget gaps were
+  // <1ms, in a 72-event stream). Motion's spring generator inherits the
+  // CURRENT velocity as each retarget's starting condition; a near-zero
+  // elapsed time between two retargets is exactly the numerically unstable
+  // case for a velocity estimate (Δvalue/Δtime, Δtime→0). Commit 1 bounds
+  // the resulting overshoot structurally (so this coalescing is not load-
+  // bearing for correctness on its own), but buffering to one retarget per
+  // real frame removes the near-zero-Δt pairing at its source AND is a
+  // straightforward perf win (one spring retarget instead of two-plus per
+  // frame during a dense stream).
+  const pendingWheelDeltaRef = useRef<Map<string, number>>(new Map());
+  const wheelFlushScheduledRef = useRef(false);
+
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
+
+    const flushWheelDeltas = () => {
+      wheelFlushScheduledRef.current = false;
+      for (const [name, delta] of pendingWheelDeltaRef.current) {
+        if (delta === 0) continue;
+        const applyScrollCommand = scrollCommandRegistry.get(name);
+        applyScrollCommand?.({ type: "scrollBy", delta });
+      }
+      pendingWheelDeltaRef.current.clear();
+    };
 
     const handler = (e: WheelEvent) => {
       if (e.deltaY === 0) return;
@@ -1786,7 +1817,17 @@ function SceneViewport({
         e.preventDefault();
       }
 
-      applyScrollCommand({ type: "scrollBy", delta: scaledDeltaY });
+      // F17 commit 2: buffer instead of applying immediately — preventDefault()
+      // above still runs synchronously within THIS event (timing preserved
+      // exactly as before); only the actual applyScrollCommand write is
+      // deferred to the next real animation frame, coalescing however many
+      // wheel events land in that frame into a single delta per column.
+      const prevDelta = pendingWheelDeltaRef.current.get(name) ?? 0;
+      pendingWheelDeltaRef.current.set(name, prevDelta + scaledDeltaY);
+      if (!wheelFlushScheduledRef.current) {
+        wheelFlushScheduledRef.current = true;
+        requestAnimationFrame(flushWheelDeltas);
+      }
     };
 
     el.addEventListener("wheel", handler, { passive: false });
