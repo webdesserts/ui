@@ -27,6 +27,8 @@ import {
   MAX_FLING_VELOCITY,
   TOUCH_VELOCITY_WINDOW_MS,
   TOUCH_VELOCITY_STALE_MS,
+  clampSpringRetargetVelocity,
+  MAX_SPRING_RETARGET_VELOCITY,
   type AnchorCandidate,
   type AnchorGeometry,
   type VelocitySample,
@@ -1125,5 +1127,42 @@ describe("computeReleaseVelocity", () => {
     // own instantaneous rate (400 px/s), proving the whole window is used.
     const samples = [sample(900, 0), sample(950, 200), sample(1000, 220)];
     expect(computeReleaseVelocity(samples, 1000)).toBeCloseTo(2200, 0);
+  });
+});
+
+// F17: spring-chase retarget velocity clamp. Mirrors computeReleaseVelocity's
+// own MAX_FLING_VELOCITY clamp test shape — same underlying near-zero-dt
+// blowup class, applied at a different source (Motion's own internal
+// velocity tracking, read at every driveScrollYRef retarget, instead of a
+// purpose-built touch-sample tracker).
+describe("clampSpringRetargetVelocity", () => {
+  test("passes a reasonable velocity through unchanged", () => {
+    expect(clampSpringRetargetVelocity(500)).toBe(500);
+    expect(clampSpringRetargetVelocity(-500)).toBe(-500);
+    expect(clampSpringRetargetVelocity(0)).toBe(0);
+  });
+
+  test("passes a fast-but-plausible trackpad velocity through unchanged", () => {
+    // A large single-frame wheel delta (~150px over one ~16ms frame) is a
+    // legitimate fast swipe, not a bug — must not be damped.
+    const plausibleFastSwipe = 150 / 0.016;
+    expect(plausibleFastSwipe).toBeLessThan(MAX_SPRING_RETARGET_VELOCITY);
+    expect(clampSpringRetargetVelocity(plausibleFastSwipe)).toBeCloseTo(plausibleFastSwipe, 0);
+  });
+
+  test("clamps to MAX_SPRING_RETARGET_VELOCITY on an implausible spike", () => {
+    // The exact class of value this closes: two same-frame retargets with
+    // ~0ms between them (F17's pinned mechanism) implied instantaneous
+    // velocities in the tens of thousands of px/s in a live probe.
+    expect(clampSpringRetargetVelocity(73000)).toBe(MAX_SPRING_RETARGET_VELOCITY);
+  });
+
+  test("clamps to -MAX_SPRING_RETARGET_VELOCITY symmetrically", () => {
+    expect(clampSpringRetargetVelocity(-73000)).toBe(-MAX_SPRING_RETARGET_VELOCITY);
+  });
+
+  test("a velocity exactly at the ceiling passes through unclamped", () => {
+    expect(clampSpringRetargetVelocity(MAX_SPRING_RETARGET_VELOCITY)).toBe(MAX_SPRING_RETARGET_VELOCITY);
+    expect(clampSpringRetargetVelocity(-MAX_SPRING_RETARGET_VELOCITY)).toBe(-MAX_SPRING_RETARGET_VELOCITY);
   });
 });

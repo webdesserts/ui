@@ -36,6 +36,8 @@ import {
   classifyTouchGestureDirection,
   shouldPreventTouchMove,
   computeReleaseVelocity,
+  clampSpringRetargetVelocity,
+  SPRING_RUBBER_BAND_MARGIN_PX,
   type ScrollCommand,
   type TouchGestureOwnership,
   type VelocitySample,
@@ -525,6 +527,91 @@ export function SceneColumn({
   // scrollY change event will fire on its own to carry the correction.
   const resyncScrollMetricsRef = useRef<(() => void) | null>(null);
 
+  // F17: the actual bounded-spring call — extracted from driveScrollYRef's
+  // public entry point below so BOTH a fresh external command AND this
+  // function's OWN reentrant boundary correction (inside onUpdate) share
+  // the exact same animate() invocation, no duplicated call to drift out
+  // of sync (mirrors this file's own established pattern for
+  // startInertiaFlingRef/applyScrollYDeltaRef's shared inertia call).
+  //
+  // `velocityOverride` lets the reentrant boundary correction (below) start
+  // from rest instead of inheriting the live carried velocity — see that
+  // call site's own comment for why: carrying the live velocity into the
+  // correction empirically produced LARGE secondary overshoots (900+px
+  // measured), not the small rubber-band this fix is supposed to produce.
+  const driveBoundedSpring = (target: number, velocityOverride?: number) => {
+    scrollYSpringTargetRef.current = target;
+    // F17 fix (mechanism pinned at source): clamp the velocity Motion
+    // would otherwise inherit from scrollY's own internal tracking before
+    // it feeds this retarget's spring — see clampSpringRetargetVelocity's
+    // own doc comment for the near-zero-dt blowup this closes. Only read
+    // for a FRESH external command (velocityOverride undefined) — the
+    // reentrant boundary correction always supplies its own explicit 0.
+    const velocity =
+      velocityOverride !== undefined
+        ? velocityOverride
+        : clampSpringRetargetVelocity(scrollY.getVelocity());
+    const controls = animate(scrollY, target, {
+      ...transition,
+      velocity,
+      // F17 fix: boundary rubber-band — a plain spring generator (unlike
+      // Motion's type:"inertia", which the fling uses) has no built-in
+      // min/max clamp, so this watches the live value every frame and, if
+      // it ever exceeds [0, maxScroll] by more than
+      // SPRING_RUBBER_BAND_MARGIN_PX, retargets toward the nearest bound —
+      // reentrantly, through this SAME function, WITH velocityOverride: 0
+      // (not the carried-over live velocity — see below). Deliberately
+      // unguarded (no "already correcting" flag): the target is always the
+      // SAME deterministic nearest bound while still out of range, so
+      // re-issuing it every frame is idempotent, not divergent —
+      // probe-confirmed a correctingBoundaryRef guard that RESETS on every
+      // fresh external command (needed so a genuine new user command can
+      // always interrupt/redirect) thrashes badly once wheel input arrives
+      // every frame (even coalesced to one retarget/frame): each frame's
+      // "fresh" command wiped the guard and re-triggered its own
+      // correction before the PREVIOUS one had a chance to converge,
+      // measured WORSE (0/10 clean runs) than this boundary fix alone
+      // (7/10 clean). Re-issuing the same target every frame while out of
+      // range avoids that interrupt-vs-guard tension entirely.
+      //
+      // velocityOverride: 0 on the correction itself (rather than carrying
+      // scrollY's live velocity through, the way a fresh external command
+      // does): at the moment the boundary trips, the live value's velocity
+      // is, by construction, heading FURTHER out of bounds — that's what
+      // triggered the correction. A damped spring given a nonzero starting
+      // velocity that points AWAY from its new target doesn't calmly
+      // reverse course; it keeps carrying that momentum outward for a beat
+      // before the spring force turns it around, producing a SECOND,
+      // larger overshoot on the way back — empirically measured up to
+      // ~900-1000px under a sustained multi-pass wheel stream with the
+      // carried-velocity version of this correction, an order of magnitude
+      // past the intended small rubber-band margin. Starting the
+      // correction from rest removes that wrong-direction-momentum
+      // mechanism entirely: a spring moving a short, bounded distance
+      // (already within margin of the target when this trips) with zero
+      // initial velocity settles smoothly, matching "a small damped
+      // rubber-band margin" as actually specified.
+      onUpdate: (latest) => {
+        const max = maxScrollRef.current;
+        if (latest > max + SPRING_RUBBER_BAND_MARGIN_PX) {
+          driveBoundedSpring(max, 0);
+        } else if (latest < -SPRING_RUBBER_BAND_MARGIN_PX) {
+          driveBoundedSpring(0, 0);
+        }
+      },
+      onComplete: () => {
+        // Guard against a stale onComplete firing after a NEWER spring has
+        // already retargeted to a different destination — only clear if
+        // this callback's own target is still the one currently tracked.
+        if (scrollYSpringTargetRef.current === target) {
+          scrollYSpringTargetRef.current = null;
+        }
+      },
+    });
+    motionSeam?.registerControls(`scrollY:${name}`, controls);
+    motionSeam?.registerTarget?.(`scrollY:${name}`, target);
+  };
+
   driveScrollYRef.current = (target: number) => {
     // F13 commit 4: any intent-driven command (wheel/keyboard/scrollbar/
     // scrollTo) superseding an active fling must stop tracking it as
@@ -537,20 +624,7 @@ export function SceneColumn({
       scrollY.set(target);
       return;
     }
-    scrollYSpringTargetRef.current = target;
-    const controls = animate(scrollY, target, {
-      ...transition,
-      onComplete: () => {
-        // Guard against a stale onComplete firing after a NEWER spring has
-        // already retargeted to a different destination — only clear if
-        // this callback's own target is still the one currently tracked.
-        if (scrollYSpringTargetRef.current === target) {
-          scrollYSpringTargetRef.current = null;
-        }
-      },
-    });
-    motionSeam?.registerControls(`scrollY:${name}`, controls);
-    motionSeam?.registerTarget?.(`scrollY:${name}`, target);
+    driveBoundedSpring(target);
   };
 
   // F9 anchoring/content-driven scroll changes: applies a displacement

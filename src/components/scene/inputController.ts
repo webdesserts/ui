@@ -803,3 +803,51 @@ export function computeReleaseVelocity(samples: VelocitySample[], now: number): 
   const raw = ((newest.offset - oldest.offset) / dt) * 1000;
   return Math.max(-MAX_FLING_VELOCITY, Math.min(MAX_FLING_VELOCITY, raw));
 }
+
+/**
+ * Ceiling (px/s) on the velocity a spring-chase retarget (wheel/keyboard/
+ * scrollbar — every non-fling scroll command) inherits from scrollY's own
+ * internally-tracked velocity. F17: same rationale as MAX_FLING_VELOCITY —
+ * near-zero-dt samples blow a delta/dt velocity estimate up arbitrarily —
+ * but pinned at a DIFFERENT source: a real trackpad/wheel stream fires
+ * multiple events per animation frame, and each one used to retarget
+ * scrollY's spring immediately and synchronously, so pairs of retargets
+ * landed with ~0ms elapsed between them (measured: 72 of 143 inter-retarget
+ * gaps were <1ms in a real wheel-stream probe). Motion reads scrollY's own
+ * velocity cache to chase-retarget a spring, and that cache is exactly what
+ * a near-zero-dt pair corrupts — measured live values reaching ~1992px
+ * against a 1082px maxScroll (implied instantaneous velocities in the tens
+ * of thousands of px/s) during an otherwise-ordinary trackpad-style scroll.
+ * Set well above any plausible LEGITIMATE single-frame wheel/trackpad
+ * velocity (a fast two-finger swipe's largest single-frame delta is
+ * unlikely to exceed a few hundred px over one ~16ms frame, i.e. a few
+ * thousand px/s) so real fast scrolling is never damped, while still
+ * catching the pathological spike class by a wide margin.
+ */
+export const MAX_SPRING_RETARGET_VELOCITY = 12000;
+
+/**
+ * Clamps a spring-chase retarget's inherited velocity (read from scrollY's
+ * own tracking at retarget time) to `±MAX_SPRING_RETARGET_VELOCITY` — see
+ * that constant's own doc comment for the mechanism this closes. A pure
+ * function (mirrors computeReleaseVelocity's own shape) so the clamp itself
+ * is unit-testable without any Motion/DOM dependency.
+ */
+export function clampSpringRetargetVelocity(rawVelocity: number): number {
+  return Math.max(-MAX_SPRING_RETARGET_VELOCITY, Math.min(MAX_SPRING_RETARGET_VELOCITY, rawVelocity));
+}
+
+/**
+ * Margin (px) a spring-chase retarget's LIVE VALUE may transiently exceed
+ * [0, maxScroll] by before a corrective retarget pulls it back toward the
+ * nearest bound. Mirrors the fling's own boundary-catch conceptually (see
+ * startInertiaFlingRef's `min`/`max` inertia options in SceneColumn) —
+ * reused here because a plain spring generator (unlike Motion's
+ * `type: "inertia"`) has no built-in boundary clamp of its own. A small,
+ * NONZERO margin (not a hard wall at exactly 0/maxScroll) deliberately
+ * tolerates a single well-damped spring's own natural, expected overshoot
+ * past its target — only a runaway EXCEEDING this margin (from repeated
+ * same-frame retargeting compounding momentum faster than damping can
+ * dissipate it, F17's pinned mechanism) triggers the correction.
+ */
+export const SPRING_RUBBER_BAND_MARGIN_PX = 40;
