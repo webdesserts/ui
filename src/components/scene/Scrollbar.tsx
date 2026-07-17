@@ -1,9 +1,26 @@
 import React, { useCallback, useEffect, useRef } from "react";
+import { motion, useTransform, type MotionValue } from "motion/react";
 import { mapScrollKeyToCommand, type ScrollCommand } from "./inputController";
 
 export interface ScrollbarProps {
   /** Current scroll offset in px (0 = top). */
   scrollOffset: number;
+  /**
+   * F16: the SAME scrollY MotionValue SceneColumn drives the content
+   * wrapper's own position from (see SceneColumn's S3 motion pipeline doc
+   * comment) — the thumb's TOP position is derived from this directly, per
+   * frame, outside React (mirrors composedTop's useTransform pattern),
+   * rather than from the scrollOffset prop above. scrollOffset itself is
+   * deliberately NOT updated per-tick in real mode (the whole reason that
+   * pipeline exists — see handleContentPointerMove's own comment), so a
+   * thumb rendered from it alone sat frozen through every coast/spring and
+   * only jumped at the next state flush (Michael's "the scroll bar
+   * teleports rather than animating", 2026-07-17, feed 801). scrollOffset
+   * remains the model for everything that doesn't need per-frame
+   * freshness: aria-valuenow, and the drag interaction's own
+   * dragStartOffset baseline below.
+   */
+  scrollY: MotionValue<number>;
   /** Maximum scroll offset (contentHeight - viewportHeight). */
   maxScroll: number;
   /** Height of the scrollbar track in px (typically the viewport height). */
@@ -34,6 +51,7 @@ export interface ScrollbarProps {
  */
 export function Scrollbar({
   scrollOffset,
+  scrollY,
   maxScroll,
   trackHeight,
   onScroll,
@@ -47,9 +65,16 @@ export function Scrollbar({
   const contentHeight = maxScroll + trackHeight;
   const thumbHeight = Math.max(20, (trackHeight / contentHeight) * trackHeight);
 
-  // Thumb position: maps scrollOffset [0, maxScroll] to track position [0, trackHeight - thumbHeight]
-  const thumbTop =
-    maxScroll > 0 ? (scrollOffset / maxScroll) * (trackHeight - thumbHeight) : 0;
+  // F16: thumb TOP position, derived from scrollY per frame (mirrors
+  // SceneColumn's composedTop useTransform pattern) — maps scrollY
+  // [0, maxScroll] to track position [0, trackHeight - thumbHeight]. Motion
+  // resubscribes this transform's closure on every render (useTransform's
+  // own useCombineMotionValues re-runs its layout effect with no deps
+  // array), so maxScroll/trackHeight/thumbHeight staying fresh across
+  // renders doesn't depend on scrollY itself changing.
+  const thumbTop = useTransform(scrollY, (s) =>
+    maxScroll > 0 ? (s / maxScroll) * (trackHeight - thumbHeight) : 0,
+  );
 
   // Pointer drag state
   const dragStartY = useRef<number>(0);
@@ -161,7 +186,7 @@ export function Scrollbar({
           native scrolling/zooming in ANY direction (the Camera viewport's
           own touch-action: pan-x pinch-zoom would otherwise let the browser
           claim a horizontal drag that starts here). */}
-      <div
+      <motion.div
         ref={thumbRef}
         role="scrollbar"
         aria-orientation="vertical"
@@ -197,7 +222,7 @@ export function Scrollbar({
             pointerEvents: "none",
           }}
         />
-      </div>
+      </motion.div>
     </div>
   );
 }

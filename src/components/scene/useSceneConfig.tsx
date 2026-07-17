@@ -9,15 +9,21 @@ export const DEFAULT_PEEK_OFFSET = 12;
 /**
  * `power` for touch-release inertia (Motion's `type: "inertia"` decay) —
  * the classic iOS deceleration flywheel constant. Lower = the coast decays
- * (and stops) sooner.
+ * (and stops) sooner. Bumped 0.4 -> 0.55 per Michael's on-device feel
+ * direction ("inertia could be bumped up", 2026-07-17, feed 801, on the
+ * live app running the F14 pin) — a longer coast distance. The sliders
+ * remain the fine-tune path from here.
  */
-export const DEFAULT_TOUCH_POWER = 0.4;
+export const DEFAULT_TOUCH_POWER = 0.55;
 /**
  * `timeConstant` (ms) for touch-release inertia — how quickly the decay's
  * velocity falls off. Lower = a snappier, shorter coast; higher = a
- * floatier, longer one. 325 mirrors iOS's own native scroll-release feel.
+ * floatier, longer one. 325 mirrored iOS's own native scroll-release feel;
+ * bumped 325 -> 375 per Michael's on-device feel direction ("inertia could
+ * be bumped up", 2026-07-17, feed 801) — a floatier coast to match the
+ * power bump above. The sliders remain the fine-tune path from here.
  */
-export const DEFAULT_TOUCH_TIME_CONSTANT = 325;
+export const DEFAULT_TOUCH_TIME_CONSTANT = 375;
 
 /** Shared configuration for the Scene system. */
 export interface SceneConfig {

@@ -2680,6 +2680,7 @@ export function SceneColumn({
         {isScrollable && effectiveViewportHeight > 0 && (
           <Scrollbar
             scrollOffset={scrollOffset}
+            scrollY={scrollY}
             maxScroll={maxScroll}
             trackHeight={effectiveViewportHeight}
             controlsId={contentWrapperId}
