@@ -218,4 +218,90 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     // anywhere near the stale release offset + 15.
     expect(Math.abs(offsetAfterWheel - (trueOffsetBeforeWheel + 15))).toBeLessThan(5);
   });
+
+  test("grabbing MID-SPRING (no fling involved) continues from where the spring actually is, not the spring's TARGET", async () => {
+    // No fling anywhere in this test — this is the OTHER half of the
+    // grab-site fix's own doc comment ("correct for EVERY interruption
+    // this jump can cause — fling coast OR a mid-spring wheel/keyboard/
+    // scrollbar chase"), and it's the ONE scenario that deterministically
+    // discriminates the grab-site reorder on its own, with no frame-race:
+    // driveScrollYRef's chase model (used by every non-fling command)
+    // writes scrollOffsetRef to its TARGET synchronously at command-issue
+    // time — a legitimate design (a second command mid-spring should stack
+    // on the intended destination, not wherever the animation currently
+    // visually is) — and has no onUpdate of its own (that only exists on
+    // the FLING's animate() call). So while a wheel/keyboard-driven spring
+    // is still in flight, scrollOffsetRef genuinely, correctly holds the
+    // FAR-AWAY destination, not the current visual position. A grab under
+    // the pre-fix ordering (`dragStartOffset.current = scrollOffsetRef.current`
+    // read before stopping the spring) starts 1:1 tracking from that
+    // target — the visual jumps FORWARD by the spring's remaining distance
+    // on the very next move, deterministically, every time. Only the
+    // grab-site's own fresh `scrollY.get()` read (taken after the jump()
+    // that halts the spring) fixes this — onUpdate never enters into it,
+    // since no fling occurs here at all.
+    const recorder = createMotionSeamRecorder();
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div data-testid="content" style={{ width: 400, height: 6000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const columnRect = contentWrapper.getBoundingClientRect();
+    const grabX = columnRect.left + columnRect.width / 2;
+    const grabY = columnRect.top + 50;
+
+    // A large wheel tick — a distant target (3000px, well inside this
+    // fixture's ~5200px maxScroll) drives a real, slow-to-settle spring.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: 3000,
+        clientX: grabX,
+        clientY: grabY,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    // Mid-flight, guaranteed, no race: a FRACTION of Motion's own computed
+    // .duration for THIS spring (probe-confirmed: ~0.7s at these spring
+    // constants for a 3000px throw, ~1575 of 3000 reached by 100ms — a
+    // substantial, easily-measured remaining distance) — data-driven off
+    // the actual physics rather than a magic-number wait, so this stays
+    // correct if the spring constants are ever retuned.
+    const controls = recorder.controls.get("scrollY:col");
+    expect(controls).toBeDefined();
+    await wait(controls!.duration * 1000 * 0.15);
+
+    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    // Confirm this is genuinely mid-flight — comfortably short of the
+    // 3000 target — so the assertion below is actually discriminating
+    // against a real remaining distance, not a coincidentally-small one.
+    expect(trueOffsetBeforeGrab).toBeGreaterThan(200);
+    expect(trueOffsetBeforeGrab).toBeLessThan(2800);
+
+    // Grab, then a slop-clearing move (>10px, per this file's own banked
+    // TOUCH_DIRECTION_SLOP_PX lesson above).
+    firePointer(contentWrapper, "pointerdown", grabX, grabY);
+    firePointer(contentWrapper, "pointermove", grabX, grabY + 20);
+
+    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    // Continuous with where the spring actually was, not a forward jump
+    // toward the 3000 target.
+    expect(Math.abs(offsetAfterTinyMove - trueOffsetBeforeGrab)).toBeLessThan(30);
+
+    firePointer(contentWrapper, "pointerup", grabX, grabY + 20);
+  });
 });
