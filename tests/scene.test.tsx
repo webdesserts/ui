@@ -3378,34 +3378,30 @@ describe("Scene alignment & centering (S7 coverage)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// S7 coverage backfill: scrollbar placement (scene-scroll.feature "Each
-// overflowing column gets its own vertical scrollbar") — the rightmost
-// column's scrollbar sits at the Camera's right edge; other columns'
-// scrollbars sit between adjacent focused columns. This is emergent from
-// each Scrollbar being `position: absolute; right: 0` relative to its own
-// column (Scrollbar.tsx) — untested until now.
+// S7 coverage: scrollbar placement (scene-scroll.feature "Each overflowing
+// column gets its own vertical scrollbar") — each overflowing column's
+// scrollbar sits at ITS OWN column's right edge (Scrollbar.tsx's track is
+// `position: absolute; right: 0` relative to its column). Camera-right-edge
+// alignment is emergent, not a rule: it only coincides when a focused
+// column's own right edge happens to land on the Camera's, e.g. when
+// focused columns' combined width spans the viewport.
 // ---------------------------------------------------------------------------
 
 describe("Scene scrollbar placement (S7 coverage)", () => {
-  // SPEC-IMPLEMENTATION GAP, needs adjudication: written to the spec's exact
-  // Given clause ("two focused columns that both overflow the viewport
-  // height" — no width-overflow requirement) and its exact Then clause
+  // Fork adjudicated by Michael, 2026-07-21 (main feed 1491: "pin what we
+  // have") — no design latitude on this fork; the as-implemented placement
+  // IS the ruled behavior. Previously left skipped: the spec's old wording
   // ("the rightmost column's scrollbar should appear at the right edge of
-  // the Camera"). With two 400px columns under the 1280px viewport, the
-  // layout CENTERS them (they don't overflow width), so the rightmost
-  // column's right edge lands at ~1040px, not the viewport's 1280px right
-  // edge — confirmed by the math (240px centering offset + 800px combined
-  // width = 1040, matching the observed failure). The spec's "right edge of
-  // the Camera" wording is already flagged as needing a hygiene pass (plans/
-  // Scene Assessment 2026-07-14, item 11: "scrollbar camera-vs-scene anchor
-  // vocabulary") — this is that same ambiguity surfacing as a concrete test
-  // failure rather than prose. Left skipped per the fix-plan's own
-  // instruction to write-to-spec-and-skip rather than reshape the fixture to
-  // force a pass; the "between adjacent columns" half of the claim (asserted
-  // below) may still be correct even where the "at the Camera edge" half is
-  // spec-imprecise for the non-width-overflowing case — that split needs a
-  // human call, not a test-side guess.
-  test.skip("rightmost column's scrollbar is at the Camera's right edge; the other sits between the columns", async () => {
+  // the Camera") only holds by coincidence in a fixture where the focused
+  // columns' combined width spans the viewport. With two narrower centered
+  // 400px columns under the 1280px viewport, the layout CENTERS them (they
+  // don't overflow width), so the rightmost column's own right edge lands at
+  // ~1040px, not the viewport's 1280px right edge — confirmed by the math
+  // (240px centering offset + 800px combined width = 1040). specs/
+  // scene-scroll.feature's Then clauses are corrected to the ruled per-
+  // column wording; this test now pins to that, not the old Camera-edge
+  // letter.
+  test("each overflowing column's scrollbar sits at its own column's right edge", async () => {
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -3437,16 +3433,23 @@ describe("Scene scrollbar placement (S7 coverage)", () => {
     expect(leftScrollbar).not.toBeNull();
     expect(rightScrollbar).not.toBeNull();
 
-    // Rightmost column's scrollbar right-edge aligns with the Camera's right edge.
+    // Each column's scrollbar sits at ITS OWN column's right edge.
+    const rightColumnRect = rightColumn.getBoundingClientRect();
     const rightScrollbarRect = rightScrollbar.getBoundingClientRect();
-    expect(Math.abs(rightScrollbarRect.right - cameraRect.right)).toBeLessThan(2);
+    expect(Math.abs(rightScrollbarRect.right - rightColumnRect.right)).toBeLessThan(2);
 
-    // The non-rightmost (left) column's scrollbar sits at ITS OWN right edge —
-    // between the two columns, not at the Camera's right edge.
     const leftColumnRect = leftColumn.getBoundingClientRect();
     const leftScrollbarRect = leftScrollbar.getBoundingClientRect();
     expect(Math.abs(leftScrollbarRect.right - leftColumnRect.right)).toBeLessThan(2);
-    expect(leftScrollbarRect.right).toBeLessThan(cameraRect.right - 10);
+
+    // The non-rightmost (left) column's scrollbar therefore sits BETWEEN the
+    // two columns, not flush with either the right column or the Camera.
+    expect(leftScrollbarRect.right).toBeLessThan(rightColumnRect.left);
+
+    // Documents the ruled divergence from the spec's old "at the Camera
+    // edge" wording for this centered, non-width-overflowing fixture: the
+    // rightmost column's own right edge doesn't reach the Camera's.
+    expect(rightScrollbarRect.right).toBeLessThan(cameraRect.right - 10);
   });
 });
 

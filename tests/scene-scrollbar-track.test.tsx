@@ -114,3 +114,155 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
     expect(sample3).toBeGreaterThan(sample2);
   });
 });
+
+/**
+ * ui#4: pins the thumb's position-mapping formula (Scrollbar.tsx) —
+ * `thumbTop = (scrollOffset / maxScroll) * (trackHeight - thumbHeight)`,
+ * where `thumbHeight = Math.max(20, (trackHeight / contentHeight) *
+ * trackHeight)` and `contentHeight = maxScroll + trackHeight` — against the
+ * current implementation. Discriminating against two plausible wrong
+ * mappings specifically: (a) omitting the thumbHeight subtraction from the
+ * range (`(offset/maxScroll) * trackHeight`), which overshoots the track's
+ * bottom edge by roughly thumbHeight at maxScroll; and (b) any non-linear or
+ * contentHeight-denominated variant, which the mid-offset formula pin below
+ * would also catch.
+ */
+describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
+  /**
+   * Polls the thumb's rendered `top` and the column's `data-scroll-offset`
+   * until both are stable for 3 consecutive real frames AND the offset
+   * matches `expectedOffset` — mirrors this suite's `waitForAnimationsToSettle`
+   * poll-to-convergence discipline rather than guessing a fixed frame count,
+   * since a target-based command's React state flush (data-scroll-offset)
+   * and the thumb's own useTransform-driven style write aren't guaranteed to
+   * land on the exact same frame.
+   */
+  async function waitForThumbSettle(
+    thumb: HTMLElement,
+    column: HTMLElement,
+    expectedOffset: number,
+  ): Promise<void> {
+    let lastTop = thumb.style.top;
+    let stableFrames = 0;
+    for (let i = 0; i < 60; i++) {
+      await waitForAnimationFrame();
+      const top = thumb.style.top;
+      const atOffset = column.getAttribute("data-scroll-offset") === String(expectedOffset);
+      if (top === lastTop && atOffset) {
+        stableFrames++;
+        if (stableFrames >= 3) return;
+      } else {
+        stableFrames = 0;
+      }
+      lastTop = top;
+    }
+  }
+
+  test("thumb top matches the track top at the initial (offset 0) render", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
+
+    const trackRect = track.getBoundingClientRect();
+    const thumbRect = thumb.getBoundingClientRect();
+    expect(Math.abs(thumbRect.top - trackRect.top)).toBeLessThan(2);
+  });
+
+  test("thumb bottom matches the track bottom at maxScroll (bottom endpoint) — kills the missing-thumbHeight mapping", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
+    const maxScroll = Number(thumb.getAttribute("aria-valuemax"));
+
+    // Same D4 keyboard path scene.test.tsx's own thumb-focus test uses: a
+    // native (non-React) keydown listener on the thumb requires focusing it
+    // first, and the "End" key maps to a toBottom command — a target-based
+    // command, so its scrollOffset flush is synchronous at issue time.
+    thumb.focus();
+    thumb.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    );
+    await waitForThumbSettle(thumb, column, maxScroll);
+
+    const trackRect = track.getBoundingClientRect();
+    const thumbRect = thumb.getBoundingClientRect();
+    // The mapping under test subtracts thumbHeight from the range
+    // (trackHeight - thumbHeight); a wrong variant that omits it
+    // ((offset/maxScroll) * trackHeight) would push the thumb's bottom edge
+    // roughly thumbHeight past the track's bottom at this endpoint — this
+    // assertion fails under that variant.
+    expect(Math.abs(thumbRect.bottom - trackRect.bottom)).toBeLessThan(2);
+  });
+
+  test("thumb top follows (offset / maxScroll) * (trackHeight - thumbHeight) at a mid offset", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="panel" focused>
+              <div data-testid="content" style={{ width: 400, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
+
+    // 5 x ArrowDown = 5 x scrollBy(40) = a known mid-range target offset
+    // (200px) — target-based commands flush scrollOffset state
+    // synchronously at command-issue time (SceneColumn's applyScrollCommand).
+    thumb.focus();
+    for (let i = 0; i < 5; i++) {
+      thumb.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+    }
+    await waitForThumbSettle(thumb, column, 200);
+
+    // Everything the formula pin checks below is a MEASURED quantity, not a
+    // hardcoded viewport number — only the target offset above is a known
+    // constant of this test's own command sequence.
+    const maxScroll = Number(thumb.getAttribute("aria-valuemax"));
+    const offset = Number(column.getAttribute("data-scroll-offset"));
+    expect(offset).toBe(200);
+
+    const trackH = track.getBoundingClientRect().height;
+    const thumbH = thumb.getBoundingClientRect().height;
+    const expectedTop = (offset / maxScroll) * (trackH - thumbH);
+    const measuredTop = parseFloat(thumb.style.top || "0");
+
+    expect(Math.abs(measuredTop - expectedTop)).toBeLessThan(1);
+  });
+});
