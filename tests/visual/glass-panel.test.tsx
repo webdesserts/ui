@@ -36,13 +36,22 @@ afterEach(async () => {
 type GlassCandidate = { className?: string; style?: CSSProperties };
 
 const CANDIDATES: Record<
-  "baseline" | "strongerAlphaBlur" | "strongerAlphaBorder",
+  "baseline" | "baselineBorder" | "strongerAlphaBlur" | "strongerAlphaBorder",
   { light: GlassCandidate; dark: GlassCandidate }
 > = {
   // Current control-grade tokens (--glass-bg / --glass-blur), unchanged.
   baseline: {
     light: { className: "bg-glass-bg backdrop-blur-[var(--glass-blur)]" },
     dark: { className: "bg-glass-bg backdrop-blur-[var(--glass-blur)]" },
+  },
+  // Baseline fill plus the voice-chat-prototype's glass panel border, verbatim
+  // (settings-modal.tsx:133 / profile-panel.tsx:16): a 1px solid border in
+  // --color-rule-subtle. Michael recalled the prototype giving glass panels
+  // "a very slight transparent border to help distinguish them from their
+  // outer content" — his leaned-toward direction after the first round.
+  baselineBorder: {
+    light: { className: "bg-glass-bg border border-rule-subtle backdrop-blur-[var(--glass-blur)]" },
+    dark: { className: "bg-glass-bg border border-rule-subtle backdrop-blur-[var(--glass-blur)]" },
   },
   // Panel-grade alpha/blur, no border — isolates the fill vector. Raises
   // lightness, not just alpha: --glass-bg's lightness (15/96) sits within ~5
@@ -139,6 +148,16 @@ describe("Glass panel flat dot-grid backdrop", () => {
     await renderFixture(CANDIDATES.baseline.light, false);
   });
 
+  it("glass-panel-baseline-border-dotgrid-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    await renderFixture(CANDIDATES.baselineBorder.dark, false);
+  });
+
+  it("glass-panel-baseline-border-dotgrid-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    await renderFixture(CANDIDATES.baselineBorder.light, false);
+  });
+
   it("glass-panel-stronger-alpha-blur-dotgrid-dark", async () => {
     document.documentElement.style.colorScheme = "dark";
     await renderFixture(CANDIDATES.strongerAlphaBlur.dark, false);
@@ -173,6 +192,16 @@ describe("Glass panel dot-grid with cards backdrop", () => {
   it("glass-panel-baseline-dotgrid-cards-light", async () => {
     document.documentElement.style.colorScheme = "light";
     await renderFixture(CANDIDATES.baseline.light, true);
+  });
+
+  it("glass-panel-baseline-border-dotgrid-cards-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    await renderFixture(CANDIDATES.baselineBorder.dark, true);
+  });
+
+  it("glass-panel-baseline-border-dotgrid-cards-light", async () => {
+    document.documentElement.style.colorScheme = "light";
+    await renderFixture(CANDIDATES.baselineBorder.light, true);
   });
 
   it("glass-panel-stronger-alpha-blur-dotgrid-cards-dark", async () => {
