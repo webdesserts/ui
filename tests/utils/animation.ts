@@ -49,10 +49,16 @@ export function waitForAnimationFrame(): Promise<void> {
  * true})` during an active hover/focus transition — only the wrapper's own
  * `::after` fill and the input's own `color` transition show up). So neither
  * this function's slowdown NOR `freezeAnimationsAt`'s freeze/pin can reach a
- * `::placeholder` transition at all. The working pattern for a deterministic
- * post-settle capture of one: a real wait (`wait()`) comfortably past the
- * transition's own duration, before freezing/screenshotting — see
- * text-input.test.tsx's `captureFocused` and its hover-dark test.
+ * `::placeholder` transition at all. `transitionend` doesn't help either:
+ * probe-confirmed (2026-07-22, capture-phase document listener during a full
+ * hover cycle) that no transitionend event with `pseudoElement:
+ * "::placeholder"` ever fires in this Chromium — the same cycle emits the
+ * input's own `color` event and the wrapper's three `::after` events — so an
+ * event-driven settle is not an option. The working pattern for a
+ * deterministic post-settle capture of one: a real wait (`wait()`)
+ * comfortably past the transition's own duration, before
+ * freezing/screenshotting — see text-input.test.tsx's `captureFocused` and
+ * its hover-dark test.
  *
  * @example
  * const restore = slowTransitions();
