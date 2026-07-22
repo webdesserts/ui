@@ -39,6 +39,21 @@ export function waitForAnimationFrame(): Promise<void> {
  *
  * @returns A `restore()` function that removes the override.
  *
+ * BLIND SPOT: this override's selector (`*, *::before, *::after`) does not
+ * reach `::placeholder`, and separately, `element.getAnimations({subtree:
+ * true})` never surfaces a `::placeholder` transition as an Animation object
+ * even while it's genuinely running (probe-confirmed on TextInput.tsx's own
+ * placeholder-opacity fix: `getComputedStyle(input, "::placeholder")`
+ * correctly reports the declared transition-property/duration, but zero
+ * Animation objects appear for it under `wrapper.getAnimations({subtree:
+ * true})` during an active hover/focus transition — only the wrapper's own
+ * `::after` fill and the input's own `color` transition show up). So neither
+ * this function's slowdown NOR `freezeAnimationsAt`'s freeze/pin can reach a
+ * `::placeholder` transition at all. The working pattern for a deterministic
+ * post-settle capture of one: a real wait (`wait()`) comfortably past the
+ * transition's own duration, before freezing/screenshotting — see
+ * text-input.test.tsx's `captureFocused` and its hover-dark test.
+ *
  * @example
  * const restore = slowTransitions();
  * await btn.hover();

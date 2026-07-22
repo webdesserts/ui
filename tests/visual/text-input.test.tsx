@@ -8,6 +8,7 @@ import {
   waitForAnimationFrame,
   slowTransitions,
   animationScreenshotOptions,
+  wait,
 } from "../utils/animation";
 import { TextInput } from "@/src";
 
@@ -45,6 +46,15 @@ async function restPointer(container: Element) {
  * "keyboard" → ring shown, "pointer" → ring suppressed. Programmatic focus +
  * explicit modality keeps the capture deterministic (no dependence on which real
  * event happened to focus the field).
+ *
+ * The 250ms wait lets the placeholder's own transition (see slowTransitions'
+ * doc comment — its ::placeholder blind spot means freezeAnimationsAt can't
+ * pin this one) settle for real before the screenshot, comfortably past its
+ * 200ms duration. A small residual flake remains under repeated sampling
+ * (measured ~5% across ~58 reruns) that a longer wait counter-intuitively
+ * WORSENED (500ms measured ~30% across 30 reruns) rather than improved —
+ * root cause not conclusively identified; see the worker report for the
+ * full data. 250ms is the empirically better of the two measured options.
  */
 async function captureFocused(container: Element, source: "keyboard" | "pointer") {
   const wrapper = wrapperOf(container);
@@ -53,6 +63,7 @@ async function captureFocused(container: Element, source: "keyboard" | "pointer"
   const restore = slowTransitions();
   input.focus();
   await waitForAnimationFrame();
+  await wait(250);
   const anims = freezeAnimationsAt(wrapper, 1, { subtree: true });
   restore();
   await expect
@@ -192,6 +203,12 @@ describe("TextInput hover states", () => {
     const restore = slowTransitions();
     await screen.getByRole("textbox").hover();
     await waitForAnimationFrame();
+    // The placeholder's own transition is invisible to slowTransitions'
+    // override and to freezeAnimationsAt (see slowTransitions' doc comment)
+    // — a real wait past its 200ms duration is the only deterministic way to
+    // let it settle before the screenshot (see captureFocused's doc comment
+    // for the measured flake rate at this and a longer wait).
+    await wait(250);
     const anims = freezeAnimationsAt(wrapper, 1, { subtree: true });
     restore();
     await expect
@@ -219,6 +236,28 @@ describe("TextInput hover states", () => {
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot(animationScreenshotOptions);
     unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Placeholder transition mechanism — a computed-style pin, not a screenshot.
+// ::placeholder is a separate CSS box from <input>; transition-property set
+// on the input does not cascade into it (non-inherited), so this asserts the
+// placeholder-scoped declaration directly rather than relying on pixels to
+// prove the fix is present.
+// ---------------------------------------------------------------------------
+
+describe("TextInput placeholder transition", () => {
+  it("::placeholder eases color and opacity over 200ms, matching the input's own transition duration", async () => {
+    const screen = await render(
+      <TestWrapper>
+        <TextInput placeholder="Placeholder" />
+      </TestWrapper>,
+    );
+    const input = screen.container.querySelector("input")!;
+    const placeholderStyle = window.getComputedStyle(input, "::placeholder");
+    expect(placeholderStyle.transitionProperty).toBe("color, opacity");
+    expect(placeholderStyle.transitionDuration).toBe("0.2s");
   });
 });
 

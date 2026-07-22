@@ -115,6 +115,7 @@ const inputBase = cn(
   "w-full bg-transparent border-0 outline-none",
   "text-text-primary placeholder:text-text-secondary",
   "transition-[color] duration-200",
+  "placeholder:transition-[color,opacity] placeholder:duration-200",
   // On the inverted (filled) surface the placeholder shares the entered-text
   // color (surface-base) but is knocked back with opacity so it stays readable
   // as a placeholder — there is no muted-on-inverted token to swap to.
