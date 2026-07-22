@@ -59,3 +59,31 @@
   );
   background-size: var(--dot-grid-spacing) var(--dot-grid-spacing);
 }
+
+/* Panel-scale glass treatment: fill + blur + a subtle default border (ui#6
+   Slice 1b). A plain rule in the components layer, deliberately NOT a
+   @utility: the border must ship by default but stay overridable in
+   general — width and color, not just removal ("you should still be able
+   to override those borders if necessary, they should just be the
+   default"). Tailwind's layer order (theme, base, components, utilities)
+   makes any utilities-layer class beat a components-layer rule
+   unconditionally, regardless of source order or class-list order on the
+   element — a @utility can't give that guarantee, since custom @utility
+   blocks are appended after Tailwind's built-in utilities within the same
+   utilities layer and lose ties by source position instead (confirmed
+   empirically: as a @utility, glass-panel's border beat border-none even
+   though border-none followed it in class order). Conscious trade:
+   components-layer rules don't get Tailwind's
+   automatic variant support (no hover:glass-panel, md:glass-panel, etc.)
+   the way a @utility would — acceptable for a panel-scale surface
+   treatment; revisit if a variant need ever appears. Uses the same
+   --glass-bg/--glass-blur/--border-subtle tokens as Button's glass recipe
+   (src/components/Button.tsx) — no new custom properties. */
+@layer components {
+  .glass-panel {
+    background-color: var(--glass-bg);
+    border: 1px solid var(--border-subtle);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+  }
+}

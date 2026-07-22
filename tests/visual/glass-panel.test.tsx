@@ -48,10 +48,14 @@ const CANDIDATES: Record<
   // (settings-modal.tsx:133 / profile-panel.tsx:16): a 1px solid border in
   // --color-rule-subtle. Michael recalled the prototype giving glass panels
   // "a very slight transparent border to help distinguish them from their
-  // outer content" — his leaned-toward direction after the first round.
+  // outer content" — his picked direction (2026-07-22 verdict). Now rendered
+  // via the shipped `glass-panel` class (src/tokens/semantic.css) instead of
+  // the literal utility string: these 4 baselines passing with zero
+  // `--update` is the byte-identity proof that the class encodes exactly
+  // what was approved here (ui#6 Slice 1b).
   baselineBorder: {
-    light: { className: "bg-glass-bg border border-rule-subtle backdrop-blur-[var(--glass-blur)]" },
-    dark: { className: "bg-glass-bg border border-rule-subtle backdrop-blur-[var(--glass-blur)]" },
+    light: { className: "glass-panel" },
+    dark: { className: "glass-panel" },
   },
   // Panel-grade alpha/blur, no border — isolates the fill vector. Raises
   // lightness, not just alpha: --glass-bg's lightness (15/96) sits within ~5
@@ -222,5 +226,43 @@ describe("Glass panel dot-grid with cards backdrop", () => {
   it("glass-panel-stronger-alpha-border-dotgrid-cards-light", async () => {
     document.documentElement.style.colorScheme = "light";
     await renderFixture(CANDIDATES.strongerAlphaBorder.light, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// glass-panel utility (ui#6 Slice 1b) — the shipped `.glass-panel` rule
+// (src/tokens/semantic.css) composes bg-glass-bg + border-rule-subtle +
+// backdrop-blur into one class. The border ships by default but must remain
+// overridable in general — width and color, not just removal (Michael: "you
+// should still be able to override those borders if necessary, they should
+// just be the default"). It's a components-layer rule rather than a
+// @utility specifically so plain Tailwind border-* utilities always win
+// regardless of class order — see the doc comment in semantic.css. These
+// pin that mechanism on two axes: style (removed) and width (changed).
+// ---------------------------------------------------------------------------
+
+describe("glass-panel utility overrides", () => {
+  it("border-none removes the default border", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <div data-testid="panel" className="glass-panel border-none">
+          panel
+        </div>
+      </TestWrapper>,
+    );
+    const panel = getByTestId("panel").element();
+    expect(window.getComputedStyle(panel).borderStyle).toBe("none");
+  });
+
+  it("border-2 widens the default border", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <div data-testid="panel" className="glass-panel border-2">
+          panel
+        </div>
+      </TestWrapper>,
+    );
+    const panel = getByTestId("panel").element();
+    expect(window.getComputedStyle(panel).borderWidth).toBe("2px");
   });
 });
