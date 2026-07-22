@@ -83,7 +83,13 @@
   .glass-panel {
     background-color: var(--glass-bg);
     border: 1px solid var(--border-subtle);
-    backdrop-filter: blur(var(--glass-blur));
+    /* -webkit- BEFORE standard, mirroring Tailwind's own backdrop-blur
+       emission: the production css minifier collapses same-value
+       prefix/standard pairs last-wins, so standard-first ships a bundle
+       with ONLY -webkit-backdrop-filter — which Chrome and Firefox never
+       implemented (Safari-only alias), i.e. no blur anywhere but Safari
+       (caught live in the published bundle, 2026-07-22). */
     -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
   }
 }
