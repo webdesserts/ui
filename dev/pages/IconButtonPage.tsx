@@ -26,7 +26,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Sizes</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <IconButton size="sm"><Gear /></IconButton>
           <IconButton size="md"><Gear /></IconButton>
           <IconButton size="lg"><Gear /></IconButton>
@@ -35,7 +35,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Danger</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <IconButton color="danger"><MicrophoneSlash /></IconButton>
           <IconButton color="danger" size="lg"><MicrophoneSlash /></IconButton>
         </div>
@@ -43,7 +43,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Rounded</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <IconButton rounded size="sm"><Phone /></IconButton>
           <IconButton rounded size="md"><Phone /></IconButton>
           <IconButton rounded size="lg"><Phone /></IconButton>
@@ -52,7 +52,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Ghost</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <IconButton ghost size="sm"><Gear /></IconButton>
           <IconButton ghost size="md"><Gear /></IconButton>
           <IconButton ghost size="lg"><Gear /></IconButton>
@@ -61,7 +61,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Disabled</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <IconButton disabled><Gear /></IconButton>
           <IconButton color="danger" disabled><MicrophoneSlash /></IconButton>
           <IconButton rounded disabled><Phone /></IconButton>
@@ -70,7 +70,7 @@ export function IconButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>ChevronButton</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ChevronButton size="sm"><CaretDown /></ChevronButton>
           <ChevronButton size="md"><CaretDown /></ChevronButton>
           <ChevronButton size="lg"><CaretDown /></ChevronButton>

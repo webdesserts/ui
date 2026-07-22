@@ -20,7 +20,7 @@ export function ButtonLinkPage() {
 
       <section className="space-y-3">
         <SectionLabel>Default</SectionLabel>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
           <ButtonLink href="#">About</ButtonLink>
           <ButtonLink href="#">Projects</ButtonLink>
           <ButtonLink href="#">Contact</ButtonLink>
@@ -29,7 +29,7 @@ export function ButtonLinkPage() {
 
       <section className="space-y-3">
         <SectionLabel>Small</SectionLabel>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
           <ButtonLink href="#" size="sm">About</ButtonLink>
           <ButtonLink href="#" size="sm">Projects</ButtonLink>
           <ButtonLink href="#" size="sm">Contact</ButtonLink>
@@ -38,7 +38,7 @@ export function ButtonLinkPage() {
 
       <section className="space-y-3">
         <SectionLabel>As button</SectionLabel>
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-6">
           <ButtonLink as="button">Tab One</ButtonLink>
           <ButtonLink as="button">Tab Two</ButtonLink>
           <ButtonLink as="button">Tab Three</ButtonLink>

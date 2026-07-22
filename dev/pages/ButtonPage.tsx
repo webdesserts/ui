@@ -21,7 +21,7 @@ export function ButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Default</SectionLabel>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button>Join Room</Button>
           <Button><Gear /> Settings</Button>
           <Button disabled>Disabled</Button>
@@ -30,7 +30,7 @@ export function ButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Ghost</SectionLabel>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button ghost>Join Room</Button>
           <Button ghost><Gear /> Settings</Button>
           <Button ghost disabled>Disabled</Button>
@@ -39,7 +39,7 @@ export function ButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Small</SectionLabel>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button size="sm">Join Room</Button>
           <Button size="sm" ghost>Ghost</Button>
           <Button size="sm" disabled>Disabled</Button>
@@ -48,7 +48,7 @@ export function ButtonPage() {
 
       <section className="space-y-3">
         <SectionLabel>Border sides</SectionLabel>
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap gap-3 items-center">
           <Button borderSide="bottom">Bottom</Button>
           <Button borderSide="top">Top</Button>
           <Button borderSide="right">Right</Button>

@@ -29,7 +29,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>Icon buttons</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ButtonGroup size="lg">
             <IconButton><Screencast /></IconButton>
             <IconButton><Gear /></IconButton>
@@ -39,7 +39,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>With chevron</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ButtonGroup size="lg">
             <IconButton><Microphone /></IconButton>
             <ChevronButton><CaretDown /></ChevronButton>
@@ -54,7 +54,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>Danger</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ButtonGroup size="lg">
             <IconButton color="danger"><Phone /></IconButton>
             <ChevronButton color="danger"><CaretDown /></ChevronButton>
@@ -64,7 +64,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>Ghost</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ButtonGroup size="lg" ghost>
             <IconButton ghost><Microphone /></IconButton>
             <ChevronButton ghost><CaretDown /></ChevronButton>
@@ -79,7 +79,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>Toolbar example</SectionLabel>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ButtonGroup size="lg">
             <IconButton><Microphone /></IconButton>
             <ChevronButton><CaretDown /></ChevronButton>
@@ -97,7 +97,7 @@ export function ButtonGroupPage() {
 
       <section className="space-y-3">
         <SectionLabel>Vertical toolbar</SectionLabel>
-        <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <ButtonGroup flow="column" size="lg">
             <IconButton><Microphone /></IconButton>
             <IconButton><VideoCamera /></IconButton>

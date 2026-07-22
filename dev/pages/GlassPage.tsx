@@ -46,7 +46,7 @@ export function GlassPage() {
       <div className="p-6 rounded-lg space-y-8">
         <section className="space-y-3">
           <SectionLabel>Button</SectionLabel>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Button glass>Join Room</Button>
             <Button glass><Gear /> Settings</Button>
           </div>
@@ -54,7 +54,7 @@ export function GlassPage() {
 
         <section className="space-y-3">
           <SectionLabel>IconButton</SectionLabel>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <IconButton glass size="sm"><Gear /></IconButton>
             <IconButton glass size="md"><Gear /></IconButton>
             <IconButton glass size="lg"><Gear /></IconButton>
@@ -64,7 +64,7 @@ export function GlassPage() {
 
         <section className="space-y-3">
           <SectionLabel>ButtonGroup</SectionLabel>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <ButtonGroup glass>
               <IconButton glass size="lg"><Screencast /></IconButton>
               <IconButton glass size="lg"><Gear /></IconButton>
