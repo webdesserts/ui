@@ -102,11 +102,20 @@ function NavSections({ activePage, onSelectPage, colorMode, onSelectColorMode }:
 
 /** The mobile nav drawer — a slide-in overlay below `md`. Always mounted (not
  *  just while open) so `open`'s transform/opacity classes transition instead
- *  of popping; closes on page-pick (via onSelectPage), backdrop click, or
- *  Escape (handled by the App-level keydown listener). The outer wrapper
- *  carries both `aria-hidden` and `inert` while closed — the drawer stays
- *  mounted (translated off-screen) so its buttons must be pulled out of the
- *  tab order and out of the accessibility tree, not just visually hidden. */
+ *  of popping; closes on page-pick (via onSelectPage), backdrop click,
+ *  Escape (handled by the App-level keydown listener), or its own in-drawer
+ *  close button (below). The outer wrapper carries both `aria-hidden` and
+ *  `inert` while closed — the drawer stays mounted (translated off-screen) so
+ *  its buttons must be pulled out of the tab order and out of the
+ *  accessibility tree, not just visually hidden.
+ *
+ *  The in-drawer close button exists because the top bar's own hamburger/X
+ *  becomes physically unreachable once the drawer is open: this `nav` panel
+ *  is `inset-y-0` (full viewport height) and paints above the non-sticky,
+ *  normal-flow top bar regardless of scroll position, so a header-relative
+ *  fix (start the panel below the header, raise the header's z-index) only
+ *  holds at scroll-top. This button is geometry-independent and is the only
+ *  reachable way to dismiss the drawer via its own chrome. */
 function NavDrawer({
   open,
   onClose,
@@ -145,6 +154,11 @@ function NavDrawer({
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
+        <div className="flex justify-end mb-2">
+          <IconButton ghost size="md" aria-label="Close navigation" onClick={onClose}>
+            <X />
+          </IconButton>
+        </div>
         <NavSections
           activePage={activePage}
           onSelectPage={onSelectPage}
