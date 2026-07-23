@@ -497,7 +497,16 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
     // lands), then this explicit `style` prop — placed AFTER the spread —
     // overrides with the full merge, own vars first so a user-provided key
     // wins.
+    //
+    // --spread-in/--spread-out slow MenuItem's spread relative to the shared
+    // 250ms/400ms defaults (shared.ts): a menu row sweeps its long axis
+    // (~270px) where buttons sweep their short axis (~40px) — the same
+    // duration reads far faster over more travel. Picklist-study-derived
+    // (ui#16 2026-07-23 animation ruling); unconditional, unlike
+    // --spread-bg-rest above.
     const ownVars = {
+      "--spread-in": "400ms",
+      "--spread-out": "600ms",
       ...(selected ? { "--spread-bg-rest": "var(--interactive-bg)" } : {}),
     } as React.CSSProperties;
 

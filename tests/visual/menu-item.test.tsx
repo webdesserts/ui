@@ -9,11 +9,29 @@ import {
   slowTransitions,
   animationScreenshotOptions,
 } from "../utils/animation";
-import { MenuItem } from "@/src";
+import { Button, MenuItem } from "@/src";
 
 afterEach(() => {
   document.documentElement.style.colorScheme = "";
 });
+
+/**
+ * Reads a ::after transition's geometry-entry duration (the top/left/right/
+ * bottom/width/height/margin entries — everything except background-color)
+ * by finding "top"'s position in transitionProperty and indexing the same
+ * position in transitionDuration. Indexed by property name rather than a
+ * hardcoded position: at rest, MenuItem's overridden geometry duration
+ * (--spread-out: 600ms) coincides with the untouched background-color rest
+ * duration (also 600ms — shared.ts:47-53's own rest transition), so the
+ * joined duration string reads uniformly and a fixed index would be
+ * ambiguous about which entry it actually sampled.
+ */
+function afterGeometryDuration(el: Element): string {
+  const style = window.getComputedStyle(el, "::after");
+  const properties = style.transitionProperty.split(", ");
+  const idx = properties.indexOf("top");
+  return style.transitionDuration.split(", ")[idx];
+}
 
 // ---------------------------------------------------------------------------
 // Resting states — dark + light
@@ -275,5 +293,56 @@ describe("MenuItem spread animation", () => {
       .element(page.elementLocator(screen.container))
       .toMatchScreenshot({ ...animationScreenshotOptions, comparatorOptions: { allowedMismatchedPixelRatio: 0.01 } });
     unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spread timing — computed styles (dark only; pins the parametrization, not
+// pixels — duration changes don't move a frozen-fraction screenshot, see
+// shared.ts's spreadSetupBase/spreadSelfTriggers doc). MenuItem sweeps a
+// wider axis than buttons so it carries its own slower --spread-in/
+// --spread-out values (ui#16 2026-07-23 animation ruling); Button stays on
+// the shared defaults, proving the parametrization is menu-only.
+// ---------------------------------------------------------------------------
+
+describe("MenuItem/Button spread timing — computed styles", () => {
+  it("menuitem-spread-timing-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: "200px" }}>
+          <MenuItem>Unselected Item</MenuItem>
+        </div>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+
+    // Rest — before any hover, the exit/idle transition (spreadSetupBase) applies.
+    expect(afterGeometryDuration(el)).toBe("0.6s");
+
+    // Hover — the self-trigger transition (spreadSelfTriggers) takes over.
+    await btn.hover();
+    await waitForAnimationFrame();
+    expect(afterGeometryDuration(el)).toBe("0.4s");
+  });
+
+  it("button-spread-timing-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Button>A button</Button>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "A button" });
+    const el = btn.element() as HTMLElement;
+
+    // Rest — defaults untouched by the menu-only parametrization.
+    expect(afterGeometryDuration(el)).toBe("0.4s");
+
+    // Hover — defaults untouched.
+    await btn.hover();
+    await waitForAnimationFrame();
+    expect(afterGeometryDuration(el)).toBe("0.25s");
   });
 });

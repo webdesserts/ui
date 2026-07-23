@@ -49,7 +49,12 @@ export const spreadSetupBase = [
   // ::after setup
   "after:absolute after:-z-1",
   "after:bg-[var(--spread-bg-rest,var(--interactive-border))]",
-  "after:[transition:top_400ms_ease-in-out,left_400ms_ease-in-out,right_400ms_ease-in-out,bottom_400ms_ease-in-out,width_400ms_ease-in-out,height_400ms_ease-in-out,margin_400ms_ease-in-out,background-color_600ms_ease-in]",
+  // Geometry entries ride --spread-out (default 400ms, matching this file's
+  // former hardcoded value) so a host element can slow its own exit — see
+  // MenuItem (Button.tsx), which sweeps a wider axis than buttons and sets
+  // 600ms. Background-color stays hardcoded at 600ms — distance-independent,
+  // untouched by the menu-only tune.
+  "after:[transition:top_var(--spread-out,400ms)_ease-in-out,left_var(--spread-out,400ms)_ease-in-out,right_var(--spread-out,400ms)_ease-in-out,bottom_var(--spread-out,400ms)_ease-in-out,width_var(--spread-out,400ms)_ease-in-out,height_var(--spread-out,400ms)_ease-in-out,margin_var(--spread-out,400ms)_ease-in-out,background-color_600ms_ease-in]",
 ].join(" ");
 
 /**
@@ -60,16 +65,18 @@ export const spreadSetupBase = [
  */
 export const spreadSelfTriggers = [
   "transition-[color,opacity] duration-200",
-  // Hover — fill + text inversion
+  // Hover — fill + text inversion. Geometry entries ride --spread-in
+  // (default 250ms, matching this file's former hardcoded value) — see
+  // spreadSetupBase's comment above for the --spread-out counterpart.
   "not-disabled:hover:text-interactive-text",
   "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+  "not-disabled:hover:after:[transition:top_var(--spread-in,250ms),left_var(--spread-in,250ms),right_var(--spread-in,250ms),bottom_var(--spread-in,250ms),width_var(--spread-in,250ms),height_var(--spread-in,250ms),margin_var(--spread-in,250ms),background-color_200ms]",
   // Focus-visible — same as hover
   "not-disabled:focus-visible:text-interactive-text",
   "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
   "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
-  "not-disabled:focus-visible:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+  "not-disabled:focus-visible:after:[transition:top_var(--spread-in,250ms),left_var(--spread-in,250ms),right_var(--spread-in,250ms),bottom_var(--spread-in,250ms),width_var(--spread-in,250ms),height_var(--spread-in,250ms),margin_var(--spread-in,250ms),background-color_200ms]",
 ].join(" ");
 
 /** Bar geometry per border side (resting state position). */
