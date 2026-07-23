@@ -61,7 +61,7 @@ const TRIGGER_C = cn(
   "transition-[color,opacity] duration-200",
   "border-b-2 transition-[border-color] duration-200",
   "not-disabled:hover:border-interactive-bg",
-  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  "not-disabled:hover:after:top-0 not-disabled:hover:after:left-0 not-disabled:hover:after:right-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-[calc(100%-2px)] not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-surface-raised",
   "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
   "not-disabled:focus-visible:text-surface-base",
@@ -78,7 +78,7 @@ const TRIGGER_C_RESTING = cn(spreadBarClasses.bottom, "border-interactive-border
 
 const TRIGGER_C_OPEN = cn(
   "border-interactive-bg",
-  "after:inset-0 after:w-full after:h-full after:m-0 after:bg-surface-raised",
+  "after:top-0 after:left-0 after:right-0 after:w-full after:h-[calc(100%-2px)] after:m-0 after:bg-surface-raised",
 );
 
 const PLACEHOLDER_C = cn(
@@ -126,16 +126,22 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
   );
 }
 
-/** Mirrors the test fixture's OpenPanel — no selected glyph, Michael's ruling
- *  (feed 1658): selected state renders via MenuItem's `selected` prop alone
- *  here; the MenuItem restyle candidates are the page's other section below. */
+/** Mirrors the test fixture's OpenPanel (round 4: full-height rail + 2px
+ *  seam + 2px offset — see that file's OpenPanel comment for the full
+ *  rationale). No selected glyph, Michael's ruling (feed 1658): selected
+ *  state renders via MenuItem's `selected` prop alone here; the MenuItem
+ *  restyle candidates are the page's other section below. */
 function OpenPanel({ width }: { width: number }) {
   return (
-    <div className="glass-panel rounded-b-md py-1 mt-1" style={{ width }}>
+    <div
+      className="glass-panel rounded-b-md py-1 mt-0.5 relative overflow-hidden"
+      style={{ width, "--spread-bg-rest": "transparent", "--spread-fill-left": "4px" } as React.CSSProperties}
+    >
+      <div aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-interactive-border" />
       <MenuItem>
         <span className="truncate">Built-in Microphone</span>
       </MenuItem>
-      <MenuItem selected>
+      <MenuItem selected style={{ "--spread-fill-left": "0px" } as React.CSSProperties}>
         <span className="truncate">USB Headset</span>
       </MenuItem>
       <MenuItem>

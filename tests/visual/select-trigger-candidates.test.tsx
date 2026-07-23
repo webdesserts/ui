@@ -171,7 +171,10 @@ function CandidateB({ hasValue, open = false }: { hasValue: boolean; open?: bool
 // distinguisher: buttons fully invert, this candidate answers with a strong
 // border + a quiet fill). Focus-visible is (b)'s full-invert block verbatim,
 // so hover is the only variable between the two candidates' interaction
-// states.
+// states. Round 4 (2026-07-23 ~17:25Z ruling): the grown fill stops 2px
+// short of the border on both hover and open, leaving a transparent seam
+// (bg-surface-input showing through) between the fill and the real border —
+// see the hover line and TRIGGER_C_OPEN below.
 // ---------------------------------------------------------------------------
 
 const TRIGGER_C = cn(
@@ -190,8 +193,12 @@ const TRIGGER_C = cn(
   "not-disabled:hover:border-interactive-bg",
   // Subtle fill spreads up from the border on hover — (b)'s exact grow
   // mechanism/timing, tinted with the quiet surface-raised token instead of
-  // a full interactive-bg invert.
-  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  // a full interactive-bg invert. Height stops 2px short (h-[calc(100%-2px)]
+  // vs h-full) instead of using inset-0's bottom-0: the padding box's bottom
+  // edge sits at the real border's top edge, so the shortfall is the seam —
+  // bottom is dropped rather than set, so top+height alone determine the
+  // box (no over-constraint to reason about).
+  "not-disabled:hover:after:top-0 not-disabled:hover:after:left-0 not-disabled:hover:after:right-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-[calc(100%-2px)] not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-surface-raised",
   "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
   // Focus-visible — (b)'s full-invert block, copied verbatim. Hover is this
@@ -231,10 +238,13 @@ const TRIGGER_C_RESTING = cn(spreadBarClasses.bottom, "border-interactive-border
  *  menu is open, not just while the pointer happens to rest on the
  *  trigger). Same border color + fill target the hover block above sets via
  *  :hover, applied here unconditionally instead — swapped in exclusively for
- *  TRIGGER_C_RESTING (see that constant's comment), never layered with it. */
+ *  TRIGGER_C_RESTING (see that constant's comment), never layered with it.
+ *  Carries the same 2px seam as the hover geometry (top-0 + h-[calc(100%-
+ *  2px)], bottom dropped) — the gap between fill and border stays visible
+ *  for the whole time the menu is open, not just on hover. */
 const TRIGGER_C_OPEN = cn(
   "border-interactive-bg",
-  "after:inset-0 after:w-full after:h-full after:m-0 after:bg-surface-raised",
+  "after:top-0 after:left-0 after:right-0 after:w-full after:h-[calc(100%-2px)] after:m-0 after:bg-surface-raised",
 );
 
 const PLACEHOLDER_C = cn(
@@ -268,18 +278,46 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
 // needed for this slice; plain flow content directly below the trigger, so
 // unlike Slice 2's real floating listbox this doesn't need fullPage/explicit
 // sizing — see the plan's Forecast correction D). Width-matched to the
-// trigger, mirroring the exemplar's own size() middleware; offset mirrors
-// the exemplar's offset(4). No selected-glyph — Michael's ruling (feed
-// 1658): selected state renders via MenuItem's own `selected` prop alone.
+// trigger. No selected-glyph — Michael's ruling (feed 1658): selected state
+// renders via MenuItem's own `selected` prop alone.
+//
+// Round 4 (2026-07-23 ~17:25Z + ~20:30Z rulings) — full-height rail + seam:
+// the panel itself paints the menu's left border as one continuous column
+// (a first-child `absolute inset-y-0` div) rather than relying on each
+// row's own resting bar, which the panel's `py-1` used to fragment into
+// visibly separate segments ("ends early"). `overflow-hidden` clips the
+// column's square corners inside `rounded-b-md`. Rows neutralize their own
+// resting bar via `--spread-bg-rest: transparent` (inherited from the
+// panel, TRIGGER_C's own precedent) so the column reads as the only border;
+// the SELECTED row's own inline `--spread-bg-rest: var(--interactive-bg)`
+// (Button.tsx) sits closer than the inherited value and wins, so its 2px
+// bar survives and overlays its segment of the column — "the border
+// darkens at the selected row." Fills clear the column via the inherited
+// `--spread-fill-left: 4px` (2px column + 2px seam, commit 1's var); the
+// SELECTED row overrides it back to `0px` so its own hover fill grows from
+// its bar at x=0 instead of seaming — it already overlays the column at
+// rest, so consuming it on hover keeps the border from visibly breaking
+// mid-hover (a judge-round call — flag it for Michael; Slice 2 could seam
+// every row instead via a ::before bar if he prefers uniform seaming).
+// `mt-0.5` (2px) is the trigger→panel offset — Michael's ~20:30Z ruling
+// couples it to the seam width, not an independent value: "however many px
+// you put between the border and the fill of the input, the gap from the
+// border to the menu should match." If the seam ever resizes, this offset
+// must follow it (Slice 2: derive both from one shared value so the
+// coupling can't drift).
 // ---------------------------------------------------------------------------
 
 function OpenPanel({ width }: { width: number }) {
   return (
-    <div className="glass-panel rounded-b-md py-1 mt-1" style={{ width }}>
+    <div
+      className="glass-panel rounded-b-md py-1 mt-0.5 relative overflow-hidden"
+      style={{ width, "--spread-bg-rest": "transparent", "--spread-fill-left": "4px" } as React.CSSProperties}
+    >
+      <div aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-interactive-border" />
       <MenuItem>
         <span className="truncate">Built-in Microphone</span>
       </MenuItem>
-      <MenuItem selected>
+      <MenuItem selected style={{ "--spread-fill-left": "0px" } as React.CSSProperties}>
         <span className="truncate">USB Headset</span>
       </MenuItem>
       <MenuItem>
@@ -326,6 +364,126 @@ describe("Select trigger open panel — computed corner radii", () => {
     // today's specific number.
     expect(panelStyle.borderBottomLeftRadius).toBe(referenceRadius);
     expect(panelStyle.borderBottomRightRadius).toBe(referenceRadius);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 4 computed pins — full-height rail, 2px seam (menu + trigger), 2px
+// offset. The default screenshot comparator's tolerance is proven blind at
+// 2px scale (see the corner-radii pin above) — these are the actual
+// regression guards for "attached-menu detailing" (ui#7 round 4, Michael's
+// 2026-07-23 ~17:25Z/~20:30Z rulings).
+// ---------------------------------------------------------------------------
+
+describe("Select round 4 — rail, seam, and offset (computed)", () => {
+  it("select-open-panel-rail-full-height-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <OpenPanel width={FRAME_WIDTH} />
+      </TestWrapper>,
+    );
+    const panel = screen.container.querySelector<HTMLElement>(".glass-panel")!;
+    const rail = screen.container.querySelector<HTMLElement>(".glass-panel > [aria-hidden]")!;
+
+    // THE ruling (2026-07-23 ~17:25Z): "It should appear as if it's one
+    // single border stretching the full height" — the rail column spans the
+    // panel's own padding-box height exactly, not the row stack's.
+    expect(rail.clientHeight).toBe(panel.clientHeight);
+  });
+
+  it("select-open-panel-selected-overlay-rest-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <OpenPanel width={FRAME_WIDTH} />
+        <div data-testid="interactive-bg-reference" style={{ backgroundColor: "var(--interactive-bg)" }} />
+      </TestWrapper>,
+    );
+    const selected = screen.getByRole("button", { name: "USB Headset" }).element() as HTMLElement;
+    const interactiveBgRef = screen.container.querySelector(
+      '[data-testid="interactive-bg-reference"]',
+    ) as HTMLElement;
+
+    // At rest (before any hover): the selected row's own --spread-bg-rest
+    // override (Button.tsx) beats the panel's inherited "transparent", so
+    // its 2px bar survives and overlays its rail segment exactly — "the
+    // border darkens at the selected row."
+    expect(window.getComputedStyle(selected, "::after").width).toBe("2px");
+    expect(window.getComputedStyle(selected, "::after").backgroundColor).toBe(
+      window.getComputedStyle(interactiveBgRef).backgroundColor,
+    );
+  });
+
+  it("select-open-panel-seam-contrast-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <OpenPanel width={FRAME_WIDTH} />
+      </TestWrapper>,
+    );
+    const unselected = screen.getByRole("button", { name: "Built-in Microphone" });
+    const selected = screen.getByRole("button", { name: "USB Headset" });
+    const unselectedEl = unselected.element() as HTMLElement;
+    const selectedEl = selected.element() as HTMLElement;
+
+    // Hovered unselected row: fill clears the rail via the inherited 4px
+    // (forecast-caught — at rest, left is 0 for every row via
+    // spreadBarClasses regardless of the override; only a hovered check
+    // exercises the consume/seam split).
+    let restore = slowTransitions();
+    await unselected.hover();
+    await waitForAnimationFrame();
+    let anims = freezeAnimationsAt(unselectedEl, 1, { subtree: true });
+    restore();
+    expect(window.getComputedStyle(unselectedEl, "::after").left).toBe("4px");
+    unfreezeAnimations(anims);
+
+    // Hovered selected row: its own 0px override consumes the rail segment
+    // instead of seaming, so the border never visibly breaks mid-hover.
+    // Playwright's real mouse move to this element clears the previous
+    // hover — no manual restPointer needed between the two.
+    restore = slowTransitions();
+    await selected.hover();
+    await waitForAnimationFrame();
+    anims = freezeAnimationsAt(selectedEl, 1, { subtree: true });
+    restore();
+    expect(window.getComputedStyle(selectedEl, "::after").left).toBe("0px");
+    unfreezeAnimations(anims);
+  });
+
+  it("select-trigger-c-open-seam-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <Frame>
+          <CandidateC hasValue open />
+        </Frame>
+      </TestWrapper>,
+    );
+    await restPointer(screen.container);
+    const trigger = screen.container.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    const afterHeight = parseFloat(window.getComputedStyle(trigger, "::after").height);
+
+    // The seam: the fill's height stops 2px short of the padding box (whose
+    // bottom edge sits at the real border's top edge) — see TRIGGER_C's
+    // hover-line comment. Parsed as a number (not a raw string) to tolerate
+    // any sub-pixel float noise from the calc(100% - 2px) resolution.
+    expect(afterHeight).toBeCloseTo(trigger.clientHeight - 2, 1);
+  });
+
+  it("select-open-panel-offset-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <OpenPanel width={FRAME_WIDTH} />
+      </TestWrapper>,
+    );
+    const panel = screen.container.querySelector<HTMLElement>(".glass-panel")!;
+
+    // Michael's ~20:30Z ruling: the trigger→panel gap is coupled to the
+    // seam width, not independent — 2px seam ⇒ 2px offset (mt-0.5).
+    expect(window.getComputedStyle(panel).marginTop).toBe("2px");
   });
 });
 
