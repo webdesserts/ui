@@ -68,13 +68,20 @@ export const spreadSelfTriggers = [
   // Hover — fill + text inversion. Geometry entries ride --spread-in
   // (default 250ms, matching this file's former hardcoded value) — see
   // spreadSetupBase's comment above for the --spread-out counterpart.
+  // --spread-fill-left insets the grown fill's left edge (default 0px —
+  // full-bleed, byte-identical to every existing consumer): a menu panel
+  // sets 4px (2px full-height rail + 2px seam) so row fills clear the
+  // panel's border column instead of covering it. Left-only for now (the
+  // side MenuItem's bar occupies) — other sides hand-roll their own inset
+  // like TRIGGER_C (select-trigger-candidates.test.tsx) until a real need
+  // arises.
   "not-disabled:hover:text-interactive-text",
-  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  "not-disabled:hover:after:top-0 not-disabled:hover:after:right-0 not-disabled:hover:after:bottom-0 not-disabled:hover:after:left-[var(--spread-fill-left,0px)] not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
   "not-disabled:hover:after:[transition:top_var(--spread-in,250ms),left_var(--spread-in,250ms),right_var(--spread-in,250ms),bottom_var(--spread-in,250ms),width_var(--spread-in,250ms),height_var(--spread-in,250ms),margin_var(--spread-in,250ms),background-color_200ms]",
   // Focus-visible — same as hover
   "not-disabled:focus-visible:text-interactive-text",
-  "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
+  "not-disabled:focus-visible:after:top-0 not-disabled:focus-visible:after:right-0 not-disabled:focus-visible:after:bottom-0 not-disabled:focus-visible:after:left-[var(--spread-fill-left,0px)] not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
   "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
   "not-disabled:focus-visible:after:[transition:top_var(--spread-in,250ms),left_var(--spread-in,250ms),right_var(--spread-in,250ms),bottom_var(--spread-in,250ms),width_var(--spread-in,250ms),height_var(--spread-in,250ms),margin_var(--spread-in,250ms),background-color_200ms]",
 ].join(" ");

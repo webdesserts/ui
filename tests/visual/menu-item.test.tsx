@@ -350,4 +350,28 @@ describe("MenuItem/Button spread timing — computed styles", () => {
     await waitForAnimationFrame();
     expect(afterGeometryDuration(el)).toBe("0.25s");
   });
+
+  // --spread-fill-left default proof (shared.ts, ui#7 round 4 commit 1): a
+  // bare MenuItem never sets the var, so the hover-triggered fill's ::after
+  // left resolves the 0px fallback — byte-identical to the pre-decomposition
+  // inset-0 behavior. getComputedStyle returns the resolved px value, not
+  // the var() expression. The mechanism only becomes load-bearing once a
+  // menu panel sets a non-default value (select-trigger-candidates.test.tsx's
+  // seam-contrast pin).
+  it("menuitem-spread-fill-left-default-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: "200px" }}>
+          <MenuItem>Unselected Item</MenuItem>
+        </div>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Unselected Item" });
+    const el = btn.element() as HTMLElement;
+
+    await btn.hover();
+    await waitForAnimationFrame();
+    expect(window.getComputedStyle(el, "::after").left).toBe("0px");
+  });
 });
