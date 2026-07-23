@@ -290,6 +290,46 @@ function OpenPanel({ width }: { width: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Open-state panel — computed corner radii (not pixels). The default
+// toMatchScreenshot() comparator's tolerance does NOT catch a corner-radius-
+// scale diff: a defeat-check sever of rounded-b-md -> rounded-md produced a
+// genuinely different render (21970 vs 21780 bytes, different md5) that
+// every b/c-open screenshot test still passed. This computed-style pin,
+// mirroring commit 2's timing-duration pin pattern, is the actual regression
+// guard for the corner-squaring change ("appears attached" — ui#7).
+// ---------------------------------------------------------------------------
+
+describe("Select trigger open panel — computed corner radii", () => {
+  it("open-panel-square-top-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <OpenPanel width={FRAME_WIDTH} />
+        <div data-testid="rounded-md-reference" className="rounded-md" />
+      </TestWrapper>,
+    );
+    const panel = screen.container.querySelector<HTMLElement>(".glass-panel")!;
+    const reference = screen.container.querySelector(
+      '[data-testid="rounded-md-reference"]',
+    ) as HTMLElement;
+    const panelStyle = window.getComputedStyle(panel);
+    const referenceRadius = window.getComputedStyle(reference).borderTopLeftRadius;
+
+    // Top corners: square — the "appears attached" read (rounded-b-md only
+    // rounds the bottom edge).
+    expect(panelStyle.borderTopLeftRadius).toBe("0px");
+    expect(panelStyle.borderTopRightRadius).toBe("0px");
+
+    // Bottom corners: match rounded-md's own radius token (rounded-b-md's
+    // remaining rounded edge) — compared against a reference element rather
+    // than a hardcoded pixel value so the pin tracks the design token, not
+    // today's specific number.
+    expect(panelStyle.borderBottomLeftRadius).toBe(referenceRadius);
+    expect(panelStyle.borderBottomRightRadius).toBe(referenceRadius);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Candidate (b) — ui's-own-TextInput-chrome + right-side chevron
 // ---------------------------------------------------------------------------
 
