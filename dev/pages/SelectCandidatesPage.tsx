@@ -20,11 +20,12 @@ const TRIGGER_WIDTH = 280;
 // ---------------------------------------------------------------------------
 // Trigger candidate class strings — byte-identical to
 // tests/visual/select-trigger-candidates.test.tsx's TRIGGER_B / PLACEHOLDER_B
-// / TRIGGER_C / TRIGGER_C_STYLE / PLACEHOLDER_C, that file's permanent record
-// of the ui#7 verdict screenshots. Duplicated here (not imported from the
-// test file) so this page renders the exact same candidates live; both files
-// import the same shared primitives, so they stay byte-identical
-// automatically rather than drifting as a hand-copied snapshot.
+// / TRIGGER_C / TRIGGER_C_STYLE / TRIGGER_C_RESTING / TRIGGER_C_OPEN /
+// PLACEHOLDER_C, that file's permanent record of the ui#7 verdict
+// screenshots. Duplicated here (not imported from the test file) so this
+// page renders the exact same candidates live; both files import the same
+// shared primitives, so they stay byte-identical automatically rather than
+// drifting as a hand-copied snapshot.
 // ---------------------------------------------------------------------------
 
 const TRIGGER_B = cn(
@@ -56,12 +57,11 @@ const TRIGGER_C = cn(
   "group flex w-full items-center justify-between rounded-t-sm",
   "bg-surface-input",
   spreadSetupBase,
-  spreadBarClasses.bottom,
   interactiveRing,
   "cursor-pointer outline-none",
   "h-10 px-4 text-sm text-text-primary",
   "transition-[color,opacity] duration-200",
-  "border-b border-rule-subtle transition-[border-color] duration-200",
+  "border-b-2 transition-[border-color] duration-200",
   "not-disabled:hover:border-interactive-bg",
   "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
   "not-disabled:hover:after:bg-surface-raised",
@@ -75,6 +75,13 @@ const TRIGGER_C = cn(
 const TRIGGER_C_STYLE = {
   "--spread-bg-rest": "transparent",
 } as React.CSSProperties;
+
+const TRIGGER_C_RESTING = cn(spreadBarClasses.bottom, "border-interactive-border");
+
+const TRIGGER_C_OPEN = cn(
+  "border-interactive-bg",
+  "after:inset-0 after:w-full after:h-full after:m-0 after:bg-surface-raised",
+);
 
 const PLACEHOLDER_C = cn(
   "text-text-secondary transition-[color,opacity] duration-200",
@@ -110,7 +117,7 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
       role="combobox"
       aria-expanded={open}
       aria-haspopup="listbox"
-      className={TRIGGER_C}
+      className={cn(TRIGGER_C, open ? TRIGGER_C_OPEN : TRIGGER_C_RESTING)}
       style={TRIGGER_C_STYLE}
     >
       <span className={cn("truncate", !hasValue && PLACEHOLDER_C)}>

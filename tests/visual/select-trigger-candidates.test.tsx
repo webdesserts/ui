@@ -179,14 +179,15 @@ const TRIGGER_C = cn(
   "group flex w-full items-center justify-between rounded-t-sm",
   "bg-surface-input",
   spreadSetupBase,
-  spreadBarClasses.bottom,
   interactiveRing,
   "cursor-pointer outline-none",
   "h-10 px-4 text-sm text-text-primary",
   "transition-[color,opacity] duration-200",
-  // Real border — plays the resting-line role (the bar's own rest value is
-  // neutralized via TRIGGER_C_STYLE below so it doesn't double this line).
-  "border-b border-rule-subtle transition-[border-color] duration-200",
+  // Real border weight — plays the resting-line role (the bar's own rest
+  // value is neutralized via TRIGGER_C_STYLE below so it doesn't double this
+  // line). Color/geometry come from TRIGGER_C_RESTING or TRIGGER_C_OPEN
+  // below (applied exclusively, not here — see TRIGGER_C_RESTING's comment).
+  "border-b-2 transition-[border-color] duration-200",
   "not-disabled:hover:border-interactive-bg",
   // Subtle fill spreads up from the border on hover — (b)'s exact grow
   // mechanism/timing, tinted with the quiet surface-raised token instead of
@@ -210,6 +211,33 @@ const TRIGGER_C_STYLE = {
   "--spread-bg-rest": "transparent",
 } as React.CSSProperties;
 
+/** Rest-state bar geometry + border color: the resting spread bar position
+ *  (spreadBarClasses.bottom) plus the line's own color, --interactive-border
+ *  — matches the buttons' own resting spread bar exactly, 2px weight
+ *  (Michael's 2026-07-23 fix-round ruling: "the same border color as our
+ *  buttons", thicker than the prior hairline). Exclusive with TRIGGER_C_OPEN
+ *  below rather than layered under it: confirmed via getComputedStyle that
+ *  two unconditional same-specificity utilities targeting the same property
+ *  don't reliably resolve by class-list order here —
+ *  border-interactive-border kept winning border-color over an unconditional
+ *  border-interactive-bg placed after it, and the ::after geometry actually
+ *  split per-property (top from these rest classes, height from the open
+ *  ones), clipping the fill to near-invisible instead of either intended
+ *  look. Swapping the whole group avoids the ambiguity outright. */
+const TRIGGER_C_RESTING = cn(spreadBarClasses.bottom, "border-interactive-border");
+
+/** Open holds the hover-equivalent look statically (Michael's 2026-07-23
+ *  ruling: "the 'hover state' should be active while the select dropdown is
+ *  open" — so the inverted border line stays visible for the whole time the
+ *  menu is open, not just while the pointer happens to rest on the
+ *  trigger). Same border color + fill target the hover block above sets via
+ *  :hover, applied here unconditionally instead — swapped in exclusively for
+ *  TRIGGER_C_RESTING (see that constant's comment), never layered with it. */
+const TRIGGER_C_OPEN = cn(
+  "border-interactive-bg",
+  "after:inset-0 after:w-full after:h-full after:m-0 after:bg-surface-raised",
+);
+
 const PLACEHOLDER_C = cn(
   "text-text-secondary transition-[color,opacity] duration-200",
   // No hover invert — text does not flip on hover for this candidate, only
@@ -225,7 +253,7 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
       role="combobox"
       aria-expanded={open}
       aria-haspopup="listbox"
-      className={TRIGGER_C}
+      className={cn(TRIGGER_C, open ? TRIGGER_C_OPEN : TRIGGER_C_RESTING)}
       style={TRIGGER_C_STYLE}
     >
       <span className={cn("truncate", !hasValue && PLACEHOLDER_C)}>
