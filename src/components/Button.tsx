@@ -515,7 +515,11 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
       <button
         ref={ref}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+          // Rows match the standard control height (button md / TextInput
+          // md / the select trigger are all h-10) per Michael's 2026-07-23
+          // row-height ruling. min-h, not h — multi-line (description-
+          // style) rows must still grow beyond 40px from their own content.
+          "flex w-full min-h-10 items-center gap-2 px-3 py-1.5 text-left text-sm",
           interactiveBase,
 
           spreadSetupBase,

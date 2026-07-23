@@ -185,6 +185,34 @@ describe("MenuItem selected computed styles", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Row height — computed style (dark only; the value doesn't vary by theme).
+// Pins the standard-control-height contract (button md / TextInput md / the
+// select trigger are all h-10) — the default screenshot comparator's
+// tolerance is proven blind to small-geometry diffs (select-trigger-
+// candidates.test.tsx's corner-radii pin), so this is the actual regression
+// guard for the row-height change, not the pixel captures around it.
+// ---------------------------------------------------------------------------
+
+describe("MenuItem row height — computed style", () => {
+  it("menuitem-standard-control-height-computed", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: "200px" }}>
+          <MenuItem>Unselected Item</MenuItem>
+        </div>
+      </TestWrapper>,
+    );
+    const el = screen.getByRole("button", { name: "Unselected Item" }).element() as HTMLElement;
+
+    // getBoundingClientRect over clientHeight — clientHeight rounds to an
+    // integer and would mask sub-pixel drift; height alone (not width) since
+    // width already varies with content per the flex row's own w-full.
+    expect(el.getBoundingClientRect().height).toBe(40);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Focus-visible — dark only
 // ---------------------------------------------------------------------------
 
