@@ -145,72 +145,14 @@ function OpenPanel({ width }: { width: number }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Menu timing compare (ui#16) — 2x2 A/B grid for Michael's timing verdict.
-// Page-only (no fixture, no baselines — timing is unphotographable). Columns
-// are the two timing candidates; the "Previous" column overrides MenuItem's
-// own --spread-in/--spread-out defaults per-item, proving the merge order
-// (Button.tsx's MenuItem: {...props} spreads first, so this wins). Rows are
-// the two row shapes Michael asked to compare (single-line vs a
-// description-style two-line child) — the description row uses plain
-// children, no MenuItem API change.
-// ---------------------------------------------------------------------------
-
-const PREVIOUS_TIMING_STYLE = {
-  "--spread-in": "250ms",
-  "--spread-out": "400ms",
-} as React.CSSProperties;
-
-const TIMING_COMPARE_ITEMS = [
-  { title: "Built-in Microphone", description: "Internal speaker and mic" },
-  { title: "USB Headset", description: "Wired, connected via USB-C" },
-  { title: "Bluetooth Speaker", description: "Paired, currently active" },
-];
-
-function TimingCompareLabel({ title }: { title: string }) {
-  return <span className="truncate">{title}</span>;
-}
-
-function TimingCompareDescriptionLabel({ title, description }: { title: string; description: string }) {
-  return (
-    <span className="flex flex-col min-w-0">
-      <span className="truncate">{title}</span>
-      <span className="truncate text-xs text-text-muted">{description}</span>
-    </span>
-  );
-}
-
-function TimingComparePanel({
-  descriptionStyle,
-  timingOverride,
-}: {
-  descriptionStyle: boolean;
-  timingOverride?: React.CSSProperties;
-}) {
-  return (
-    <div className="glass-panel rounded-md py-1" style={{ width: TRIGGER_WIDTH }}>
-      {TIMING_COMPARE_ITEMS.map((item, i) => (
-        <MenuItem key={item.title} selected={i === 1} style={timingOverride}>
-          {descriptionStyle ? (
-            <TimingCompareDescriptionLabel title={item.title} description={item.description} />
-          ) : (
-            <TimingCompareLabel title={item.title} />
-          )}
-        </MenuItem>
-      ))}
-    </div>
-  );
-}
-
 export function SelectCandidatesPage() {
   return (
     <div className="p-8 max-w-3xl space-y-10">
       <header>
         <h1 className="text-3xl font-light">Select (candidates)</h1>
         <p className="text-text-secondary mt-2 text-sm">
-          Temporary review page for the ui#7 select trigger verdict and the
-          ui#16 menu timing compare — replaced by the real components when
-          they ship.
+          Temporary review page for the ui#7 select trigger verdict —
+          replaced by the real components when they ship.
         </p>
       </header>
 
@@ -252,52 +194,6 @@ export function SelectCandidatesPage() {
           <CandidateC hasValue open />
           <OpenPanel width={TRIGGER_WIDTH} />
         </div>
-      </section>
-
-      <section className="space-y-4">
-        <SectionLabel>Menu timing compare (ui#16)</SectionLabel>
-        <p className="text-xs text-text-muted">
-          Columns: Tuned (400ms in / 600ms out, the component defaults) vs
-          Previous (250ms in / 400ms out, per-item override). Rows:
-          single-line vs description-style.
-        </p>
-
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            Single-line rows
-          </p>
-          <div className="flex flex-wrap gap-6">
-            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-              <p className="text-xs text-text-muted">Tuned — 400ms in / 600ms out</p>
-              <TimingComparePanel descriptionStyle={false} />
-            </div>
-            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-              <p className="text-xs text-text-muted">Previous — 250ms in / 400ms out</p>
-              <TimingComparePanel descriptionStyle={false} timingOverride={PREVIOUS_TIMING_STYLE} />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            Description-style rows
-          </p>
-          <div className="flex flex-wrap gap-6">
-            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-              <p className="text-xs text-text-muted">Tuned — 400ms in / 600ms out</p>
-              <TimingComparePanel descriptionStyle />
-            </div>
-            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-              <p className="text-xs text-text-muted">Previous — 250ms in / 400ms out</p>
-              <TimingComparePanel descriptionStyle timingOverride={PREVIOUS_TIMING_STYLE} />
-            </div>
-          </div>
-        </div>
-
-        <p className="text-xs text-text-muted italic">
-          Temporary A/B for the menu timing verdict — the losers and this
-          section go away after Michael's pick.
-        </p>
       </section>
     </div>
   );

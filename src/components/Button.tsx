@@ -498,15 +498,16 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
     // overrides with the full merge, own vars first so a user-provided key
     // wins.
     //
-    // --spread-in/--spread-out slow MenuItem's spread relative to the shared
-    // 250ms/400ms defaults (shared.ts): a menu row sweeps its long axis
-    // (~270px) where buttons sweep their short axis (~40px) — the same
-    // duration reads far faster over more travel. Picklist-study-derived
-    // (ui#16 2026-07-23 animation ruling); unconditional, unlike
-    // --spread-bg-rest above.
+    // --spread-in slows MenuItem's spread entrance relative to the shared
+    // 250ms default (shared.ts): a menu row sweeps its long axis (~270px)
+    // where buttons sweep their short axis (~40px) — the same duration reads
+    // far faster over more travel. 300ms is Michael's live A/B verdict
+    // (ui#16 2026-07-23), true for both single- and double-line menus. The
+    // exit inherits the shared 400ms default unchanged (var(--spread-out,
+    // 400ms) in shared.ts) — the live A/B found it wasn't the animate-in that
+    // felt off. Unconditional, unlike --spread-bg-rest above.
     const ownVars = {
-      "--spread-in": "400ms",
-      "--spread-out": "600ms",
+      "--spread-in": "300ms",
       ...(selected ? { "--spread-bg-rest": "var(--interactive-bg)" } : {}),
     } as React.CSSProperties;
 

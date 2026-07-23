@@ -20,11 +20,8 @@ afterEach(() => {
  * bottom/width/height/margin entries — everything except background-color)
  * by finding "top"'s position in transitionProperty and indexing the same
  * position in transitionDuration. Indexed by property name rather than a
- * hardcoded position: at rest, MenuItem's overridden geometry duration
- * (--spread-out: 600ms) coincides with the untouched background-color rest
- * duration (also 600ms — shared.ts:47-53's own rest transition), so the
- * joined duration string reads uniformly and a fixed index would be
- * ambiguous about which entry it actually sampled.
+ * hardcoded position so the helper stays correct regardless of how many
+ * geometry entries precede background-color in the transition list.
  */
 function afterGeometryDuration(el: Element): string {
   const style = window.getComputedStyle(el, "::after");
@@ -300,9 +297,11 @@ describe("MenuItem spread animation", () => {
 // Spread timing — computed styles (dark only; pins the parametrization, not
 // pixels — duration changes don't move a frozen-fraction screenshot, see
 // shared.ts's spreadSetupBase/spreadSelfTriggers doc). MenuItem sweeps a
-// wider axis than buttons so it carries its own slower --spread-in/
-// --spread-out values (ui#16 2026-07-23 animation ruling); Button stays on
-// the shared defaults, proving the parametrization is menu-only.
+// wider axis than buttons so it carries its own slower --spread-in value
+// (300ms vs the shared 250ms default; ui#16 2026-07-23 verdict). The exit
+// duration is unmodified, so rest reads the same 400ms shared default as
+// Button — the hover pin (0.3s vs 0.25s) is what disambiguates the
+// menu-only parametrization from Button's untouched defaults.
 // ---------------------------------------------------------------------------
 
 describe("MenuItem/Button spread timing — computed styles", () => {
@@ -318,13 +317,19 @@ describe("MenuItem/Button spread timing — computed styles", () => {
     const btn = screen.getByRole("button", { name: "Unselected Item" });
     const el = btn.element() as HTMLElement;
 
-    // Rest — before any hover, the exit/idle transition (spreadSetupBase) applies.
-    expect(afterGeometryDuration(el)).toBe("0.6s");
+    // Rest — before any hover, the exit/idle transition (spreadSetupBase)
+    // applies. MenuItem no longer overrides --spread-out, so this proves
+    // clean inheritance of the shared 400ms default (same value Button
+    // asserts below).
+    expect(afterGeometryDuration(el)).toBe("0.4s");
 
     // Hover — the self-trigger transition (spreadSelfTriggers) takes over.
+    // 0.3s is MenuItem's own --spread-in override; the contrast with
+    // Button's 0.25s default below is what proves the parametrization is
+    // menu-only.
     await btn.hover();
     await waitForAnimationFrame();
-    expect(afterGeometryDuration(el)).toBe("0.4s");
+    expect(afterGeometryDuration(el)).toBe("0.3s");
   });
 
   it("button-spread-timing-computed", async () => {
