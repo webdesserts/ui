@@ -12,10 +12,8 @@ import {
 import { Button, MenuItem, cn } from "@/src";
 import {
   spreadSetupBase,
-  spreadSelfTriggers,
   spreadBarClasses,
   interactiveRing,
-  interactiveDisabled,
 } from "@/src/components/shared";
 
 /**
@@ -30,9 +28,10 @@ import {
  * definitely don't want Candidate A" — magenta on hover). Permanent durable
  * record, mirroring glass-panel.test.tsx's candidates-as-baselines precedent.
  *
- * Also carries the ui#16 MenuItem selected-state candidates (M1/M2/M3,
- * bottom of file) — same review round, same fixture page, combined per
- * Michael's 2026-07-23 session.
+ * OpenPanel below (used by both candidates' open state) renders real
+ * MenuItems — the ui#16 MenuItem selected-state candidates (M1/M2/M3) that
+ * used to live at the bottom of this file were retired once M1 shipped as
+ * the real MenuItem's selected treatment (see menu-item.test.tsx).
  */
 
 const FRAME_WIDTH = 280;
@@ -276,7 +275,7 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
 
 function OpenPanel({ width }: { width: number }) {
   return (
-    <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
+    <div className="glass-panel rounded-b-md py-1 mt-1" style={{ width }}>
       <MenuItem>
         <span className="truncate">Built-in Microphone</span>
       </MenuItem>
@@ -626,253 +625,5 @@ describe("Select trigger beside a Button", () => {
     );
     await restPointer(screen.container);
     await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// MenuItem selected-state candidates (ui#16) — Michael's 2026-07-23 menu
-// ruling: full invert is reserved for focus; selected needs a quieter
-// treatment that keeps the spread language (border-grows-into-fill) instead
-// of MenuItem's current static `bg-interactive-bg text-interactive-text` (a
-// bypass of the spread system entirely). Hand-rolled fixture markup for the
-// selected row only — non-selected rows are real, unchanged MenuItems; the
-// real MenuItem restyle lands after Michael's pick.
-//
-// `interactiveBase` isn't exported (Button.tsx's own local
-// `cn("cursor-pointer", interactiveRing, interactiveDisabled)`,
-// Button.tsx:23) — recomposed here from the two primitives that are.
-// ---------------------------------------------------------------------------
-
-const menuItemInteractiveBase = cn("cursor-pointer", interactiveRing, interactiveDisabled);
-
-const menuItemBase = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm";
-
-/** M1 "border extended a little" — the static left bar (the spread bar's
- *  resting geometry, recolored to the invert token) plus the same subtle
- *  fill token Candidate C uses. The spread language frozen at a quiet point
- *  — closest to Michael's "as if a left border was configured." */
-const MENU_CANDIDATE_M1 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "bg-surface-raised text-text-primary",
-);
-
-/** Static-bar mechanism: recolors the resting spread bar itself — same
- *  per-instance pattern IconButton's danger variant ships (Button.tsx:286-289).
- *  Hover stays independently correct: spreadSelfTriggers' hover reads
- *  --spread-bg-hover, untouched by this rest-only override. */
-const MENU_CANDIDATE_M1_STYLE = {
-  "--spread-bg-rest": "var(--interactive-bg)",
-} as React.CSSProperties;
-
-/** M2 "quiet fill" — subtle fill + primary text, no persistent bar (the
- *  rest bar stays at its default --interactive-border color, same as every
- *  other row). font-medium adds a legible selected cue via type weight
- *  since there's no color/bar differentiator to lean on here. */
-const MENU_CANDIDATE_M2 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "bg-surface-raised text-text-primary font-medium",
-);
-
-/** M3 "left bar only" — static left bar in the invert token, no fill. */
-const MENU_CANDIDATE_M3 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "text-text-primary",
-);
-
-const MENU_CANDIDATE_M3_STYLE = {
-  "--spread-bg-rest": "var(--interactive-bg)",
-} as React.CSSProperties;
-
-type MenuCandidate = { className: string; style?: React.CSSProperties };
-
-/** Mirrors OpenPanel's structure: real, unchanged MenuItems for the
- *  non-selected rows, hand-rolled candidate markup for the selected row
- *  (targeted for hover capture via data-candidate-row, not exposed as
- *  MenuItem `selected` — that prop still renders the old full-invert style
- *  this round is replacing). */
-function MenuCandidatePanel({ width, candidate }: { width: number; candidate: MenuCandidate }) {
-  return (
-    <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
-      <MenuItem>
-        <span className="truncate">Built-in Microphone</span>
-      </MenuItem>
-      <button
-        type="button"
-        data-candidate-row="selected"
-        className={candidate.className}
-        style={candidate.style}
-      >
-        <span className="truncate">USB Headset</span>
-      </button>
-      <MenuItem>
-        <span className="truncate">Bluetooth Speaker</span>
-      </MenuItem>
-    </div>
-  );
-}
-
-/** Hover the hand-rolled selected row inside a menu candidate panel, freeze
- *  its fill at the fully-settled end state — mirrors captureHover above,
- *  scoped to the row via data-candidate-row rather than [role="combobox"]. */
-async function captureMenuSelectedHover(container: Element) {
-  const row = container.querySelector<HTMLButtonElement>('[data-candidate-row="selected"]')!;
-  const restore = slowTransitions();
-  await page.elementLocator(row).hover();
-  await waitForAnimationFrame();
-  const anims = freezeAnimationsAt(row, 1, { subtree: true });
-  restore();
-  await expect
-    .element(page.elementLocator(container))
-    .toMatchScreenshot(animationScreenshotOptions);
-  unfreezeAnimations(anims);
-}
-
-describe("MenuItem selected candidates — M1 (border extended a little)", () => {
-  it("menu-candidate-m1-open-dark", async () => {
-    document.documentElement.style.colorScheme = "dark";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M1, style: MENU_CANDIDATE_M1_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m1-open-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M1, style: MENU_CANDIDATE_M1_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m1-selected-hover-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M1, style: MENU_CANDIDATE_M1_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await captureMenuSelectedHover(screen.container);
-  });
-});
-
-describe("MenuItem selected candidates — M2 (quiet fill)", () => {
-  it("menu-candidate-m2-open-dark", async () => {
-    document.documentElement.style.colorScheme = "dark";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel width={FRAME_WIDTH} candidate={{ className: MENU_CANDIDATE_M2 }} />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m2-open-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel width={FRAME_WIDTH} candidate={{ className: MENU_CANDIDATE_M2 }} />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m2-selected-hover-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel width={FRAME_WIDTH} candidate={{ className: MENU_CANDIDATE_M2 }} />
-        </Frame>
-      </TestWrapper>,
-    );
-    await captureMenuSelectedHover(screen.container);
-  });
-});
-
-describe("MenuItem selected candidates — M3 (left bar only)", () => {
-  it("menu-candidate-m3-open-dark", async () => {
-    document.documentElement.style.colorScheme = "dark";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M3, style: MENU_CANDIDATE_M3_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m3-open-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M3, style: MENU_CANDIDATE_M3_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await restPointer(screen.container);
-    await expect.element(page.elementLocator(screen.container)).toMatchScreenshot();
-  });
-
-  it("menu-candidate-m3-selected-hover-light", async () => {
-    document.documentElement.style.colorScheme = "light";
-    const screen = await render(
-      <TestWrapper>
-        <Frame>
-          <MenuCandidatePanel
-            width={FRAME_WIDTH}
-            candidate={{ className: MENU_CANDIDATE_M3, style: MENU_CANDIDATE_M3_STYLE }}
-          />
-        </Frame>
-      </TestWrapper>,
-    );
-    await captureMenuSelectedHover(screen.container);
   });
 });

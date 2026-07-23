@@ -1,10 +1,8 @@
 import { MenuItem, cn } from "../../src";
 import {
   spreadSetupBase,
-  spreadSelfTriggers,
   spreadBarClasses,
   interactiveRing,
-  interactiveDisabled,
 } from "@/src/components/shared";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -133,7 +131,7 @@ function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: bool
  *  here; the MenuItem restyle candidates are the page's other section below. */
 function OpenPanel({ width }: { width: number }) {
   return (
-    <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
+    <div className="glass-panel rounded-b-md py-1 mt-1" style={{ width }}>
       <MenuItem>
         <span className="truncate">Built-in Microphone</span>
       </MenuItem>
@@ -148,67 +146,58 @@ function OpenPanel({ width }: { width: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// MenuItem selected-state candidate class strings (ui#16) — byte-identical to
-// tests/visual/select-trigger-candidates.test.tsx's MENU_CANDIDATE_M1/M2/M3
-// (+ their style overrides). See that file's comment for the full mechanism
-// rationale (the static-bar custom-property override, the fill-token choice).
+// Menu timing compare (ui#16) — 2x2 A/B grid for Michael's timing verdict.
+// Page-only (no fixture, no baselines — timing is unphotographable). Columns
+// are the two timing candidates; the "Previous" column overrides MenuItem's
+// own --spread-in/--spread-out defaults per-item, proving the merge order
+// (Button.tsx's MenuItem: {...props} spreads first, so this wins). Rows are
+// the two row shapes Michael asked to compare (single-line vs a
+// description-style two-line child) — the description row uses plain
+// children, no MenuItem API change.
 // ---------------------------------------------------------------------------
 
-const menuItemInteractiveBase = cn("cursor-pointer", interactiveRing, interactiveDisabled);
-
-const menuItemBase = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm";
-
-const MENU_CANDIDATE_M1 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "bg-surface-raised text-text-primary",
-);
-
-const MENU_CANDIDATE_M1_STYLE = {
-  "--spread-bg-rest": "var(--interactive-bg)",
+const PREVIOUS_TIMING_STYLE = {
+  "--spread-in": "250ms",
+  "--spread-out": "400ms",
 } as React.CSSProperties;
 
-const MENU_CANDIDATE_M2 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "bg-surface-raised text-text-primary font-medium",
-);
+const TIMING_COMPARE_ITEMS = [
+  { title: "Built-in Microphone", description: "Internal speaker and mic" },
+  { title: "USB Headset", description: "Wired, connected via USB-C" },
+  { title: "Bluetooth Speaker", description: "Paired, currently active" },
+];
 
-const MENU_CANDIDATE_M3 = cn(
-  menuItemBase,
-  menuItemInteractiveBase,
-  spreadSetupBase,
-  spreadSelfTriggers,
-  spreadBarClasses.left,
-  "text-text-primary",
-);
+function TimingCompareLabel({ title }: { title: string }) {
+  return <span className="truncate">{title}</span>;
+}
 
-const MENU_CANDIDATE_M3_STYLE = {
-  "--spread-bg-rest": "var(--interactive-bg)",
-} as React.CSSProperties;
-
-type MenuCandidate = { className: string; style?: React.CSSProperties };
-
-/** Mirrors OpenPanel's structure: real, unchanged MenuItems for the
- *  non-selected rows, hand-rolled candidate markup for the selected row. */
-function MenuCandidatePanel({ width, candidate }: { width: number; candidate: MenuCandidate }) {
+function TimingCompareDescriptionLabel({ title, description }: { title: string; description: string }) {
   return (
-    <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
-      <MenuItem>
-        <span className="truncate">Built-in Microphone</span>
-      </MenuItem>
-      <button type="button" className={candidate.className} style={candidate.style}>
-        <span className="truncate">USB Headset</span>
-      </button>
-      <MenuItem>
-        <span className="truncate">Bluetooth Speaker</span>
-      </MenuItem>
+    <span className="flex flex-col min-w-0">
+      <span className="truncate">{title}</span>
+      <span className="truncate text-xs text-text-muted">{description}</span>
+    </span>
+  );
+}
+
+function TimingComparePanel({
+  descriptionStyle,
+  timingOverride,
+}: {
+  descriptionStyle: boolean;
+  timingOverride?: React.CSSProperties;
+}) {
+  return (
+    <div className="glass-panel rounded-md py-1" style={{ width: TRIGGER_WIDTH }}>
+      {TIMING_COMPARE_ITEMS.map((item, i) => (
+        <MenuItem key={item.title} selected={i === 1} style={timingOverride}>
+          {descriptionStyle ? (
+            <TimingCompareDescriptionLabel title={item.title} description={item.description} />
+          ) : (
+            <TimingCompareLabel title={item.title} />
+          )}
+        </MenuItem>
+      ))}
     </div>
   );
 }
@@ -220,8 +209,8 @@ export function SelectCandidatesPage() {
         <h1 className="text-3xl font-light">Select (candidates)</h1>
         <p className="text-text-secondary mt-2 text-sm">
           Temporary review page for the ui#7 select trigger verdict and the
-          ui#16 MenuItem selected-state round — replaced by the real
-          components when they ship.
+          ui#16 menu timing compare — replaced by the real components when
+          they ship.
         </p>
       </header>
 
@@ -265,28 +254,50 @@ export function SelectCandidatesPage() {
         </div>
       </section>
 
-      <section className="space-y-3">
-        <SectionLabel>MenuItem selected-state candidates (ui#16)</SectionLabel>
-        <div className="flex flex-wrap gap-6">
-          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-            <p className="text-xs text-text-muted">M1 — border extended a little</p>
-            <MenuCandidatePanel
-              width={TRIGGER_WIDTH}
-              candidate={{ className: MENU_CANDIDATE_M1, style: MENU_CANDIDATE_M1_STYLE }}
-            />
-          </div>
-          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-            <p className="text-xs text-text-muted">M2 — quiet fill</p>
-            <MenuCandidatePanel width={TRIGGER_WIDTH} candidate={{ className: MENU_CANDIDATE_M2 }} />
-          </div>
-          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
-            <p className="text-xs text-text-muted">M3 — left bar only</p>
-            <MenuCandidatePanel
-              width={TRIGGER_WIDTH}
-              candidate={{ className: MENU_CANDIDATE_M3, style: MENU_CANDIDATE_M3_STYLE }}
-            />
+      <section className="space-y-4">
+        <SectionLabel>Menu timing compare (ui#16)</SectionLabel>
+        <p className="text-xs text-text-muted">
+          Columns: Tuned (400ms in / 600ms out, the component defaults) vs
+          Previous (250ms in / 400ms out, per-item override). Rows:
+          single-line vs description-style.
+        </p>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+            Single-line rows
+          </p>
+          <div className="flex flex-wrap gap-6">
+            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+              <p className="text-xs text-text-muted">Tuned — 400ms in / 600ms out</p>
+              <TimingComparePanel descriptionStyle={false} />
+            </div>
+            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+              <p className="text-xs text-text-muted">Previous — 250ms in / 400ms out</p>
+              <TimingComparePanel descriptionStyle={false} timingOverride={PREVIOUS_TIMING_STYLE} />
+            </div>
           </div>
         </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+            Description-style rows
+          </p>
+          <div className="flex flex-wrap gap-6">
+            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+              <p className="text-xs text-text-muted">Tuned — 400ms in / 600ms out</p>
+              <TimingComparePanel descriptionStyle />
+            </div>
+            <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+              <p className="text-xs text-text-muted">Previous — 250ms in / 400ms out</p>
+              <TimingComparePanel descriptionStyle timingOverride={PREVIOUS_TIMING_STYLE} />
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-text-muted italic">
+          Temporary A/B for the menu timing verdict — the losers and this
+          section go away after Michael's pick.
+        </p>
       </section>
     </div>
   );
