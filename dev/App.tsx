@@ -8,6 +8,7 @@ import { ButtonGroupPage } from "./pages/ButtonGroupPage";
 import { MenuItemPage } from "./pages/MenuItemPage";
 import { TextInputPage } from "./pages/TextInputPage";
 import { GlassPage } from "./pages/GlassPage";
+import { SelectCandidatesPage } from "./pages/SelectCandidatesPage";
 import { ColorsPage } from "./pages/ColorsPage";
 import { ScenePage } from "./pages/ScenePage";
 
@@ -22,6 +23,7 @@ const pages = {
   textinput: { label: "TextInput", section: "Components", component: TextInputPage },
   scene: { label: "Scene", section: "Components", component: ScenePage },
   glass: { label: "Glass", section: "Components", component: GlassPage },
+  selectcandidates: { label: "Select (candidates)", section: "Components", component: SelectCandidatesPage },
   colors: { label: "Colors", section: "Tokens", component: ColorsPage },
 } as const;
 
