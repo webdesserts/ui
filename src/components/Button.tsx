@@ -488,6 +488,19 @@ interface MenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
   function MenuItem({ selected = false, className, children, ...props }, ref) {
+    // M1 "border extended a little" (ui#16 2026-07-23 verdict): full invert
+    // is reserved for focus, so selected gets a quiet surface-raised fill +
+    // primary text plus a static left bar recolored to the invert token via
+    // the same per-instance --spread-bg-rest override IconButton's danger
+    // variant ships (:286-289 above). Unlike that precedent, style merging
+    // here is real: {...props} spreads first (so a caller's own `style`
+    // lands), then this explicit `style` prop — placed AFTER the spread —
+    // overrides with the full merge, own vars first so a user-provided key
+    // wins.
+    const ownVars = {
+      ...(selected ? { "--spread-bg-rest": "var(--interactive-bg)" } : {}),
+    } as React.CSSProperties;
+
     return (
       <button
         ref={ref}
@@ -499,11 +512,12 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
           spreadSelfTriggers,
           spreadBarClasses.left,
           selected
-            ? "bg-interactive-bg text-interactive-text"
+            ? "bg-surface-raised text-text-primary"
             : "text-text-secondary",
           className,
         )}
         {...props}
+        style={{ ...ownVars, ...props.style }}
       >
         {children}
       </button>

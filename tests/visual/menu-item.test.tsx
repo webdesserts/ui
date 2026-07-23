@@ -102,6 +102,71 @@ describe("MenuItem hover states", () => {
       .toMatchScreenshot(animationScreenshotOptions);
     unfreezeAnimations(anims);
   });
+
+  // Selected + hover is a newly-visible interplay under the M1 treatment: the
+  // selected row's own resting bar color (--spread-bg-rest: interactive-bg)
+  // now differs from the hover fill color it's spreading into, where
+  // previously both were the same full-invert color (a same-color no-op).
+  it("menuitem-selected-hover-dark", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: "200px" }}>
+          <MenuItem selected>Selected Item</MenuItem>
+          <MenuItem>Another Item</MenuItem>
+        </div>
+      </TestWrapper>,
+    );
+    const btn = screen.getByRole("button", { name: "Selected Item" });
+    const el = btn.element() as HTMLElement;
+    const restore = slowTransitions();
+    await btn.hover();
+    await waitForAnimationFrame();
+    const anims = freezeAnimationsAt(el, 1, { subtree: true });
+    restore();
+    await expect
+      .element(page.elementLocator(screen.container))
+      .toMatchScreenshot(animationScreenshotOptions);
+    unfreezeAnimations(anims);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Selected — computed-style pin (dark only). Pins the var override wiring,
+// not pixels: a selected MenuItem's own background-color must resolve to the
+// same value bg-surface-raised produces, and its ::after rest background
+// must resolve to the same value --interactive-bg produces (the
+// --spread-bg-rest override). Reference elements carry the same class/var so
+// the assertion tracks the live token values instead of a hardcoded color.
+// ---------------------------------------------------------------------------
+
+describe("MenuItem selected computed styles", () => {
+  it("menuitem-selected-computed-colors", async () => {
+    document.documentElement.style.colorScheme = "dark";
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: "200px" }}>
+          <MenuItem selected>Selected Item</MenuItem>
+        </div>
+        <div data-testid="surface-raised-reference" className="bg-surface-raised" />
+        <div data-testid="interactive-bg-reference" style={{ backgroundColor: "var(--interactive-bg)" }} />
+      </TestWrapper>,
+    );
+    const selectedEl = screen.getByRole("button", { name: "Selected Item" }).element() as HTMLElement;
+    const surfaceRaisedRef = screen.container.querySelector(
+      '[data-testid="surface-raised-reference"]',
+    ) as HTMLElement;
+    const interactiveBgRef = screen.container.querySelector(
+      '[data-testid="interactive-bg-reference"]',
+    ) as HTMLElement;
+
+    expect(window.getComputedStyle(selectedEl).backgroundColor).toBe(
+      window.getComputedStyle(surfaceRaisedRef).backgroundColor,
+    );
+    expect(window.getComputedStyle(selectedEl, "::after").backgroundColor).toBe(
+      window.getComputedStyle(interactiveBgRef).backgroundColor,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
