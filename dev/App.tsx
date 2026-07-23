@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { List, X } from "@phosphor-icons/react";
 import { Button, IconButton, cn } from "../src";
 import { ButtonPage } from "./pages/ButtonPage";
@@ -29,15 +29,6 @@ type PageKey = keyof typeof pages;
 
 const sections = ["Tokens", "Components"] as const;
 
-/**
- * ui#15 slice 2a: two nav-pattern candidates for Michael's screenshot round
- * (criterion 4 — a hard checkpoint, not a recommendation). "A" is a slide-in
- * drawer, "B" is an always-visible wrapping top bar. The toggle in
- * MobileTopBar is a review affordance so both can be thumb-tested live; it
- * goes away once he picks one (slice 2b).
- */
-type NavCandidate = "A" | "B";
-
 function applyColorMode(mode: ColorMode) {
   if (mode === "light") {
     document.documentElement.style.colorScheme = "light";
@@ -56,9 +47,9 @@ type NavCallbacks = {
 };
 
 /** The sidebar's inner content — page links grouped by section, plus the
- *  color-mode switcher. Shared verbatim between the desktop sidebar and
- *  candidate A's drawer (the drawer is the same menu, just presented as an
- *  overlay instead of a permanent column). */
+ *  color-mode switcher. Shared verbatim between the desktop sidebar and the
+ *  mobile drawer (the drawer is the same menu, just presented as an overlay
+ *  instead of a permanent column). */
 function NavSections({ activePage, onSelectPage, colorMode, onSelectColorMode }: NavCallbacks) {
   return (
     <>
@@ -107,43 +98,13 @@ function NavSections({ activePage, onSelectPage, colorMode, onSelectColorMode }:
   );
 }
 
-/** Candidate B — always-visible stacked top bar. Below `md`, nav reflows
- *  from a vertical sidebar into a horizontal bar: page links wrap via
- *  flex-wrap, color-mode switcher alongside. No open/closed state. */
-function NavBar({ activePage, onSelectPage, colorMode, onSelectColorMode }: NavCallbacks) {
-  return (
-    <nav className="md:hidden flex flex-wrap items-center gap-2 border-b border-rule-subtle p-4 transition-colors duration-300">
-      {(Object.entries(pages) as [PageKey, (typeof pages)[PageKey]][]).map(([key, { label }]) => (
-        <Button
-          key={key}
-          size="sm"
-          ghost={activePage !== key}
-          onClick={() => onSelectPage(key)}
-        >
-          {label}
-        </Button>
-      ))}
-      <span className="text-xs font-medium text-text-muted uppercase tracking-wider ml-2">
-        Mode
-      </span>
-      {(["light", "dark", "system"] as const).map((mode) => (
-        <Button
-          key={mode}
-          size="sm"
-          ghost={colorMode !== mode}
-          onClick={() => onSelectColorMode(mode)}
-        >
-          {mode}
-        </Button>
-      ))}
-    </nav>
-  );
-}
-
-/** Candidate A — slide-in drawer. Mounted whenever candidate A is active
- *  (not just while open) so `open`'s transform/opacity classes transition
- *  instead of popping; closes on page-pick (via onSelectPage), backdrop
- *  click, or Escape (handled by the App-level keydown listener). */
+/** The mobile nav drawer — a slide-in overlay below `md`. Always mounted (not
+ *  just while open) so `open`'s transform/opacity classes transition instead
+ *  of popping; closes on page-pick (via onSelectPage), backdrop click, or
+ *  Escape (handled by the App-level keydown listener). The outer wrapper
+ *  carries both `aria-hidden` and `inert` while closed — the drawer stays
+ *  mounted (translated off-screen) so its buttons must be pulled out of the
+ *  tab order and out of the accessibility tree, not just visually hidden. */
 function NavDrawer({
   open,
   onClose,
@@ -151,7 +112,12 @@ function NavDrawer({
   onSelectPage,
   colorMode,
   onSelectColorMode,
-}: NavCallbacks & { open: boolean; onClose: () => void }) {
+  navRef,
+}: NavCallbacks & {
+  open: boolean;
+  onClose: () => void;
+  navRef: RefObject<HTMLElement | null>;
+}) {
   return (
     <div
       className={cn(
@@ -159,6 +125,7 @@ function NavDrawer({
         open ? "pointer-events-auto" : "pointer-events-none",
       )}
       aria-hidden={!open}
+      inert={!open}
     >
       <div
         className={cn(
@@ -168,6 +135,9 @@ function NavDrawer({
         onClick={onClose}
       />
       <nav
+        id="mobile-nav-drawer"
+        ref={navRef}
+        tabIndex={-1}
         className={cn(
           "absolute inset-y-0 left-0 w-64 max-w-[80vw] bg-surface-base border-r border-rule-subtle p-4 space-y-1 overflow-y-auto transition-transform duration-300",
           open ? "translate-x-0" : "-translate-x-full",
@@ -184,46 +154,35 @@ function NavDrawer({
   );
 }
 
-/** Mobile-only bar above `main`: hamburger toggle (candidate A only — B's
- *  nav is already visible below), current page label, and the A/B review
- *  toggle so Michael can thumb-test both candidates live. */
+/** Mobile-only bar above `main`: hamburger toggle for the drawer, plus the
+ *  current page label. */
 function MobileTopBar({
   activeLabel,
-  navCandidate,
-  onToggleCandidate,
   drawerOpen,
   onToggleDrawer,
+  hamburgerRef,
 }: {
   activeLabel: string;
-  navCandidate: NavCandidate;
-  onToggleCandidate: () => void;
   drawerOpen: boolean;
   onToggleDrawer: () => void;
+  hamburgerRef: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <div className="md:hidden flex items-center justify-between gap-3 border-b border-rule-subtle p-4 transition-colors duration-300">
       <div className="flex items-center gap-3 min-w-0">
-        {navCandidate === "A" && (
-          <IconButton
-            ghost
-            size="md"
-            aria-label={drawerOpen ? "Close navigation" : "Open navigation"}
-            onClick={onToggleDrawer}
-          >
-            {drawerOpen ? <X /> : <List />}
-          </IconButton>
-        )}
+        <IconButton
+          ref={hamburgerRef}
+          ghost
+          size="md"
+          aria-label={drawerOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={drawerOpen}
+          aria-controls="mobile-nav-drawer"
+          onClick={onToggleDrawer}
+        >
+          {drawerOpen ? <X /> : <List />}
+        </IconButton>
         <span className="text-sm font-medium truncate">{activeLabel}</span>
       </div>
-      <Button
-        size="sm"
-        ghost
-        onClick={onToggleCandidate}
-        className="shrink-0"
-        aria-label="Switch nav candidate (review only)"
-      >
-        Nav: {navCandidate}
-      </Button>
     </div>
   );
 }
@@ -233,8 +192,9 @@ export function App() {
     return (localStorage.getItem("color-mode") as ColorMode) || "system";
   });
   const [activePage, setActivePage] = useState<PageKey>("button");
-  const [navCandidate, setNavCandidate] = useState<NavCandidate>("A");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerNavRef = useRef<HTMLElement | null>(null);
+  const hamburgerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     applyColorMode(colorMode);
@@ -242,13 +202,47 @@ export function App() {
   }, [colorMode]);
 
   useEffect(() => {
-    if (navCandidate !== "A" || !drawerOpen) return;
+    if (!drawerOpen) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setDrawerOpen(false);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navCandidate, drawerOpen]);
+  }, [drawerOpen]);
+
+  // Focus management: move focus into the drawer when it opens, and back to
+  // the hamburger when it closes. Every close path (Escape, backdrop click,
+  // page pick, X) funnels through setDrawerOpen(false), so this single
+  // transition-keyed effect covers all of them — including the X path, which
+  // is a structural no-op since focus never left the hamburger to begin with.
+  //
+  // Mirrors SceneObject.tsx's prevFocusedRef pattern: the ref is initialized
+  // to drawerOpen's current value, so the initial mount (drawerOpen starts
+  // false) is never mistaken for a close transition and doesn't steal focus
+  // on page load. useEffect (not useLayoutEffect) so this runs after the DOM
+  // has painted and the drawer's `inert` attribute has cleared, matching
+  // SceneObject.tsx's own sequencing rationale (see its :97 comment).
+  const prevDrawerOpenRef = useRef(drawerOpen);
+  useEffect(() => {
+    const justOpened = drawerOpen && !prevDrawerOpenRef.current;
+    const justClosed = !drawerOpen && prevDrawerOpenRef.current;
+    prevDrawerOpenRef.current = drawerOpen;
+
+    if (justOpened) {
+      const container = drawerNavRef.current;
+      if (!container) return;
+      const focusable = container.querySelector<HTMLElement>(
+        "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+      );
+      if (focusable) {
+        focusable.focus({ preventScroll: true });
+      } else {
+        container.focus({ preventScroll: true });
+      }
+    } else if (justClosed) {
+      hamburgerRef.current?.focus({ preventScroll: true });
+    }
+  }, [drawerOpen]);
 
   const ActiveComponent = pages[activePage].component;
 
@@ -257,43 +251,26 @@ export function App() {
     setDrawerOpen(false);
   }
 
-  function toggleNavCandidate() {
-    setNavCandidate((c) => (c === "A" ? "B" : "A"));
-    setDrawerOpen(false);
-  }
-
   return (
     <div className="min-h-screen bg-surface-base text-text-primary flex flex-col md:flex-row transition-colors duration-300">
       {/* Mobile-only top bar */}
       <MobileTopBar
         activeLabel={pages[activePage].label}
-        navCandidate={navCandidate}
-        onToggleCandidate={toggleNavCandidate}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen((v) => !v)}
+        hamburgerRef={hamburgerRef}
       />
 
-      {/* Candidate B: always-visible stacked/wrapping bar, mobile only */}
-      {navCandidate === "B" && (
-        <NavBar
-          activePage={activePage}
-          onSelectPage={selectPage}
-          colorMode={colorMode}
-          onSelectColorMode={setColorMode}
-        />
-      )}
-
-      {/* Candidate A: slide-in drawer, mobile only */}
-      {navCandidate === "A" && (
-        <NavDrawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          activePage={activePage}
-          onSelectPage={selectPage}
-          colorMode={colorMode}
-          onSelectColorMode={setColorMode}
-        />
-      )}
+      {/* Mobile-only slide-in drawer nav */}
+      <NavDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        activePage={activePage}
+        onSelectPage={selectPage}
+        colorMode={colorMode}
+        onSelectColorMode={setColorMode}
+        navRef={drawerNavRef}
+      />
 
       {/* Desktop sidebar — unchanged markup, hidden below md */}
       <nav className="hidden md:block w-48 shrink-0 border-r border-rule-subtle p-4 space-y-1 transition-colors duration-300">
