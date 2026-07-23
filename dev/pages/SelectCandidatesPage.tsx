@@ -1,8 +1,10 @@
 import { MenuItem, cn } from "../../src";
 import {
   spreadSetupBase,
+  spreadSelfTriggers,
   spreadBarClasses,
   interactiveRing,
+  interactiveDisabled,
 } from "@/src/components/shared";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -17,16 +19,13 @@ const TRIGGER_WIDTH = 280;
 
 // ---------------------------------------------------------------------------
 // Trigger candidate class strings — byte-identical to
-// tests/visual/select-trigger-candidates.test.tsx's TRIGGER_A / TRIGGER_B /
-// PLACEHOLDER_B, that file's permanent record of the ui#7 verdict screenshots.
-// Duplicated here (not imported from the test file) so this page renders the
-// exact same candidates live; TRIGGER_B/PLACEHOLDER_B import the same shared
-// primitives the test file imports, so they stay byte-identical automatically
-// rather than drifting as a hand-copied snapshot.
+// tests/visual/select-trigger-candidates.test.tsx's TRIGGER_B / PLACEHOLDER_B
+// / TRIGGER_C / TRIGGER_C_STYLE / PLACEHOLDER_C, that file's permanent record
+// of the ui#7 verdict screenshots. Duplicated here (not imported from the
+// test file) so this page renders the exact same candidates live; both files
+// import the same shared primitives, so they stay byte-identical
+// automatically rather than drifting as a hand-copied snapshot.
 // ---------------------------------------------------------------------------
-
-const TRIGGER_A =
-  "flex w-full items-center justify-between rounded-none border-b border-t-0 border-x-0 border-rule-subtle bg-surface-input px-4 py-2.5 text-sm text-text-primary outline-none cursor-pointer transition-[color,background-color,border-color] duration-200 hover:border-accent focus:bg-interactive-bg focus:text-surface-base";
 
 const TRIGGER_B = cn(
   "group flex w-full items-center justify-between rounded-t-sm",
@@ -53,6 +52,35 @@ const PLACEHOLDER_B = cn(
   "group-focus-visible:text-surface-base group-focus-visible:opacity-60",
 );
 
+const TRIGGER_C = cn(
+  "group flex w-full items-center justify-between rounded-t-sm",
+  "bg-surface-input",
+  spreadSetupBase,
+  spreadBarClasses.bottom,
+  interactiveRing,
+  "cursor-pointer outline-none",
+  "h-10 px-4 text-sm text-text-primary",
+  "transition-[color,opacity] duration-200",
+  "border-b border-rule-subtle transition-[border-color] duration-200",
+  "not-disabled:hover:border-interactive-bg",
+  "not-disabled:hover:after:inset-0 not-disabled:hover:after:w-full not-disabled:hover:after:h-full not-disabled:hover:after:m-0",
+  "not-disabled:hover:after:bg-surface-raised",
+  "not-disabled:hover:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+  "not-disabled:focus-visible:text-surface-base",
+  "not-disabled:focus-visible:after:inset-0 not-disabled:focus-visible:after:w-full not-disabled:focus-visible:after:h-full not-disabled:focus-visible:after:m-0",
+  "not-disabled:focus-visible:after:bg-[var(--spread-bg-hover,var(--interactive-bg))]",
+  "not-disabled:focus-visible:after:[transition:top_250ms,left_250ms,right_250ms,bottom_250ms,width_250ms,height_250ms,margin_250ms,background-color_200ms]",
+);
+
+const TRIGGER_C_STYLE = {
+  "--spread-bg-rest": "transparent",
+} as React.CSSProperties;
+
+const PLACEHOLDER_C = cn(
+  "text-text-secondary transition-[color,opacity] duration-200",
+  "group-focus-visible:text-surface-base group-focus-visible:opacity-60",
+);
+
 /** Mirrors the test fixture's local CaretDownIcon (Phosphor's CaretDown path
  *  data, kept local rather than imported so both candidates render identically
  *  to what the ui#7 verdict screenshots captured). */
@@ -61,17 +89,6 @@ function CaretDownIcon({ size = 12, className }: { size?: number; className?: st
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width={size} height={size} aria-hidden="true" className={className}>
       <path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z" />
     </svg>
-  );
-}
-
-function CandidateA({ hasValue, open = false }: { hasValue: boolean; open?: boolean }) {
-  return (
-    <button type="button" role="combobox" aria-expanded={open} aria-haspopup="listbox" className={TRIGGER_A}>
-      <span className={cn("truncate", !hasValue && "text-text-secondary")}>
-        {hasValue ? "USB Headset" : "Select…"}
-      </span>
-      <CaretDownIcon size={14} className={cn("shrink-0 ml-2 text-text-muted transition-transform", open && "rotate-180")} />
-    </button>
   );
 }
 
@@ -86,10 +103,27 @@ function CandidateB({ hasValue, open = false }: { hasValue: boolean; open?: bool
   );
 }
 
-/** Mirrors the test fixture's OpenPanel, minus the checkmark glyph on the
- *  selected item — Michael's ruling (feed 1658): selected state renders via
- *  MenuItem's `selected` prop alone here; the glyph itself is a separate,
- *  undecided MenuItem restyle. */
+function CandidateC({ hasValue, open = false }: { hasValue: boolean; open?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="combobox"
+      aria-expanded={open}
+      aria-haspopup="listbox"
+      className={TRIGGER_C}
+      style={TRIGGER_C_STYLE}
+    >
+      <span className={cn("truncate", !hasValue && PLACEHOLDER_C)}>
+        {hasValue ? "USB Headset" : "Select…"}
+      </span>
+      <CaretDownIcon size={12} className={cn("shrink-0 ml-2 transition-transform", open && "rotate-180")} />
+    </button>
+  );
+}
+
+/** Mirrors the test fixture's OpenPanel — no selected glyph, Michael's ruling
+ *  (feed 1658): selected state renders via MenuItem's `selected` prop alone
+ *  here; the MenuItem restyle candidates are the page's other section below. */
 function OpenPanel({ width }: { width: number }) {
   return (
     <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
@@ -106,36 +140,83 @@ function OpenPanel({ width }: { width: number }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// MenuItem selected-state candidate class strings (ui#16) — byte-identical to
+// tests/visual/select-trigger-candidates.test.tsx's MENU_CANDIDATE_M1/M2/M3
+// (+ their style overrides). See that file's comment for the full mechanism
+// rationale (the static-bar custom-property override, the fill-token choice).
+// ---------------------------------------------------------------------------
+
+const menuItemInteractiveBase = cn("cursor-pointer", interactiveRing, interactiveDisabled);
+
+const menuItemBase = "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm";
+
+const MENU_CANDIDATE_M1 = cn(
+  menuItemBase,
+  menuItemInteractiveBase,
+  spreadSetupBase,
+  spreadSelfTriggers,
+  spreadBarClasses.left,
+  "bg-surface-raised text-text-primary",
+);
+
+const MENU_CANDIDATE_M1_STYLE = {
+  "--spread-bg-rest": "var(--interactive-bg)",
+} as React.CSSProperties;
+
+const MENU_CANDIDATE_M2 = cn(
+  menuItemBase,
+  menuItemInteractiveBase,
+  spreadSetupBase,
+  spreadSelfTriggers,
+  spreadBarClasses.left,
+  "bg-surface-raised text-text-primary font-medium",
+);
+
+const MENU_CANDIDATE_M3 = cn(
+  menuItemBase,
+  menuItemInteractiveBase,
+  spreadSetupBase,
+  spreadSelfTriggers,
+  spreadBarClasses.left,
+  "text-text-primary",
+);
+
+const MENU_CANDIDATE_M3_STYLE = {
+  "--spread-bg-rest": "var(--interactive-bg)",
+} as React.CSSProperties;
+
+type MenuCandidate = { className: string; style?: React.CSSProperties };
+
+/** Mirrors OpenPanel's structure: real, unchanged MenuItems for the
+ *  non-selected rows, hand-rolled candidate markup for the selected row. */
+function MenuCandidatePanel({ width, candidate }: { width: number; candidate: MenuCandidate }) {
+  return (
+    <div className="glass-panel rounded-md py-1 mt-1" style={{ width }}>
+      <MenuItem>
+        <span className="truncate">Built-in Microphone</span>
+      </MenuItem>
+      <button type="button" className={candidate.className} style={candidate.style}>
+        <span className="truncate">USB Headset</span>
+      </button>
+      <MenuItem>
+        <span className="truncate">Bluetooth Speaker</span>
+      </MenuItem>
+    </div>
+  );
+}
+
 export function SelectCandidatesPage() {
   return (
     <div className="p-8 max-w-3xl space-y-10">
       <header>
         <h1 className="text-3xl font-light">Select (candidates)</h1>
         <p className="text-text-secondary mt-2 text-sm">
-          Temporary review page for the ui#7 select verdict — replaced by the
-          real SelectPage when the component ships.
+          Temporary review page for the ui#7 select trigger verdict and the
+          ui#16 MenuItem selected-state round — replaced by the real
+          components when they ship.
         </p>
       </header>
-
-      <section className="space-y-3">
-        <SectionLabel>Candidate A (prototype-verbatim) — rest</SectionLabel>
-        <div className="flex flex-wrap gap-6">
-          <div style={{ width: TRIGGER_WIDTH }}>
-            <CandidateA hasValue={false} />
-          </div>
-          <div style={{ width: TRIGGER_WIDTH }}>
-            <CandidateA hasValue />
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <SectionLabel>Candidate A — open</SectionLabel>
-        <div style={{ width: TRIGGER_WIDTH }}>
-          <CandidateA hasValue open />
-          <OpenPanel width={TRIGGER_WIDTH} />
-        </div>
-      </section>
 
       <section className="space-y-3">
         <SectionLabel>Candidate B (TextInput chrome + chevron) — rest</SectionLabel>
@@ -154,6 +235,50 @@ export function SelectCandidatesPage() {
         <div style={{ width: TRIGGER_WIDTH }}>
           <CandidateB hasValue open />
           <OpenPanel width={TRIGGER_WIDTH} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Candidate C (border-invert + subtle fill) — rest</SectionLabel>
+        <div className="flex flex-wrap gap-6">
+          <div style={{ width: TRIGGER_WIDTH }}>
+            <CandidateC hasValue={false} />
+          </div>
+          <div style={{ width: TRIGGER_WIDTH }}>
+            <CandidateC hasValue />
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Candidate C — open</SectionLabel>
+        <div style={{ width: TRIGGER_WIDTH }}>
+          <CandidateC hasValue open />
+          <OpenPanel width={TRIGGER_WIDTH} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>MenuItem selected-state candidates (ui#16)</SectionLabel>
+        <div className="flex flex-wrap gap-6">
+          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+            <p className="text-xs text-text-muted">M1 — border extended a little</p>
+            <MenuCandidatePanel
+              width={TRIGGER_WIDTH}
+              candidate={{ className: MENU_CANDIDATE_M1, style: MENU_CANDIDATE_M1_STYLE }}
+            />
+          </div>
+          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+            <p className="text-xs text-text-muted">M2 — quiet fill</p>
+            <MenuCandidatePanel width={TRIGGER_WIDTH} candidate={{ className: MENU_CANDIDATE_M2 }} />
+          </div>
+          <div style={{ width: TRIGGER_WIDTH }} className="space-y-1">
+            <p className="text-xs text-text-muted">M3 — left bar only</p>
+            <MenuCandidatePanel
+              width={TRIGGER_WIDTH}
+              candidate={{ className: MENU_CANDIDATE_M3, style: MENU_CANDIDATE_M3_STYLE }}
+            />
+          </div>
         </div>
       </section>
     </div>
