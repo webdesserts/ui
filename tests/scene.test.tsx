@@ -8013,6 +8013,264 @@ describe("SceneObject click-to-focus", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Absorb-and-re-pan: the DELTA-2 fix reworked. The ORIGINAL DELTA-2 bare
+// reset (`el.scrollLeft = 0` on focusin) restored the correct FINAL resting
+// position, but the reset itself is a native scroll mutation landing
+// mid-click-gesture — measured in the consuming app: 21/21 + 27/27 + 24/24
+// clicks eaten across three N=20 loops, all in the overflowsX === false
+// regime (96% of events). Absorb-and-re-pan instead: (1) absorbs the
+// corruption's delta into the stage's CSS `left` in the SAME synchronous
+// step as the scrollLeft reset (a representation transfer, not a visual
+// correction — this step causes ZERO additional visual movement beyond
+// what the native corruption already did, which is what makes the
+// scrollLeft:0 write itself a no-op for hit-testing), then (2) explicitly
+// re-pans the camera from that absorbed position back to its canonical
+// target via Motion (a snap under duration=0, a real spring otherwise),
+// never via a second native scroll mutation. Registered on BOTH "focusin"
+// (the original DELTA-2 trigger) and "scroll" (any other scrollLeft
+// mutation) — delta is re-read fresh every invocation, so this handles
+// corruption sources beyond focus-driven auto-scroll too.
+//
+// Environment note (probe-confirmed while building this suite): calling
+// `.focus()` directly on an off-viewport element does NOT trigger native
+// scroll-into-view in this headless Chromium test environment (unlike a
+// real browser with real window/OS focus) — `element.scrollIntoView()` and
+// a direct `el.scrollLeft = x` write both DO reliably corrupt scrollLeft
+// here, and both fire the native "scroll" event exactly the way a real
+// multi-tick native auto-scroll's own intermediate ticks would. The tests
+// below use a direct scrollLeft write as the corruption-injection
+// technique for this reason — one of the two techniques named in the
+// original brief for this fix.
+// ---------------------------------------------------------------------------
+
+describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
+  test("net-zero visual: the reset+absorb write itself introduces no additional visual jump beyond what the native corruption already did — restoring the true resting position is deferred to the separate, explicit re-pan step", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    // Let the mount spring fully settle before probing.
+    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stableObj = getByTestId("content-a").element() as HTMLElement;
+
+    const preRect = stableObj.getBoundingClientRect();
+    const DELTA = 150;
+    // Analytically, an UNCORRECTED corruption of this delta shifts the
+    // object left by exactly DELTA px (scrollLeft increases -> the visible
+    // window shifts right -> content appears to shift left). This is what
+    // the ABSORB step's compensated write should land on — NOT the original
+    // resting position, which the separate re-pan step (tested below)
+    // recovers afterward.
+    const expectedAbsorbedX = preRect.x - DELTA;
+
+    scene.scrollLeft = DELTA;
+    // One frame is enough for the async "scroll" event — and therefore this
+    // correction handler — to have fired (probe-confirmed: scrollLeft
+    // reads back to 0, absorbed-but-not-yet-repanned, after exactly one
+    // frame; motion's own spring progression hasn't ticked yet at this
+    // exact checkpoint).
+    await waitForAnimationFrame();
+
+    expect(scene.scrollLeft).toBe(0);
+    const postAbsorbRect = stableObj.getBoundingClientRect();
+    expect(Math.abs(postAbsorbRect.x - expectedAbsorbedX)).toBeLessThan(1);
+  });
+
+  test("frame-sampling defeat-check: no sampled frame ever observes scrollLeft still nonzero (uncorrected) — the correction always completes before that frame paints, and the camera fully recovers by the end", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stableObj = getByTestId("content-a").element() as HTMLElement;
+    const preRect = stableObj.getBoundingClientRect();
+
+    scene.scrollLeft = 150;
+
+    const samples: { frame: number; scrollLeft: number; x: number }[] = [];
+    for (let i = 0; i < 60; i++) {
+      await waitForAnimationFrame();
+      samples.push({ frame: i, scrollLeft: scene.scrollLeft, x: stableObj.getBoundingClientRect().x });
+    }
+
+    const violating = samples.filter((s) => s.scrollLeft !== 0);
+    expect(
+      violating.length,
+      `${violating.length} sampled frame(s) observed scrollLeft still nonzero (uncorrected): ${JSON.stringify(violating)}`,
+    ).toBe(0);
+
+    // By the end, the camera has fully recovered to the original position —
+    // the explicit re-pan (tested in isolation below) actually landed.
+    const finalRect = stableObj.getBoundingClientRect();
+    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
+  });
+
+  test("spring-back: after correction under a real (non-zero) spring, the camera converges back to its canonical resting position within a bounded number of frames", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stableObj = getByTestId("content-a").element() as HTMLElement;
+    const preRect = stableObj.getBoundingClientRect();
+
+    scene.scrollLeft = 150;
+
+    for (let i = 0; i < 60; i++) await waitForAnimationFrame();
+
+    const finalRect = stableObj.getBoundingClientRect();
+    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
+  });
+
+  test("mid-gesture click-eater regression: a scrollLeft corruption between pointerdown and click does not leave the click target permanently stranded", async () => {
+    let clicked = false;
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene duration={0}>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <button data-testid="target-btn" onClick={() => { clicked = true; }}>target</button>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="c">
+            <SceneObject name="c-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-c" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const target = getByTestId("target-btn").element() as HTMLElement;
+
+    const rect = target.getBoundingClientRect();
+    const clickX = rect.x + rect.width / 2;
+    const clickY = rect.y + rect.height / 2;
+
+    // Capture-phase pointerdown listener corrupts scrollLeft mid-gesture, a
+    // direct property write standing in for a real native auto-scroll (see
+    // this describe block's header comment for why — .focus() doesn't
+    // trigger native scroll-into-view in this headless environment, but a
+    // direct write fires the identical "scroll" event a real multi-tick
+    // native auto-scroll's own ticks would).
+    const pdListener = () => {
+      scene.scrollLeft = 300;
+    };
+    document.addEventListener("pointerdown", pdListener, true);
+    const pdHitEl = document.elementFromPoint(clickX, clickY)!;
+    expect(pdHitEl.getAttribute("data-testid")).toBe("target-btn");
+    pdHitEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: clickX, clientY: clickY }));
+    document.removeEventListener("pointerdown", pdListener, true);
+
+    // One frame is enough for the async "scroll" event — and therefore the
+    // correction — to have fired; under duration=0 the absorb AND the
+    // explicit re-pan snap collapse into that same synchronous handler
+    // call, so the object is fully back at its original position by here.
+    await waitForAnimationFrame();
+
+    const clickHitEl = document.elementFromPoint(clickX, clickY)!;
+    clickHitEl.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: clickX, clientY: clickY }));
+
+    expect(clickHitEl.getAttribute("data-testid")).toBe("target-btn");
+    expect(clicked).toBe(true);
+  });
+
+  test("double-correction race: a second scrollLeft corruption arriving mid-repan-spring does not permanently strand the camera off its canonical target", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage width={500} height={600}>
+        <Scene>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused>
+              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stableObj = getByTestId("content-a").element() as HTMLElement;
+    const preRect = stableObj.getBoundingClientRect();
+
+    // First corruption — the correction's explicit re-pan spring starts
+    // (a real, non-zero duration; see the "spring-back" test above for the
+    // established multi-frame convergence timing this relies on).
+    scene.scrollLeft = 150;
+
+    // A few frames in, while that spring is still genuinely in flight (NOT
+    // settled — the spring-back test above shows this specific spring is
+    // still ~50% away from its target after 10 frames), a second
+    // corruption arrives — mirroring Playwright's own actionability
+    // scrolling re-firing mid-animation in the real consuming app.
+    for (let i = 0; i < 3; i++) await waitForAnimationFrame();
+    scene.scrollLeft = 200;
+
+    // Generous settle window — well past what an undisturbed single
+    // correction needs (see "spring-back" above).
+    for (let i = 0; i < 90; i++) await waitForAnimationFrame();
+
+    expect(scene.scrollLeft).toBe(0);
+    const finalRect = stableObj.getBoundingClientRect();
+    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 8c: Keyboard focus management
 // ---------------------------------------------------------------------------
 
