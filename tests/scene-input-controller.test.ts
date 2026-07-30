@@ -7,6 +7,7 @@
 import { describe, test, expect } from "vitest";
 import {
   normalizeWheelDelta,
+  normalizeWheelDeltaX,
   decideWheelTargetColumn,
   interiorCanConsume,
   isEditableElement,
@@ -61,6 +62,36 @@ describe("normalizeWheelDelta", () => {
   test("DOM_DELTA_PAGE (2) scales deltaY by the viewport height", () => {
     const e = makeWheelEvent({ deltaY: 2, deltaMode: 2 });
     expect(normalizeWheelDelta(e, 800)).toBe(1600);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeWheelDeltaX (ui#19 slice (b) — horizontal twin)
+// ---------------------------------------------------------------------------
+
+describe("normalizeWheelDeltaX", () => {
+  function makeWheelEventX(init: Partial<WheelEventInit> = {}): WheelEvent {
+    return new WheelEvent("wheel", { deltaX: 10, deltaMode: 0, ...init });
+  }
+
+  test("ctrlKey (pinch-zoom) returns null — never routed, never scaled", () => {
+    const e = makeWheelEventX({ deltaX: 50, ctrlKey: true });
+    expect(normalizeWheelDeltaX(e, 1280)).toBeNull();
+  });
+
+  test("DOM_DELTA_PIXEL (0) passes deltaX through unscaled", () => {
+    const e = makeWheelEventX({ deltaX: 37, deltaMode: 0 });
+    expect(normalizeWheelDeltaX(e, 1280)).toBe(37);
+  });
+
+  test("DOM_DELTA_LINE (1) scales deltaX by 16", () => {
+    const e = makeWheelEventX({ deltaX: 3, deltaMode: 1 });
+    expect(normalizeWheelDeltaX(e, 1280)).toBe(48);
+  });
+
+  test("DOM_DELTA_PAGE (2) scales deltaX by the viewport WIDTH", () => {
+    const e = makeWheelEventX({ deltaX: 2, deltaMode: 2 });
+    expect(normalizeWheelDeltaX(e, 1280)).toBe(2560);
   });
 });
 
@@ -290,6 +321,83 @@ describe("interiorCanConsume", () => {
     } finally {
       boundary.remove();
     }
+  });
+
+  // ui#19 slice (b), A4: F8a's horizontal twin. Mirrors the vertical
+  // consumable/at-edge cases above exactly, on the X axis — a consumer's
+  // own overflow-x:auto island now gets the same first-refusal deltaY
+  // already had, so JS-owned deltaX (panOffset) doesn't hijack native
+  // horizontal scroll inside consumer content.
+  describe("horizontal axis (ui#19 slice (b), A4)", () => {
+    function makeHorizontalScrollContainer(
+      parent: Element,
+      opts: { overscrollBehaviorX?: string } = {},
+    ): HTMLElement {
+      const container = document.createElement("div");
+      container.style.width = "100px";
+      container.style.overflowX = "auto";
+      if (opts.overscrollBehaviorX) {
+        container.style.overscrollBehaviorX = opts.overscrollBehaviorX;
+      }
+      const filler = document.createElement("div");
+      filler.style.width = "300px";
+      // Explicit non-zero height — probe-confirmed necessary: a zero-height
+      // (content-less) block child, even with an explicit wide `width`,
+      // does not register as horizontal overflow (scrollWidth stayed equal
+      // to clientWidth without this), unlike the VERTICAL fixture's own
+      // filler (makeScrollContainer above), which needs no explicit width
+      // since a block child's width already defaults to filling its
+      // parent. Any nonzero height works; 10px keeps the fixture minimal.
+      filler.style.height = "10px";
+      container.appendChild(filler);
+      parent.appendChild(container);
+      return container;
+    }
+
+    test("consumable mid-scroll: a real overflow-x:auto container that can still move consumes the delta", () => {
+      const boundary = makeBoundary();
+      const container = makeHorizontalScrollContainer(boundary);
+      container.scrollLeft = 50; // maxScroll is 300-100=200 — neither edge
+      try {
+        expect(interiorCanConsume(container, boundary, "x", 10)).toBe(true);
+        expect(interiorCanConsume(container, boundary, "x", -10)).toBe(true);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("at the right edge with overscroll-behavior-x: auto (default) declines — nothing further to chain to here", () => {
+      const boundary = makeBoundary();
+      const container = makeHorizontalScrollContainer(boundary);
+      container.scrollLeft = container.scrollWidth - container.clientWidth; // right edge
+      try {
+        expect(interiorCanConsume(container, boundary, "x", 10)).toBe(false);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("at the right edge with overscroll-behavior-x: contain dead-stops — still consumes, doesn't chain outward", () => {
+      const boundary = makeBoundary();
+      const container = makeHorizontalScrollContainer(boundary, { overscrollBehaviorX: "contain" });
+      container.scrollLeft = container.scrollWidth - container.clientWidth;
+      try {
+        expect(interiorCanConsume(container, boundary, "x", 10)).toBe(true);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("a vertical-only overflow-y:auto container never matches the horizontal check", () => {
+      const boundary = makeBoundary();
+      const container = makeScrollContainer(boundary); // overflow-y, not overflow-x
+      container.scrollTop = 50;
+      try {
+        expect(interiorCanConsume(container, boundary, "x", 10)).toBe(false);
+      } finally {
+        boundary.remove();
+      }
+    });
   });
 });
 
@@ -1032,8 +1140,14 @@ describe("shouldPreventTouchMove", () => {
     expect(shouldPreventTouchMove("vertical", 1)).toBe(true);
   });
 
-  test("a single-touch horizontal release is never prevented", () => {
-    expect(shouldPreventTouchMove("horizontal", 1)).toBe(false);
+  // ui#19 slice (c): a horizontal claim is now ALSO prevented — under the
+  // pre-ui#19 architecture, "horizontal" released to the browser's own
+  // native overflow-x:auto scroll and this deliberately declined to block
+  // it; under the single-writer channel there is no native horizontal
+  // scroll left to release to (JS owns panning end-to-end via
+  // panOffset), same as it has always owned vertical scroll.
+  test("a single-touch horizontal claim is prevented (ui#19: JS owns panning end-to-end, same as vertical)", () => {
+    expect(shouldPreventTouchMove("horizontal", 1)).toBe(true);
   });
 
   test("an undecided single-touch gesture is never prevented", () => {

@@ -768,20 +768,26 @@ export function classifyTouchGestureDirection(dx: number, dy: number): TouchGest
 /**
  * Whether a native `touchmove` should be `preventDefault()`-ed, blocking the
  * browser's own page-pan gesture engine from running SIMULTANEOUSLY with
- * Scene's JS vertical pan — device-confirmed necessary (see SceneColumn's
- * touch-pan block doc comment): `touch-action: pan-x pinch-zoom` computes
- * correctly on iOS Safari but isn't reliably honored over Scene's
- * transformed subtree, so explicit `preventDefault()` is the load-bearing
- * layer, not touch-action alone.
+ * Scene's JS pan — device-confirmed necessary (see SceneColumn's touch-pan
+ * block doc comment): `touch-action: pan-x pinch-zoom` computes correctly
+ * on iOS Safari but isn't reliably honored over Scene's transformed
+ * subtree, so explicit `preventDefault()` is the load-bearing layer, not
+ * touch-action alone.
+ *
+ * True for EITHER decided axis (ui#19 slice (c) extended this from
+ * vertical-only: under the pre-ui#19 architecture, "horizontal" released
+ * to the browser's own native overflow-x:auto scroll and deliberately
+ * never blocked it here; under the single-writer channel there is no
+ * native horizontal scroll left to release to — JS owns panning
+ * end-to-end, same as it has always owned vertical scroll).
  *
  * Multi-touch is NEVER claimed regardless of `ownership` — a single-finger
- * vertical claim decided before a second finger joins must not go on
- * blocking the browser's native pinch-zoom once the gesture becomes a
- * pinch.
+ * claim decided before a second finger joins must not go on blocking the
+ * browser's native pinch-zoom once the gesture becomes a pinch.
  */
 export function shouldPreventTouchMove(ownership: TouchGestureOwnership, touchCount: number): boolean {
   if (touchCount > 1) return false;
-  return ownership === "vertical";
+  return ownership === "vertical" || ownership === "horizontal";
 }
 
 // ---------------------------------------------------------------------------

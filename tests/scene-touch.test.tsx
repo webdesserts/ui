@@ -1071,7 +1071,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     firePointer(contentWrapper, "pointerup", startX, startY - 50);
   });
 
-  test("a predominantly-horizontal drag releases ownership — a subsequent native touchmove is NOT prevented", async () => {
+  test("a predominantly-horizontal drag claims ownership (ui#19: column-first-claim) — a subsequent native touchmove IS prevented", async () => {
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -1092,13 +1092,19 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
 
     firePointer(contentWrapper, "pointerdown", startX, startY);
     await waitForAnimationFrame();
-    // Well past the slop, purely horizontal — decides "horizontal" ownership
-    // (releases: isDragging goes false, native pan-x camera panning owns it).
+    // Well past the slop, purely horizontal — decides "horizontal"
+    // ownership. Pre-ui#19 this released (isDragging false, native
+    // overflow-x:auto owned the rest of the gesture) — under the
+    // single-writer channel there is no native horizontal scroll left to
+    // release to, so this column's own triad (A2 column-first-claim) keeps
+    // tracking instead, driving panOffset through the shared clamp+drive
+    // path, and the native touchmove gate blocks the browser's own
+    // page-pan for this axis too now (shouldPreventTouchMove, ui#19).
     firePointer(contentWrapper, "pointermove", startX + 50, startY);
     await waitForAnimationFrame();
 
     const event = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX + 50, startY)]);
-    expect(event.defaultPrevented).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
 
     firePointer(contentWrapper, "pointerup", startX + 50, startY);
   });
@@ -1165,6 +1171,155 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
 
     const event = fireNativeTouchMove(contentWrapper, [makeTouch(contentWrapper, startX, startY)]);
     expect(event.defaultPrevented).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#19 slice (c): horizontal touch pan (A2 column-first-claim architecture)
+// ---------------------------------------------------------------------------
+
+describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {
+  test("column-first-claim: a horizontal drag starting inside a focused, Scene-scrollable column's content pans the camera, not the column's own vertical scroll", async () => {
+    // Two 1000px columns (2000px total) overflow the 1280px viewport
+    // (pan range exists); col1's content is ALSO taller than the viewport
+    // (vertically Scene-scrollable) — this is the exact case A2's ground
+    // truth targets: the column's own content wrapper already holds
+    // pointer capture for touch gestures inside it (setPointerCapture),
+    // and must now keep tracking a horizontal decision instead of
+    // releasing it.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const column = contentWrapper.closest("[data-column]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    // Well past the slop, purely horizontal.
+    firePointer(contentWrapper, "pointermove", startX - 80, startY);
+    await waitForAnimationFrame();
+    firePointer(contentWrapper, "pointerup", startX - 80, startY);
+    await waitForAnimationFrame();
+
+    // The camera panned — finger moved left (dx=-80) -> content attached to
+    // finger moves left -> panOffset decreases (sign convention documented
+    // at panOffsetRef's declaration in Scene.tsx).
+    const stageLeftAfter = parseFloat(stage.style.left);
+    expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - 80, 0);
+
+    // The column's OWN vertical scroll never engaged — horizontal ownership
+    // was decided, not vertical. data-scroll-offset is written on the
+    // column element itself ([data-column]), not its content wrapper.
+    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+  });
+
+  test("Scene-level triad: a horizontal drag starting OUTSIDE any column's scrollable content (a parked column) also pans the camera", async () => {
+    // col1 (focused, wide) + col2 (focused, wide) overflow the viewport;
+    // col3 is UNFOCUSED (parked) — its content is not Scene-scrollable at
+    // all (no focused column ever is), so a touch gesture starting there
+    // is exactly the "column's own triad never claims it" case A2's
+    // architecture routes to Scene's own net-new viewport-level triad.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused={false}>
+              <div data-testid="content3" style={{ minWidth: 400, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    // col3 is parked — its content is NOT inside a [data-column-content]
+    // wrapper (that only renders for the column's OWN scrollable state);
+    // touch directly on the object's own element instead.
+    const parked = getByTestId("content3").element() as HTMLElement;
+    const rect = parked.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + rect.height / 2;
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    firePointer(parked, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    firePointer(parked, "pointermove", startX - 60, startY);
+    await waitForAnimationFrame();
+    firePointer(parked, "pointerup", startX - 60, startY);
+    await waitForAnimationFrame();
+
+    const stageLeftAfter = parseFloat(stage.style.left);
+    expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - 60, 0);
+  });
+
+  test("clamp: a drag far exceeding the pan range clamps to the bound, mirroring the wheel handler's own clamp", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 2000 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + 50;
+    const stageLeftBefore = parseFloat(stage.style.left);
+    const expectedRange = scene.scrollWidth - scene.clientWidth;
+
+    firePointer(contentWrapper, "pointerdown", startX, startY);
+    await waitForAnimationFrame();
+    // A drag far exceeding any plausible range.
+    firePointer(contentWrapper, "pointermove", startX - 5000, startY);
+    await waitForAnimationFrame();
+    firePointer(contentWrapper, "pointerup", startX - 5000, startY);
+    await waitForAnimationFrame();
+
+    const stageLeftAfter = parseFloat(stage.style.left);
+    expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - expectedRange, 0);
   });
 });
 

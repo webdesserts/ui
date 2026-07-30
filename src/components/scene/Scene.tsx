@@ -1,4 +1,4 @@
-import React, { createContext, isValidElement, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { createContext, isValidElement, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SceneColumn } from "./SceneColumn";
 import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_TOUCH_POWER, DEFAULT_TOUCH_TIME_CONSTANT, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
@@ -18,8 +18,12 @@ import {
   normalizeWheelDeltaX,
   decideWheelTargetColumn,
   interiorCanConsume,
+  computeReleaseVelocity,
+  TOUCH_DIRECTION_SLOP_PX,
   type ScrollCommand,
+  type VelocitySample,
 } from "./inputController";
+import { PanControlContext, type PanControl } from "./PanControlContext";
 import { animate, motion, useMotionValue, useReducedMotion, type AnimationPlaybackControls, type MotionValue } from "motion/react";
 
 /**
@@ -1362,7 +1366,7 @@ function SceneViewport({
   /** Called whenever the focused content's target bounds are (re)measured. */
   onTargetChange: (target: CameraRect) => void;
 }) {
-  const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo } = useSceneConfig();
+  const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo, touchPower, touchTimeConstant } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [viewportSize, setViewportSize] = useState<ViewportDimensions>({ top: 0, left: 0, width: 0, height: 0 });
@@ -1649,6 +1653,88 @@ function SceneViewport({
       }
     },
     [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX],
+  );
+
+  // ui#19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
+  // one write path even with two event sources"). Every pan-driving input
+  // handler in this arc (wheel, both touch triads added below) routes
+  // through this — never writes panOffsetRef directly. Sets an ABSOLUTE
+  // value (clamped against the live bounds), matching how 1:1 touch drag
+  // naturally computes its target (drag-start baseline + total movement),
+  // and how the wheel handler's own flush computes its next value before
+  // calling this.
+  const setPanOffset = useCallback(
+    (value: number) => {
+      const bounds = panBoundsRef.current;
+      const clamped = Math.max(bounds.min, Math.min(bounds.max, value));
+      if (clamped !== panOffsetRef.current) {
+        panOffsetRef.current = clamped;
+        driveCameraX(stageLeftRef.current + clamped);
+      }
+    },
+    [driveCameraX],
+  );
+
+  // ui#19 slice (c): touch-release inertia fling for panning — scoped-down
+  // horizontal analog of SceneColumn's startInertiaFlingRef (F13 commit 4);
+  // no anchor="end" pinning or content-growth compensation concepts apply
+  // to panning, so this is considerably simpler. Deliberately UNGUARDED
+  // (cross-cutting ban) — re-issuing animate() on cameraX while a previous
+  // fling/spring is still in flight is safe: motion's MotionValue.start()
+  // stops any prior animation on the SAME value before starting the new
+  // one (confirmed at source, motion-dom's value/index.mjs).
+  const startPanFling = useCallback(
+    (velocity: number) => {
+      // Under duration===0 (test/instant mode), inertia has no meaningful
+      // instant equivalent (mirrors SceneColumn's own vertical fling —
+      // velocity is forced to 0 there under duration===0, an effective
+      // no-op) — panOffset already sits wherever the drag left it (already
+      // clamped via setPanOffset during the drag), so there's nothing
+      // further to do.
+      if (duration === 0 || velocity === 0) return;
+
+      const bounds = panBoundsRef.current;
+      const base = stageLeftRef.current;
+      const token = ++cameraTransitionTokenRef.current;
+      onTransitionStart();
+      // A8 / F13 commit 4 precedent: deviates from a literal
+      // animate(cameraX, undefined, {type:"inertia",...}) — probe-confirmed
+      // (mirroring SceneColumn's own finding) that resolves internally to
+      // keyframes=[null, undefined], finishing instantly without ever
+      // running. An explicit single-element keyframes array with the
+      // current value is required for inertia to actually decelerate.
+      const controls = animate(cameraX, [cameraX.get()], {
+        type: "inertia",
+        velocity,
+        min: base + bounds.min,
+        max: base + bounds.max,
+        power: touchPower,
+        timeConstant: touchTimeConstant,
+        // Reuses Scene's configured spring constants for the boundary
+        // bounce, matching SceneColumn's own rationale for its vertical
+        // fling — a single consistent touch-release feel, not a third
+        // unrelated set of magic numbers.
+        bounceStiffness: stiffness,
+        bounceDamping: damping,
+        onUpdate: (latest) => {
+          panOffsetRef.current = latest - stageLeftRef.current;
+        },
+      });
+      motionSeam?.registerControls("cameraX", controls);
+      controls.then(() => {
+        if (cameraTransitionTokenRef.current === token) {
+          onTransitionComplete();
+        }
+      });
+    },
+    [duration, cameraX, touchPower, touchTimeConstant, stiffness, damping, motionSeam, onTransitionStart, onTransitionComplete],
+  );
+
+  const getPanOffset = useCallback(() => panOffsetRef.current, []);
+  const getPanBounds = useCallback(() => panBoundsRef.current, []);
+  const panControl = useMemo<PanControl>(
+    () => ({ getPanOffset, getPanBounds, setPanOffset, startPanFling }),
+    [getPanOffset, getPanBounds, setPanOffset, startPanFling],
   );
 
   useLayoutEffect(() => {
@@ -2006,6 +2092,96 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, [scrollCommandRegistry, driveCameraX]);
 
+  // ui#19 slice (c): Scene-level touch pan triad (A2 architecture — covers
+  // ONLY pointers no column's own triad claimed: stage background, parked
+  // columns, non-scrollable focused columns). A column that DOES claim a
+  // gesture calls stopPropagation() at pointerdown (see SceneColumn's
+  // handleContentPointerDown), so this triad never sees those — ONE
+  // classifier decision per gesture, no mid-gesture handoff, no second
+  // independent classification of the same stream (A2's explicit
+  // requirement). No vertical/horizontal disambiguation needed here (unlike
+  // the column's own triad) — anything reaching this level has no
+  // competing vertical interpretation, so TOUCH_DIRECTION_SLOP_PX gates
+  // "is this a real pan gesture, not a tap", not an axis choice.
+  const panDragStartX = useRef(0);
+  const panDragStartOffset = useRef(0);
+  const panIsDraggingRef = useRef(false);
+  const panCommittedRef = useRef(false);
+  const panVelocitySamplesRef = useRef<VelocitySample[]>([]);
+
+  const handleViewportPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+      panIsDraggingRef.current = true;
+      panCommittedRef.current = false;
+      panDragStartX.current = e.clientX;
+      // Stop any in-flight fling/spring before 1:1 tracking begins, so
+      // tracking starts from wherever the camera visually IS — mirrors
+      // SceneColumn's handleContentPointerDown rationale for the vertical
+      // axis (jump(), not stop() — resets Motion's internal velocity
+      // tracking too, not just the animation, avoiding a residual-velocity
+      // re-fling defect on a quick re-grab).
+      cameraX.jump(cameraX.get());
+      panDragStartOffset.current = panOffsetRef.current;
+      panVelocitySamplesRef.current = [];
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [cameraX],
+  );
+
+  const handleViewportPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!panIsDraggingRef.current) return;
+      const dx = e.clientX - panDragStartX.current;
+      if (!panCommittedRef.current) {
+        if (Math.abs(dx) < TOUCH_DIRECTION_SLOP_PX) return;
+        panCommittedRef.current = true;
+      }
+      // 1:1 finger tracking: finger moves left (dx negative) -> content
+      // attached to finger moves left -> panOffset decreases (reveals
+      // further-right content) — same sign convention as the wheel
+      // handler's own deltaX handling.
+      setPanOffset(panDragStartOffset.current + dx);
+      panVelocitySamplesRef.current.push({ t: performance.now(), offset: panOffsetRef.current });
+    },
+    [setPanOffset],
+  );
+
+  const handleViewportPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!panIsDraggingRef.current) return;
+      panIsDraggingRef.current = false;
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      // Skipped in instant mode — inertia has no meaningful instant
+      // equivalent (mirrors SceneColumn's own vertical release handling).
+      const velocity =
+        duration === 0 ? 0 : computeReleaseVelocity(panVelocitySamplesRef.current, performance.now());
+      startPanFling(velocity);
+    },
+    [duration, startPanFling],
+  );
+
+  // Native (non-passive) touchmove listener — React's synthetic pointer/
+  // touch event system can't reliably do passive:false (mirrors
+  // SceneColumn's own F13 commit 1 rationale exactly: a preventDefault()
+  // that actually blocks the browser's native page-pan requires a listener
+  // attached directly to the DOM node). Blocks the browser's native
+  // horizontal page-pan once a gesture has committed to panning; multi-
+  // touch (pinch) is never blocked, mirroring shouldPreventTouchMove's own
+  // exemption for the vertical axis.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const handleNativeTouchMove = (e: TouchEvent) => {
+      if (panCommittedRef.current && e.touches.length === 1) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", handleNativeTouchMove);
+  }, []);
+
   // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
   // browser's native focus-driven auto-scroll (and other native scrollLeft
   // mutations) used to bypass the camera's own stageLeft pan and corrupt
@@ -2043,6 +2219,7 @@ function SceneViewport({
     <MotionSeamContext.Provider value={motionSeam}>
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
+    <PanControlContext.Provider value={panControl}>
       <DepthDeckContext.Provider value={stackTargetLeft}>
         {/* Viewport: the clipping window. position:relative establishes the
             containing block for the absolutely-positioned stage.
@@ -2065,6 +2242,10 @@ function SceneViewport({
           ref={viewportRef}
           data-testid="scene"
           data-reduced-motion={reducedMotion ? "" : undefined}
+          onPointerDown={handleViewportPointerDown}
+          onPointerMove={handleViewportPointerMove}
+          onPointerUp={handleViewportPointerUp}
+          onPointerCancel={handleViewportPointerUp}
           style={{
             position: "relative",
             width: "100%",
@@ -2223,6 +2404,7 @@ function SceneViewport({
           )}
         </div>
       </DepthDeckContext.Provider>
+    </PanControlContext.Provider>
     </ViewportContext.Provider>
     </AnimationCallbackContext.Provider>
     </MotionSeamContext.Provider>

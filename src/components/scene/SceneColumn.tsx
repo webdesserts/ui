@@ -20,6 +20,7 @@ import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
+import { PanControlContext } from "./PanControlContext";
 import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
@@ -361,6 +362,10 @@ export function SceneColumn({
   const stackDepths = useContext(StackDepthContext);
   const stackDepth = stackDepths.get(name) ?? 0;
   const firstPaintRef = useContext(SceneFirstPaintContext);
+  // ui#19 slice (c), A2 column-first-claim: null only if this column somehow
+  // rendered outside a Scene (shouldn't happen in practice) — guarded
+  // defensively at each call site below rather than assumed non-null.
+  const panControl = useContext(PanControlContext);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing.
@@ -1215,13 +1220,20 @@ export function SceneColumn({
   // mid-drag rebase). dragStartY/dragStartOffset capture the gesture's
   // starting pointer position and scroll offset at handleContentPointerDown
   // time; isDragging gates handleContentPointerMove. dragStartX (F13 commit
-  // 1) is the horizontal twin, needed only for direction disambiguation
-  // (classifyTouchGestureDirection) — the vertical tracking math itself
-  // never reads it.
+  // 1) was originally needed only for direction disambiguation
+  // (classifyTouchGestureDirection) — ui#19 slice (c) ALSO uses it as the
+  // 1:1 tracking origin once a gesture is decided "horizontal" (A2
+  // column-first-claim: this column's own triad keeps tracking instead of
+  // releasing to native, see handleContentPointerMove below).
   const dragStartY = useRef(0);
   const dragStartX = useRef(0);
   const dragStartOffset = useRef(0);
   const isDragging = useRef(false);
+  // ui#19 slice (c): panOffsetRef's value (read via PanControlContext's
+  // getPanOffset) at handleContentPointerDown time — the 1:1 horizontal
+  // tracking origin, mirroring dragStartOffset's own role for the vertical
+  // axis exactly.
+  const dragStartPanOffset = useRef(0);
 
   // F13 commit 1: this gesture's decided touch ownership (undecided until
   // cumulative movement clears the slop — see classifyTouchGestureDirection's
@@ -1237,8 +1249,16 @@ export function SceneColumn({
   // own doc comment for why that read is unreliable exactly when it
   // matters. Reset at every handleContentPointerDown; pushed to by every
   // handleContentPointerMove; consumed once, at release, by
-  // handleContentPointerUp.
+  // handleContentPointerUp. Vertical-axis samples only (`offset` =
+  // scrollOffset) — ui#19 slice (c) adds a SEPARATE ring buffer for
+  // horizontal panning below, since mixing the two axes' offsets in one
+  // buffer would corrupt computeReleaseVelocity's delta/dt math for
+  // whichever axis didn't actually move.
   const velocitySamplesRef = useRef<VelocitySample[]>([]);
+  // ui#19 slice (c): horizontal twin of velocitySamplesRef — `offset` here
+  // is panOffsetRef's value, not scrollOffset. Same reset/push/consume
+  // lifecycle, scoped to gestures touchOwnershipRef decides "horizontal".
+  const panVelocitySamplesRef = useRef<VelocitySample[]>([]);
 
   // Bulk-remeasures every registered object's offsetTop/height relative to
   // the content wrapper (the rect-delta technique — invariant under the
@@ -2458,6 +2478,13 @@ export function SceneColumn({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!columnFocused || !isScrollable) return;
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
+      // ui#19 slice (c), A2 column-first-claim: this column's own triad is
+      // now the sole consumer for this gesture, on EITHER axis (it decides
+      // vertical-vs-horizontal itself below, and never hands off mid-
+      // gesture) — stopPropagation so Scene's net-new viewport-level touch
+      // triad (which covers ONLY pointers no column claimed) never sees
+      // this pointerdown. One classifier decision per gesture.
+      e.stopPropagation();
       isDragging.current = true;
       dragStartY.current = e.clientY;
       dragStartX.current = e.clientX;
@@ -2468,6 +2495,10 @@ export function SceneColumn({
       // samples left over from a PRIOR drag (computeReleaseVelocity has no
       // other way to know they're stale).
       velocitySamplesRef.current = [];
+      // ui#19 slice (c): horizontal twin — same rationale, and the 1:1
+      // tracking origin for whichever axis this gesture decides.
+      panVelocitySamplesRef.current = [];
+      dragStartPanOffset.current = panControl?.getPanOffset() ?? 0;
       // A bare .set() does NOT stop an in-flight animate()-driven animation
       // (its own rAF loop keeps overwriting the value — probe-confirmed at
       // source: MotionValue.set() never calls .stop()). A coasting inertia
@@ -2514,7 +2545,7 @@ export function SceneColumn({
       dragStartOffset.current = resynced;
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
-    [columnFocused, isScrollable, scrollY],
+    [columnFocused, isScrollable, scrollY, panControl],
   );
 
   const handleContentPointerMove = useCallback(
@@ -2525,30 +2556,43 @@ export function SceneColumn({
       // both axes — do nothing yet; classifyTouchGestureDirection's own
       // doc comment covers why waiting costs nothing (the offset math
       // below always measures from the FIXED drag start, so deciding
-      // "vertical" on a later move still applies the full accumulated
+      // either axis on a later move still applies the full accumulated
       // delta in one step, with no lag).
       if (touchOwnershipRef.current === "undecided") {
         const dx = e.clientX - dragStartX.current;
         const dy = e.clientY - dragStartY.current;
         const decision = classifyTouchGestureDirection(dx, dy);
-        touchOwnershipRef.current = decision;
-        if (decision === "horizontal") {
-          // Release entirely — native pan-x camera panning owns this
-          // gesture from here on; the native touchmove listener below
-          // reads this same ref and will never preventDefault for it.
-          isDragging.current = false;
-          return;
-        }
         if (decision === "undecided") {
           return; // still ambiguous — nothing to apply yet
         }
-        // decision === "vertical" — fall through and apply this move's
-        // full accumulated delta below, same as every subsequent move.
+        touchOwnershipRef.current = decision;
+        // Both branches below fall through and apply THIS move's full
+        // accumulated delta immediately, same as every subsequent move.
       }
 
-      // 1:1 finger tracking: the finger moving down (deltaY positive) should
-      // move the content down too (content "attached" to the finger), which
-      // means scrollOffset DECREASES — content top = -(topOffset+scrollOffset).
+      // ui#19 slice (c), A2 column-first-claim: horizontal ownership keeps
+      // tracking (an X-variant of the 1:1 finger tracking below) and drives
+      // panOffset through the shared clamp+drive path, on EVERY move this
+      // gesture decided "horizontal" (not just the one that decided it) —
+      // this column's own triad never releases to native anymore (the
+      // pre-ui#19 behavior; there is no native horizontal scroll left to
+      // release to under overflow-x:clip).
+      if (touchOwnershipRef.current === "horizontal") {
+        if (!panControl) return;
+        const dx = e.clientX - dragStartX.current;
+        // Same sign convention as Scene's own wheel/viewport-triad
+        // handling: finger moves left (dx negative) -> content attached to
+        // the finger moves left -> panOffset decreases (reveals
+        // further-right content).
+        panControl.setPanOffset(dragStartPanOffset.current + dx);
+        panVelocitySamplesRef.current.push({ t: performance.now(), offset: panControl.getPanOffset() });
+        return;
+      }
+
+      // touchOwnershipRef.current === "vertical" — 1:1 finger tracking: the
+      // finger moving down (deltaY positive) should move the content down
+      // too (content "attached" to the finger), which means scrollOffset
+      // DECREASES — content top = -(topOffset+scrollOffset).
       const deltaY = e.clientY - dragStartY.current;
       const newOffset = Math.max(
         0,
@@ -2578,7 +2622,7 @@ export function SceneColumn({
         setScrollOffset(newOffset);
       }
     },
-    [duration, scrollY, anchor],
+    [duration, scrollY, anchor, panControl],
   );
 
   const handleContentPointerUp = useCallback(
@@ -2586,6 +2630,20 @@ export function SceneColumn({
       if (!isDragging.current) return;
       isDragging.current = false;
       (e.target as HTMLDivElement).releasePointerCapture(e.pointerId);
+
+      // ui#19 slice (c), A2 column-first-claim: a gesture this column's
+      // triad decided "horizontal" releases through the shared pan fling
+      // path instead of the column's own vertical applyScrollCommand —
+      // never both (one classifier decision per gesture, per axis).
+      if (touchOwnershipRef.current === "horizontal") {
+        // Skipped in instant mode — inertia has no meaningful instant
+        // equivalent (mirrors the vertical release path's own identical
+        // rationale below).
+        const velocity =
+          duration === 0 ? 0 : computeReleaseVelocity(panVelocitySamplesRef.current, performance.now());
+        panControl?.startPanFling(velocity);
+        return;
+      }
 
       const releaseOffset = scrollOffsetRef.current;
       // Always sync React state at release (regardless of duration) — keeps
@@ -2607,7 +2665,7 @@ export function SceneColumn({
         duration === 0 ? 0 : computeReleaseVelocity(velocitySamplesRef.current, performance.now());
       applyScrollCommand({ type: "fling", velocity });
     },
-    [duration, applyScrollCommand],
+    [duration, applyScrollCommand, panControl],
   );
 
   // F13 commit 1: native (non-passive) touchmove listener. React's
