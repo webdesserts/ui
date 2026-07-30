@@ -336,6 +336,43 @@ export function mapScrollKeyToCommand(
   }
 }
 
+/** A plain instruction for how the camera's pan offset should change. */
+export type PanCommand =
+  | { type: "panBy"; delta: number }
+  | { type: "panToHome" }
+  | { type: "panToEnd" };
+
+/**
+ * Horizontal twin of mapScrollKeyToCommand (ui#19 slice (d) — keyboard
+ * parity): today's implicit browser freebie (a focused native scroll
+ * container responding to ArrowLeft/ArrowRight/Home/End) dies under
+ * overflow-x:clip; this replaces it like-for-like at the panOffset level.
+ * No PageUp/PageDown/Space equivalent — the spec names only
+ * ArrowLeft/ArrowRight/Home/End for horizontal parity, unlike the
+ * considerably richer vertical key set. `delta` is the DIRECT panOffset
+ * delta to add (not pre-negated to match the wheel handler's own
+ * deltaX-shaped convention) — ArrowRight (pan right, reveal further-right
+ * content) is negative here because panOffset's sign convention (documented
+ * at Scene.tsx's panOffsetRef declaration) decreases toward its bound in
+ * that direction; ArrowLeft is positive, moving back toward canonical.
+ * Returns `null` for keys with no pan meaning — callers should not
+ * preventDefault or otherwise treat the keydown as handled.
+ */
+export function mapPanKeyToCommand(key: string): PanCommand | null {
+  switch (key) {
+    case "ArrowRight":
+      return { type: "panBy", delta: -40 };
+    case "ArrowLeft":
+      return { type: "panBy", delta: 40 };
+    case "Home":
+      return { type: "panToHome" };
+    case "End":
+      return { type: "panToEnd" };
+    default:
+      return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Content-growth anchor selection (F9)
 // ---------------------------------------------------------------------------

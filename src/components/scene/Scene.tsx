@@ -20,6 +20,8 @@ import {
   interiorCanConsume,
   computeReleaseVelocity,
   TOUCH_DIRECTION_SLOP_PX,
+  isInteractiveElement,
+  mapPanKeyToCommand,
   type ScrollCommand,
   type VelocitySample,
 } from "./inputController";
@@ -251,6 +253,48 @@ function warnStrayChild(type: unknown): void {
       "size. If this is an overlay/debug element (e.g. a camera readout), give it " +
       "`position: absolute` (or `fixed`) so it exits the flex flow, or render it outside <Scene> instead.",
   );
+}
+
+/**
+ * ui#19 slice (d): mounting-contract warning. Scene's viewport is immune to
+ * scrollLeft corruption ON ITSELF (overflow-x:clip, probe-confirmed
+ * bulletproof — see the viewport style comment below) — but the browser
+ * doesn't just give up when it can't scroll an immune element into view; it
+ * walks UP the tree and scrolls the next REAL scroll container instead
+ * (measured in the ui#19 clip probe: 0 -> 350px on a real overflow-x:auto
+ * ancestor). If Scene itself is mounted inside a horizontally-scrollable
+ * ancestor, the exact class of corruption this arc eliminates can resurface
+ * one DOM level up, outside Scene's own control. Warns once per distinct
+ * ancestor element (module-wide dedup, mirrors warnedStrayChildTypes above)
+ * — a real app's layout doesn't usually change shape between renders, so a
+ * per-render warning would just spam without adding information.
+ */
+const warnedChainableAncestors = new WeakSet<Element>();
+
+function warnAncestorScrollChaining(viewport: Element): void {
+  let el: Element | null = viewport.parentElement;
+  while (el && el !== document.body) {
+    const style = getComputedStyle(el);
+    const isHorizontalScrollContainer =
+      (style.overflowX === "auto" || style.overflowX === "scroll") && el.scrollWidth > el.clientWidth;
+    if (isHorizontalScrollContainer) {
+      if (!warnedChainableAncestors.has(el)) {
+        warnedChainableAncestors.add(el);
+        console.warn(
+          "Scene: mounted inside a horizontally-scrollable ancestor " +
+            `(<${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}${
+              el.className ? `.${String(el.className).split(" ").join(".")}` : ""
+            }>). Scene's own viewport is immune to scrollLeft corruption ` +
+            "(overflow-x:clip), but a browser focus-driven auto-scroll that can't move Scene's " +
+            "viewport will chain to this ancestor instead — the same corruption class Scene " +
+            "eliminates for itself can resurface here, outside Scene's control. Consider whether " +
+            "this ancestor needs to be horizontally scrollable at all.",
+        );
+      }
+      return; // one warning per mount is enough — stop at the first hit
+    }
+    el = el.parentElement;
+  }
 }
 
 /**
@@ -2182,6 +2226,58 @@ function SceneViewport({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, []);
 
+  // ui#19 slice (d): keyboard parity for horizontal panning — replaces the
+  // implicit browser freebie (a focused native overflow-x:auto container
+  // responding to ArrowLeft/ArrowRight/Home/End) that died under
+  // overflow-x:clip (slice (a)). Mirrors SceneColumn's own vertical
+  // keyboard handler shape exactly (mapScrollKeyToCommand/
+  // isInteractiveElement — DELTA-1's curated exemption gate, reused as-is
+  // rather than re-derived), gated on there being any pan range at all
+  // (mirrors that handler's own maxScrollRef.current <= 0 early return).
+  // Judged a11y criterion per the spec — this is DELIBERATELY minimal
+  // parity, not new UX: no PageUp/PageDown/Space equivalent (the design
+  // only calls for ArrowLeft/ArrowRight/Home/End). Home/End can ALSO fire
+  // a column's own vertical Home/End handler for the same keydown (no
+  // stopPropagation on either side) — accepted as consistent with native
+  // browsers' own inconsistent multi-axis Home/End behavior, not a new
+  // conflict this migration introduces.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const handler = (e: KeyboardEvent) => {
+      if (panBoundsRef.current.min === 0) return; // no pan range to speak of
+      if (isInteractiveElement(e.target as Element)) return;
+
+      const cmd = mapPanKeyToCommand(e.key);
+      if (!cmd) return; // Not a pan key — don't intercept
+
+      if (cmd.type === "panBy") {
+        setPanOffset(panOffsetRef.current + cmd.delta);
+      } else if (cmd.type === "panToHome") {
+        setPanOffset(0);
+      } else {
+        setPanOffset(panBoundsRef.current.min);
+      }
+      e.preventDefault();
+    };
+
+    el.addEventListener("keydown", handler);
+    return () => el.removeEventListener("keydown", handler);
+  }, [setPanOffset]);
+
+  // ui#19 slice (d): mount-time-only ancestor-chaining check (see
+  // warnAncestorScrollChaining's own doc comment above for the full
+  // rationale). Deliberately unconditional (not gated on a dev/prod
+  // env check) — mirrors this file's own warnStrayChild precedent, which
+  // has no such gate either; both are cheap, one-shot, developer-facing
+  // structural warnings, not a hot-path concern.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    warnAncestorScrollChaining(el);
+  }, []);
+
   // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
   // browser's native focus-driven auto-scroll (and other native scrollLeft
   // mutations) used to bypass the camera's own stageLeft pan and corrupt
@@ -2237,7 +2333,17 @@ function SceneViewport({
             gesture corruption attempts all no-op, read-back stays 0, zero
             visual shift) — the camera (stageLeft + panOffset) is the SOLE
             horizontal-position writer. See :3594's test for the regression
-            pin on this exact computed-style pair. */}
+            pin on this exact computed-style pair.
+
+            MOUNTING CONTRACT: this immunity is local to Scene's own
+            viewport element — it says nothing about ancestors. A consumer
+            that mounts Scene inside its own horizontally-scrollable
+            container reopens the identical corruption class one DOM level
+            up (a browser focus-driven auto-scroll that can't move Scene's
+            clipped viewport chains to the next real scroll container
+            instead), just outside Scene's control. See
+            warnAncestorScrollChaining above for the dev-mode mount-time
+            check of this assumption. */}
         <div
           ref={viewportRef}
           data-testid="scene"
@@ -2267,14 +2373,18 @@ function SceneViewport({
             // [data-column-content]), scoped to that column being
             // Scene-scrollable — so it restricts only the column that
             // needs to own vertical drag, never anything else in the tree.
-            // Horizontal camera pan note (STALE pending ui#19 slice (c)):
-            // this comment described native overflow-x pan continuing to
-            // work under "auto" touch-action — that native horizontal pan
-            // no longer exists as of this slice (overflow-x is clip, never
-            // auto), and slice (c) of this arc adds Scene-level touch
-            // handlers that will need to revisit this value. Left at "auto"
-            // for now (vertical touch-pan inside columns, unrelated to this
-            // arc, must keep working); full rewrite lands with slice (c)/(d).
+            // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
+            // "auto" here is not stale — it never needs to change for
+            // horizontal panning. touch-action only governs the browser's
+            // OWN native scroll gesture; ui#19 blocks that gesture the same
+            // way SceneColumn's F13 vertical drag does (not via touch-
+            // action), with a non-passive `touchmove` listener below that
+            // calls preventDefault() once a horizontal drag commits (see
+            // handleNativeTouchMove). The actual panning motion is driven
+            // entirely by this file's own pointer-event triad
+            // (handleViewportPointerDown/Move/Up) writing panOffset — touch-
+            // action plays no role in producing the pan itself, only in
+            // suppressing the browser's competing native one.
             touchAction: "auto",
             outline: debug ? "2px solid cyan" : undefined,
             // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-

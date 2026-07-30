@@ -478,16 +478,32 @@ Feature: Scene Scroll
     Then the column should continue scrolling with decelerating inertia
     And overscroll past the scroll bounds should be clamped
 
-  Scenario: Horizontal camera pan continues to work via native scroll on touch
+  Scenario: Horizontal camera pan is driven by JS touch handling, not native scroll
     Given a scene that overflows horizontally
     When the user performs a horizontal touch gesture on the Camera viewport
-    Then the camera should pan horizontally via native overflow scrolling
-    Because the Camera viewport itself imposes no touch-action restriction
-    (touch-action: auto) — vertical pan is excluded only on a Scene-
-    scrollable focused column's own content wrapper (touch-action: pan-x
-    pinch-zoom, F8 interior contract), so vertical column drag stays owned
-    by that column without restricting any other content in the scene,
-    including a consumer's own interior scroll containers
+    Then the camera should pan horizontally, tracking the finger 1:1
+    Because the Camera viewport is unconditionally overflow-x/y: clip
+    (ui#19 single-writer horizontal channel) — native horizontal scrolling
+    is structurally impossible there, so panning is driven end to end by
+    Scene's own pointer-event handling instead of the browser's native
+    scroll
+    Note: a gesture starting inside a focused column's own content is
+    classified and driven by that column's own touch handling instead
+    (column-first-claim) — the column decides once, per gesture, whether
+    the drag is vertical (its own scroll) or horizontal (the shared camera
+    pan), and never hands the gesture off mid-drag; the Camera viewport's
+    own touch handling only drives gestures no column claimed (the stage
+    background, a parked column, or a focused column with nothing of its
+    own to scroll vertically)
+    Note: releasing with velocity triggers an inertia fling, same mechanism
+    as vertical release (see "Releasing a drag with velocity triggers an
+    inertia fling" above), clamped to the horizontal pan range
+    Note: the Camera viewport itself still imposes no touch-action
+    restriction (touch-action: auto) — vertical pan is excluded only on a
+    Scene-scrollable focused column's own content wrapper (touch-action:
+    pan-x pinch-zoom, F8 interior contract), so vertical column drag stays
+    owned by that column without restricting any other content in the
+    scene, including a consumer's own interior scroll containers
     Note: a column that contains BOTH Scene-scrollable content AND an
     interior native-scroll island (e.g. a SceneObject with its own
     overflow-y: auto) shares this restriction between them — the column's

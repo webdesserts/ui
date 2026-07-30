@@ -6806,6 +6806,132 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ui#19 slice (d): horizontal pan keyboard parity
+// ---------------------------------------------------------------------------
+
+describe("Scene horizontal pan keyboard parity (ui#19 slice (d))", () => {
+  test("ArrowRight pans right by 40px; ArrowLeft reverses it", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    scene.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+    await waitForAnimationFrame();
+    // ArrowRight (pan right, reveal further-right content) decreases
+    // panOffset/stage.left — same sign convention as a positive wheel deltaX.
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftBefore - 40, 0);
+
+    scene.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    await waitForAnimationFrame();
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftBefore, 0);
+  });
+
+  test("Home jumps to the canonical position (panOffset 0); End jumps to the fully-panned bound", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stageLeftAtHome = parseFloat(stage.style.left);
+    const expectedRange = scene.scrollWidth - scene.clientWidth;
+
+    scene.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+    await waitForAnimationFrame();
+    expect(scene.scrollLeft).toBe(0);
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftAtHome - expectedRange, 0);
+
+    scene.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+    await waitForAnimationFrame();
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftAtHome, 0);
+  });
+
+  test("no pan range: ArrowRight is not intercepted (declines, does not preventDefault)", async () => {
+    // A single 200px column fits the 1280px viewport — zero pan range.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const notPrevented = scene.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    );
+    expect(notPrevented).toBe(true);
+  });
+
+  test("interactive/editable element exemption: typing ArrowRight inside a text input does not pan", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+              <input data-testid="text-input" type="text" />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const input = getByTestId("text-input").element() as HTMLElement;
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    const notPrevented = input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+    );
+    await waitForAnimationFrame();
+
+    expect(notPrevented).toBe(true);
+    expect(parseFloat(stage.style.left)).toBe(stageLeftBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 6a: Outer unfocused column positioning
 // ---------------------------------------------------------------------------
 
@@ -8566,6 +8692,49 @@ describe("Scene horizontal scrollLeft immunity (ui#19)", () => {
   // describe block's header comment — carries forward as a standing rule
   // for this arc, not as a test against dead code. git history has the
   // full original investigation and test.
+});
+
+// ---------------------------------------------------------------------------
+// ui#19 slice (d): ancestor scroll-chaining mount warning
+// ---------------------------------------------------------------------------
+
+describe("Scene ancestor scroll-chaining warning (ui#19 slice (d))", () => {
+  test("warns once when mounted inside a genuinely horizontally-scrollable ancestor", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const scrollableAncestor = document.createElement("div");
+    scrollableAncestor.setAttribute("data-testid", "scrollable-ancestor");
+    scrollableAncestor.style.width = "300px";
+    scrollableAncestor.style.overflowX = "auto";
+    const widener = document.createElement("div");
+    widener.style.width = "900px";
+    widener.style.height = "10px";
+    scrollableAncestor.appendChild(widener);
+    document.body.appendChild(scrollableAncestor);
+
+    try {
+      await render(
+        <TestWrapper fullPage>
+          <Scene duration={0}>
+            <SceneColumn name="col">
+              <SceneObject name="obj" focused>
+                <div style={{ width: 100, height: 100 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>,
+        { container: scrollableAncestor },
+      );
+
+      expect(warnSpy).toHaveBeenCalled();
+      const message = String(warnSpy.mock.calls[0]?.[0]);
+      expect(message).toContain("horizontally-scrollable ancestor");
+      expect(message).toMatch(/overflow-x:clip/);
+    } finally {
+      warnSpy.mockRestore();
+      scrollableAncestor.remove();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
