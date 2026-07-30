@@ -1417,20 +1417,37 @@ function SceneViewport({
   // stageLeft: the CSS `left` value of the absolutely-positioned stage div.
   // Adjusted each render to keep the focused region horizontally centered in
   // the viewport. When focused content overflows the viewport, stageLeft is
-  // clamped so the focused region left-aligns at x=0 (and overflow-x: auto
-  // enables native scrolling for the rest).
+  // clamped so the focused region left-aligns at x=0 (padding-inset) — this
+  // is the canonical/default camera target; ui#19's panOffset layer (below)
+  // composes on top of it for user-driven panning.
   const [stageLeft, setStageLeft] = useState(0);
-  // Absorb-and-re-pan (scrollLeft corruption fix): mirrors stageLeft every
-  // render (precedent idiom: SceneColumn.tsx maxScrollRef/contentHeightRef,
-  // ~793-794) — the scrollLeft correction handler below is a stable
-  // event-listener closure that needs the CURRENT canonical camera target at
-  // invocation time, not whatever was captured when the effect last
-  // (re-)subscribed.
+  // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx
+  // maxScrollRef/contentHeightRef, ~793-794) — stable event-listener/input-
+  // handler closures need the CURRENT canonical camera target at invocation
+  // time, not whatever was captured when an effect last (re-)subscribed.
   const stageLeftRef = useRef(stageLeft);
   stageLeftRef.current = stageLeft;
-  // When focused content overflows the viewport width, enable native horizontal
-  // scroll on the viewport so the user can scroll to see all focused content.
-  const [overflowsX, setOverflowsX] = useState(false);
+  // ui#19 single-writer horizontal channel: panOffset is the user-driven pan
+  // layer, owned entirely by JS input handlers (wheel/touch/keyboard — added
+  // in later slices of this arc), composed as `cameraX = stageLeft +
+  // clamp(panOffset, bounds)`. panOffset === 0 IS the "not currently panned"
+  // state — no separate boolean, no arbitration state. Sign convention:
+  // panOffset ranges [-range, 0], where 0 is the canonical (left-aligned in
+  // overflow mode) position and -range is fully panned to reveal the
+  // rightmost edge of the overflowing content — derived from the overflow
+  // branch's `newStageLeft = -focusedNaturalLeft + padding` formula (moving
+  // stageLeft further NEGATIVE reveals content further to the right), and
+  // matches the `-focusedNaturalLeft` sign the position formula already
+  // uses. A ref (not state) — panOffset changes on every drag/wheel tick,
+  // far too often for a re-render.
+  const panOffsetRef = useRef(0);
+  // The valid panOffset range for the CURRENT focused layout — `{min, max}`
+  // matching the sign convention above (min = -range, max = 0). Written at
+  // the end of the recentering effect below (mirrors stageLeftRef's
+  // declaration-site idiom), gated by the settling latch (vpWidthSettledRef,
+  // declared further below) exactly like the retired overflowsX
+  // classification write used to be — see that latch's own comment for why.
+  const panBoundsRef = useRef({ min: 0, max: 0 });
   // stackTargetLeft: left edge of the rightmost focused column relative to the
   // stage. Starts at 0 and is updated after each layout measurement.
   const [stackTargetLeft, setStackTargetLeft] = useState(0);
@@ -1470,18 +1487,16 @@ function SceneViewport({
   // changes — the trigger for resetting native horizontal scroll (B1).
   const prevFocusedNamesRef = useRef("");
 
-  // Absorb-and-re-pan settling latch: mirrors SceneColumn's
-  // columnGeometrySettledRef/lastEffectiveViewportHeightRef idiom
-  // (SceneColumn.tsx ~389-406/777-785), applied to viewport.clientWidth.
-  // Gates ONLY the overflowsX CLASSIFICATION write in the stageLeft effect
-  // below — clientWidth can arrive across more than one real commit during
-  // mount/resize settling (the content-box correction above, ResizeObserver's
-  // own async callback), and a transient misclassification (overflowsX
-  // flipping true then back to false) would spuriously toggle native
-  // horizontal scroll mid-settle — exactly the kind of extra native scroll
-  // operation the correction handler below exists to absorb, not manufacture.
-  // Position math (newStageLeft) is NOT gated by this — it stays live every
-  // render.
+  // Settling latch: mirrors SceneColumn's columnGeometrySettledRef/
+  // lastEffectiveViewportHeightRef idiom (SceneColumn.tsx ~389-406/777-785),
+  // applied to viewport.clientWidth. Originally gated the (now-retired)
+  // overflowsX classification write; ui#19 repoints it to gate the
+  // panBoundsRef write below instead — clientWidth can arrive across more
+  // than one real commit during mount/resize settling (the content-box
+  // correction above, ResizeObserver's own async callback), and a
+  // transient pan-bounds miscalculation mid-settle would flap the clamp
+  // range a user could be actively panning against. Position math
+  // (newStageLeft) is NOT gated by this — it stays live every render.
   const vpWidthSettledRef = useRef(false);
   const lastVpWidthRef = useRef<number | null>(null);
 
@@ -1595,22 +1610,24 @@ function SceneViewport({
       stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
     );
 
-    // Single camera owner also owns the native horizontal scroll reset: any
-    // time the SET of focused column names changes (DOM order is stable, so
-    // a plain joined-names comparison is enough), reset scrollLeft to 0
-    // synchronously, before paint. This is a separate concern from stageLeft
-    // (base alignment) — a still-overflowing newly-focused region needs
-    // native scroll to reach the parts stageLeft alone doesn't cover, and a
-    // stale scrollLeft calibrated to the OLD focused region would otherwise
-    // permanently offset the new content (B1). Runs even when transitioning
-    // to/from "nothing focused" so a later return to the same set isn't
-    // mistaken for "unchanged".
+    // Single camera owner also owns the pan reset: any time the SET of
+    // focused column names changes (DOM order is stable, so a plain
+    // joined-names comparison is enough), reset panOffset to 0
+    // synchronously, before paint (ui#19 — was `viewport.scrollLeft = 0`
+    // pre-single-writer; the BEHAVIOR is unchanged, only the mechanism:
+    // panOffset is now the sole horizontal user-pan channel, so resetting
+    // IT is what "a still-overflowing newly-focused region starts at its
+    // canonical left-aligned position, not wherever the user last panned
+    // the OLD region to" means now). A stale panOffset calibrated to the
+    // OLD focused region would otherwise permanently offset the new
+    // content (B1). Runs even when transitioning to/from "nothing focused"
+    // so a later return to the same set isn't mistaken for "unchanged".
     const focusedNames = focusedCols
       .map((col) => col.getAttribute("data-column") ?? "")
       .join(",");
     if (focusedNames !== prevFocusedNamesRef.current) {
       prevFocusedNamesRef.current = focusedNames;
-      viewport.scrollLeft = 0;
+      panOffsetRef.current = 0;
     }
 
     if (focusedCols.length === 0) {
@@ -1632,11 +1649,11 @@ function SceneViewport({
 
     const vpWidth = viewport.clientWidth;
 
-    // Absorb-and-re-pan settling latch (see vpWidthSettledRef's declaration
-    // above): captures whether vpWidth was ALREADY settled entering this
-    // commit, before updating the latch for the current value — the render
-    // where clientWidth first repeats still counts as not-yet-settled for
-    // ITS OWN classification write (same one-render delay as SceneColumn's
+    // Settling latch (see vpWidthSettledRef's declaration above): captures
+    // whether vpWidth was ALREADY settled entering this commit, before
+    // updating the latch for the current value — the render where
+    // clientWidth first repeats still counts as not-yet-settled for ITS OWN
+    // panBoundsRef write (same one-render delay as SceneColumn's
     // columnGeometryWasSettled), settling takes effect starting next render.
     const vpWidthWasSettled = vpWidthSettledRef.current;
     if (vpWidth > 0 && lastVpWidthRef.current === vpWidth) {
@@ -1645,11 +1662,15 @@ function SceneViewport({
     lastVpWidthRef.current = vpWidth;
 
     let newStageLeft: number;
-    let newOverflowsX: boolean;
+    // Local branch decision only (ui#19 retired the overflowsX STATE this
+    // used to drive — CSS overflow is now unconditionally clip; this still
+    // decides which position formula applies, and (below) whether there's
+    // any pan range to compute).
+    let contentOverflows: boolean;
     if (focusedWidth <= vpWidth) {
       // Center the focused region in the viewport.
       newStageLeft = (vpWidth - focusedWidth) / 2 - focusedNaturalLeft;
-      newOverflowsX = false;
+      contentOverflows = false;
     } else {
       // Focused content overflows — inset it from the viewport's left edge
       // by exactly `padding` (Michael's symmetric-padding ruling: both
@@ -1663,17 +1684,24 @@ function SceneViewport({
       // the same inset the right edge already gets for free from the
       // stage's own CSS padding surviving into native scrollWidth.
       newStageLeft = -focusedNaturalLeft + padding;
-      newOverflowsX = true;
+      contentOverflows = true;
     }
 
     const stageLeftChanged = stageLeft !== newStageLeft;
     setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
-    // Classification write gated on the settling latch above — hold the
-    // last-committed overflowsX steady while vpWidth is still settling, to
-    // avoid a spurious native-scroll-enabling toggle mid-settle. Once
-    // settled, this always fires (the latch never resets).
+
+    // ui#19: pan bounds for the current focused layout, gated on the
+    // settling latch above — hold the last-committed bounds steady while
+    // vpWidth is still settling, to avoid flapping the clamp range a user
+    // could be actively panning against (mirrors the retired overflowsX
+    // classification write's own gating exactly). Once settled, this
+    // always fires (the latch never resets). Range = how much of the
+    // overflowing focused content sits beyond the viewport once it's
+    // already left-aligned at its canonical position — 0 when content
+    // fits. Sign convention documented at panOffsetRef's declaration.
     if (vpWidthWasSettled) {
-      setOverflowsX((prev) => (prev === newOverflowsX ? prev : newOverflowsX));
+      const range = contentOverflows ? Math.max(0, focusedWidth - vpWidth) : 0;
+      panBoundsRef.current = { min: -range, max: 0 };
     }
 
     // useCamera() target rect (S6 reshape): the union of every focused
@@ -1779,11 +1807,18 @@ function SceneViewport({
   });
 
   // Route wheel input to a target column's registered command applier
-  // (S5 — replaces the old `columnscroll` CustomEvent bridge). deltaX is left
-  // to the native horizontal scroll on the viewport. Registered as
+  // (S5 — replaces the old `columnscroll` CustomEvent bridge). Registered as
   // non-passive so preventDefault() is allowed — normalize -> decide ->
   // apply all run synchronously within the same event so preventDefault()
   // timing is preserved exactly as before.
+  //
+  // deltaX handling is STALE pending ui#19 slice (b): this handler (and the
+  // deltaX-related comment below, inside it) still describes "left to the
+  // native horizontal scroll on the viewport" — that native scroll no
+  // longer exists as of slice (a)'s unconditional overflow-x:clip. deltaX
+  // is currently a no-op (routed nowhere, preventDefault'd nowhere useful).
+  // Slice (b) makes deltaX drive the camera's panOffset directly and
+  // rewrites this comment block in full alongside that change.
   //
   // F17 commit 2: wheel-driven scrollBy deltas are BUFFERED per column and
   // flushed as ONE applyScrollCommand call per real animation frame, rather
@@ -1875,130 +1910,38 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, [scrollCommandRegistry]);
 
-  // DELTA-2 / absorb-and-re-pan (S5 a11y probe, reworked): the browser
-  // auto-scrolls the viewport horizontally to bring a newly focused element
-  // into view — this bypasses the camera's own stageLeft pan entirely and
-  // corrupts scrollLeft (probe-confirmed: tab-focusing a parked column's D3
-  // activation wrapper jumped scrollLeft from 0 to 782 with the stage's own
-  // `left` unchanged). When the viewport is NOT natively scrollable
-  // (overflowsX === false — the camera is the sole horizontal-position owner
-  // via stageLeft), scrollLeft must always be 0.
+  // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
+  // browser's native focus-driven auto-scroll (and other native scrollLeft
+  // mutations) used to bypass the camera's own stageLeft pan and corrupt
+  // scrollLeft (DELTA-2, probe-confirmed: tab-focusing a parked column
+  // jumped scrollLeft 0 -> 782 with stage.left unchanged). A bare
+  // `el.scrollLeft = 0` reset-on-focusin fix (DELTA-2) restored the correct
+  // final position but, being itself a native scroll mutation landing
+  // mid-click-gesture, measurably ate clicks in the consuming app (21/21 +
+  // 27/27 + 24/24 across three N=20 loops). An interim "absorb-and-re-pan"
+  // fix (reset scrollLeft to 0 while simultaneously compensating stage.left
+  // by the same delta, then explicitly re-pan via Motion) closed that but
+  // remained a two-writer system — native scrollLeft AND the camera both
+  // able to move the viewport horizontally, correction code needed to keep
+  // them reconciled, and a Promise/`.then()`-tracked in-flight guard in
+  // that reconciliation shipped a real regression (the camera permanently
+  // stranded ~450px off canonical when a second correction jump()-cancelled
+  // the first's still-in-flight re-pan spring before its `.then()` could
+  // fire and clear the guard).
   //
-  // The ORIGINAL DELTA-2 fix re-asserted this with a bare `el.scrollLeft = 0`
-  // reset on focusin. That was correct for the FINAL resting position (a
-  // reset with stage.left unchanged does restore the exact pre-corruption
-  // screen position, eventually) but wrong for how it got there: the reset
-  // is itself a NATIVE SCROLL MUTATION, landing as an abrupt, synchronous,
-  // uncontrolled jump exactly while the browser is mid-way through
-  // processing a click gesture (pointerdown's default focus-handling can
-  // corrupt scrollLeft; the reset then fires before the corresponding click
-  // resolves) — measured in the consuming app: 21/21 + 27/27 + 24/24 clicks
-  // eaten across three N=20 loops, all in the overflowsX === false regime
-  // (96% of events). A native scroll mutation synchronized with in-flight
-  // gesture processing is what disrupts the browser's own click-target
-  // resolution, independent of where scrollLeft nets out.
-  //
-  // Absorb-and-re-pan avoids ever leaving that corrupted offset sitting in
-  // scrollLeft, even transiently, WITHOUT relying on a second native scroll
-  // to fix it:
-  //   1. Absorb: reset scrollLeft to 0 and, in the SAME synchronous step,
-  //      shift the stage's CSS `left` by the identical delta (in the
-  //      opposite direction) — net visual movement is exactly zero, so the
-  //      reset itself produces no visible jump. This "transfers" the offset
-  //      from the native, browser-owned scrollLeft to the camera's own
-  //      Motion/React-owned position, where it's no longer scroll-mutation
-  //      territory.
-  //   2. Re-pan: explicitly drive the camera from that absorbed position
-  //      back to its canonical target — a snap under duration=0 (matching
-  //      the collapse-to-synchronous test path), or a real spring otherwise
-  //      (Michael's ruling on ui#17: optimize for the smooth UX, not for
-  //      test convenience) — using the SAME animate()/motionSeam wiring as
-  //      the centering effect's own camera pan, not a scroll operation.
-  //
-  // Registered on BOTH "focusin" (the original DELTA-2 trigger) and "scroll"
-  // (any other scrollLeft mutation, e.g. a genuinely async native
-  // auto-scroll whose intermediate ticks each fire their own scroll event) —
-  // delta is re-read fresh on every invocation, never cached, so each tick
-  // of a multi-frame native scroll gets independently absorbed. Scoped to
-  // overflowsX === false: when the viewport IS natively scrollable (focused
-  // content itself overflows), the user's scroll position is legitimately
-  // under their own control and this effect intentionally leaves it alone —
-  // see the worker report's Noticed section for the known residual gap
-  // where a parked column sits beyond an ALREADY-overflowing focused region.
-  useEffect(() => {
-    const el = viewportRef.current;
-    const stage = stageRef.current;
-    if (!el || !stage || overflowsX) return;
-
-    const correctScrollLeft = () => {
-      const delta = el.scrollLeft;
-      if (delta === 0) return;
-
-      // Step 1 — absorb: deliberately UNGUARDED (SceneColumn.tsx:542-613
-      // F17 precedent) — re-reading delta fresh and re-issuing this every
-      // time it's nonzero is idempotent, not divergent.
-      el.scrollLeft = 0;
-      const compensated = cameraX.get() - delta;
-      stage.style.left = `${compensated}px`;
-      // Syncs Motion's own tracked value; its next scheduled render
-      // re-writes the identical value (rAF-batched, harmless) and this also
-      // cancels any spring already in flight toward a now-stale target.
-      cameraX.jump(compensated);
-
-      // Step 2 — re-pan: explicit, always targets the canonical position,
-      // never left to the recentering effect above (it only re-drives
-      // cameraX when newStageLeft CHANGES between renders — nothing here
-      // changes React's stageLeft state, so that effect would never notice).
-      //
-      // Deliberately UNGUARDED (SceneColumn.tsx:542-613 F17 precedent) — an
-      // earlier version of this guarded against "already animating toward
-      // this same target" via a target-tracking ref, mirroring F17's own
-      // boundary-rubber-band correction. That guard had a real bug: motion's
-      // `MotionValue.start()` wraps the animation in a Promise that only
-      // resolves via the animation's OWN internal completion callback —
-      // calling `.stop()` (which `cameraX.jump()` above does, unconditionally,
-      // on EVERY correction) cancels the underlying animation WITHOUT ever
-      // invoking that resolver, so a cancelled `animate()` call's `.then()`
-      // never fires. A second correction arriving while the first's re-pan
-      // spring was still in flight would jump()-cancel it, and the
-      // now-permanently-unresolved `.then()` meant the guard's tracking ref
-      // never cleared — permanently skipping every subsequent re-pan attempt
-      // toward that same target (measured in the consuming app: the camera
-      // stranded ~450px off its canonical position for the rest of the
-      // interaction). Re-issuing animate() unconditionally on every
-      // correction avoids this entirely — retargeting an in-flight spring to
-      // the SAME destination is a stable no-op (motion's spring generator
-      // inherits the live value's current velocity for the new spring,
-      // exactly like a fresh external command elsewhere in this codebase —
-      // see SceneColumn.tsx's driveBoundedSpring), and the existing
-      // cameraTransitionTokenRef guard below already correctly handles
-      // "only the LATEST correction's own completion should fire
-      // onTransitionComplete" on its own, independent of this guard.
-      const target = stageLeftRef.current;
-      if (duration === 0) {
-        cameraX.set(target);
-        stage.style.left = `${target}px`;
-      } else {
-        const token = ++cameraTransitionTokenRef.current;
-        onTransitionStart();
-        const controls = animate(cameraX, target, transition);
-        motionSeam?.registerControls("cameraX", controls);
-        motionSeam?.registerTarget?.("cameraX", target);
-        controls.then(() => {
-          if (cameraTransitionTokenRef.current === token) {
-            onTransitionComplete();
-          }
-        });
-      }
-    };
-
-    el.addEventListener("focusin", correctScrollLeft);
-    el.addEventListener("scroll", correctScrollLeft);
-    return () => {
-      el.removeEventListener("focusin", correctScrollLeft);
-      el.removeEventListener("scroll", correctScrollLeft);
-    };
-  }, [overflowsX, duration, transition, motionSeam, onTransitionStart, onTransitionComplete]);
+  // ui#19 removes the SECOND writer entirely instead of reconciling it: the
+  // viewport is unconditionally `overflow: clip` on both axes (see the
+  // style block below) — probe-confirmed bulletproof against every native
+  // scrollLeft mutation technique (direct writes, scrollIntoView, focus-
+  // driven auto-scroll, mid-gesture corruption attempts all no-op, read-
+  // back stays 0, zero visual shift) — so there is no corrupted scrollLeft
+  // to ever reconcile, and no correction handler is needed at all. The
+  // camera (stageLeft + the panOffset layer, added later in this arc) is
+  // now the SOLE horizontal-position writer. The cross-cutting lesson from
+  // the stranded-camera regression — no Promise/`.then()`-tracked "already
+  // animating" guards; idempotent re-issue instead (SceneColumn.tsx F17's
+  // driveBoundedSpring pattern) — carries forward as a standing rule for
+  // every cameraX-driving function this arc adds.
 
   return (
     <MotionSeamContext.Provider value={motionSeam}>
@@ -2007,9 +1950,21 @@ function SceneViewport({
       <DepthDeckContext.Provider value={stackTargetLeft}>
         {/* Viewport: the clipping window. position:relative establishes the
             containing block for the absolutely-positioned stage.
-            overflow-x: auto when focused content overflows, hidden otherwise —
-            this enables native horizontal scroll without fighting the stage pan.
-            overflow-y: hidden prevents vertical scroll at this level. */}
+            ui#19 single-writer horizontal channel: overflow is
+            unconditionally clip on BOTH axes — never auto, never hidden.
+            This is a HARD requirement, not a style preference: CSS Overflow
+            3's degradation rule collapses `clip` back to `hidden` (silently
+            resurrecting the old scroll-container bug) whenever the OTHER
+            axis is anything but `visible` or `clip` itself — probe-verified
+            (ui#19 spike): overflow-x:clip + overflow-y:hidden computed to
+            hidden/hidden, not clip/clip. Both axes must change together, in
+            the same edit, forever. Native scrollLeft/scrollTop are now
+            structurally impossible (probe-confirmed bulletproof: direct
+            writes, scrollIntoView, focus-driven auto-scroll, and mid-
+            gesture corruption attempts all no-op, read-back stays 0, zero
+            visual shift) — the camera (stageLeft + panOffset) is the SOLE
+            horizontal-position writer. See :3594's test for the regression
+            pin on this exact computed-style pair. */}
         <div
           ref={viewportRef}
           data-testid="scene"
@@ -2018,15 +1973,8 @@ function SceneViewport({
             position: "relative",
             width: "100%",
             height: "100%",
-            overflowX: overflowsX ? "auto" : "hidden",
-            overflowY: "hidden",
-            // Absorb-and-re-pan defensive measure: forces any native
-            // auto-scroll (e.g. focus-driven scroll-into-view) to land in a
-            // single tick rather than animate smoothly across multiple
-            // frames, so the correction handler above's fresh-delta-per-tick
-            // read absorbs it in one shot instead of racing a native
-            // multi-frame scroll animation.
-            scrollBehavior: "auto",
+            overflowX: "clip",
+            overflowY: "clip",
             // F8b interior contract: NO touch-action restriction at this
             // level. touch-action resolves as the INTERSECTION of an
             // element's own value and every ancestor's up to the nearest
@@ -2042,40 +1990,28 @@ function SceneViewport({
             // [data-column-content]), scoped to that column being
             // Scene-scrollable — so it restricts only the column that
             // needs to own vertical drag, never anything else in the tree.
-            // Horizontal camera pan is unaffected: "auto" is a strict
-            // superset of "pan-x pinch-zoom", so native overflow-x pan +
-            // pinch-zoom both still work exactly as before (spec:
-            // scene-scroll.feature "Horizontal camera pan continues to
-            // work via native scroll on touch").
+            // Horizontal camera pan note (STALE pending ui#19 slice (c)):
+            // this comment described native overflow-x pan continuing to
+            // work under "auto" touch-action — that native horizontal pan
+            // no longer exists as of this slice (overflow-x is clip, never
+            // auto), and slice (c) of this arc adds Scene-level touch
+            // handlers that will need to revisit this value. Left at "auto"
+            // for now (vertical touch-pan inside columns, unrelated to this
+            // arc, must keep working); full rewrite lands with slice (c)/(d).
             touchAction: "auto",
             outline: debug ? "2px solid cyan" : undefined,
-            // Thin scrollbar with transparent track so it doesn't eat into content space.
-            scrollbarWidth: "thin",
-            scrollbarColor: "rgba(128,128,128,0.4) transparent",
-            // H10 (investigated, NOT applied): `scrollbar-gutter: stable`
-            // was tried here to stop overflowX toggling auto<->hidden from
-            // wobbling clientHeight in space-reserving scrollbar
-            // environments. Empirically rejected — two probes on this
-            // codebase's actual Chromium/Playwright test environment: (1)
-            // the height wobble this was meant to fix is NOT reproducible
-            // here at all (clientHeight stayed exactly 800 across an
-            // overflowX auto<->hidden toggle, no scrollbar-gutter present —
-            // this environment's scrollbars don't reserve space); (2)
-            // adding `scrollbarGutter: "stable"` to THIS element (which has
-            // `overflowY: hidden`) reserved gutter space on the WRONG axis —
-            // clientWidth measurably shrank from 1280 to 1269 (~11px), since
-            // the property is spec'd for the BLOCK axis (vertical
-            // scrollbars), not the horizontal scrollbar this element
-            // actually toggles. That regressed 21 visual tests across the
-            // suite for zero benefit (overflow-y here is permanently
-            // hidden — a vertical scrollbar will never appear, so
-            // reserving its gutter is pure loss). There is no symmetric
-            // CSS mechanism for horizontal-scrollbar height reservation as
-            // of this spec level — a real fix (if the wobble is ever
-            // observed on a real device) would need a different approach
-            // (e.g. locking overflow-x to a constant reservation mode
-            // rather than toggling auto/hidden), which is a behavior
-            // change beyond a CSS-only fix and wasn't pursued here.
+            // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
+            // gutter investigation both REMOVED — both were about styling
+            // and clientHeight-wobble concerns for a horizontal scrollbar
+            // that toggled on/off with the old overflow-x:auto/hidden
+            // scheme. Under unconditional overflow-x:clip, this element can
+            // never have ANY scrollbar under any circumstance (clip never
+            // establishes a scroll container, full stop) — both concerns
+            // are now structurally moot, not just empirically rejected. The
+            // full H10 writeup (the historical record of why
+            // scrollbar-gutter:stable was tried and rejected) lived in this
+            // comment block pre-ui#19; see git history if that
+            // investigation is ever relevant again.
             // container-type: size lets consumers use cqw/cqh units to size
             // columns relative to the Camera viewport dimensions.
             containerType: "size",

@@ -3744,11 +3744,19 @@ describe("Scene gaps and padding", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene horizontal scroll", () => {
-  test("focused columns wider than viewport — overflow-x is auto (scrollable)", async () => {
-    // When content exceeds the viewport width, the scene element must have
-    // overflow-x: auto so the horizontal scrollbar appears. overflow: hidden
-    // clips content but doesn't allow scrolling.
-    const { getByTestId } = await render(
+  test("ui#19 degradation-trap regression pin: computed overflow-x AND overflow-y are BOTH clip, unconditionally — regardless of whether focused content overflows", async () => {
+    // CSS Overflow 3's degradation rule: `clip` on one axis silently
+    // computes back to `hidden` (resurrecting a real scroll container —
+    // exactly the corruption class this arc eliminates) whenever the OTHER
+    // axis is anything but `visible` or `clip` itself. Probe-verified
+    // before this arc: overflow-x:clip + overflow-y:hidden computed to
+    // hidden/hidden, not clip/clip — this is Scene's OWN old real
+    // combination (overflow-y was permanently hidden), so simply changing
+    // overflow-x alone would have silently re-broken this. Both axes must
+    // read "clip" together, in EVERY layout state — checked here in both
+    // the overflowing and non-overflowing case, since the retired
+    // overflowsX state used to make this conditional.
+    const { getByTestId: overflowing } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col1">
@@ -3764,12 +3772,33 @@ describe("Scene horizontal scroll", () => {
         </Scene>
       </TestWrapper>,
     );
+    const overflowingScene = overflowing("scene").element() as HTMLElement;
+    expect(overflowingScene.scrollWidth).toBeGreaterThan(overflowingScene.clientWidth);
+    const overflowingStyle = window.getComputedStyle(overflowingScene);
+    expect(overflowingStyle.overflowX).toBe("clip");
+    expect(overflowingStyle.overflowY).toBe("clip");
+    // cleanup() (not unmount()) between mounts within one test — matches
+    // this file's established pattern (see the "AnotherStrayReadout"
+    // remount test above) for remounting without destabilizing subsequent
+    // tests' render roots.
+    await cleanup();
 
-    const scene = getByTestId("scene").element() as HTMLElement;
-    // Content overflows AND scrolling is enabled (not clipped)
-    expect(scene.scrollWidth).toBeGreaterThan(scene.clientWidth);
-    const overflowX = window.getComputedStyle(scene).overflowX;
-    expect(overflowX).toBe("auto");
+    const { getByTestId: fitting } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj" focused>
+              <div data-testid="content" style={{ minWidth: 200, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const fittingScene = fitting("scene").element() as HTMLElement;
+    expect(fittingScene.scrollWidth).toBe(fittingScene.clientWidth);
+    const fittingStyle = window.getComputedStyle(fittingScene);
+    expect(fittingStyle.overflowX).toBe("clip");
+    expect(fittingStyle.overflowY).toBe("clip");
   });
 
   test("focused columns fit viewport — no horizontal overflow", async () => {
@@ -3868,7 +3897,17 @@ describe("Scene horizontal scroll", () => {
     expect(stageLeftAfter).toBeGreaterThan(0);
   });
 
-  test("horizontal scroll resets when the focused column set changes, even if the new layout still overflows (B1)", async () => {
+  // ui#19 slice (a): SKIPPED, not deleted — this test's mechanism (a direct
+  // `scene.scrollLeft = 300` write standing in for user panning) is
+  // structurally dead under overflow-x:clip (a no-op write, confirmed
+  // elsewhere in this file's clip-immunity tests). B1's underlying BEHAVIOR
+  // (a stale user pan must reset to canonical when the focused column set
+  // changes) still needs its OWN mechanism and its OWN test — restored in
+  // slice (b) as the panOffset-reset test: synthetic wheel deltaX through
+  // the real handler establishes a nonzero pan, then a focused-set change
+  // must drive cameraX back to the new canonical — asserted on cameraX/
+  // stage.left, never scrollLeft. See ui#19 slice (b).
+  test.skip("horizontal scroll resets when the focused column set changes, even if the new layout still overflows (B1)", async () => {
     // Four 500px columns; three are focused at a time (a sliding window) so
     // the focused region overflows the 1280px viewport in both the before
     // and after layouts — overflow-x stays "auto" throughout and the browser
@@ -3944,46 +3983,14 @@ describe("Scene horizontal scroll", () => {
     expect(scene.scrollLeft).toBe(0);
   });
 
-  test("H10 (investigated, not applied): overflowX toggling does not wobble clientHeight in this test environment", async () => {
-    // Regression pin for the empirical finding, NOT the CSS mechanism —
-    // `scrollbar-gutter: stable` was tried on the viewport and rejected:
-    // (1) this exact wobble isn't reproducible here (asserted below — this
-    // environment's scrollbars don't reserve space, so there's nothing for
-    // the property to fix in THIS environment); (2) applying it anyway
-    // reserved gutter space on the wrong axis (the property targets
-    // vertical scrollbars; this viewport's overflowY is permanently
-    // hidden), shrinking clientWidth ~11px for zero benefit and regressing
-    // 21 visual tests. See Scene.tsx's viewport style comment for the full
-    // writeup. If a real device ever shows this wobble, the fix needs a
-    // different approach (e.g. locking overflow-x to a constant reservation
-    // mode) — this pin exists so a future re-attempt at the same CSS-only
-    // fix re-discovers the same rejection instead of re-deriving it.
-    const build = (overflow: boolean) => (
-      <TestWrapper fullPage>
-        <Scene duration={0}>
-          <SceneColumn name="col1">
-            <SceneObject name="obj1" focused>
-              <div style={{ minWidth: overflow ? 1000 : 200, height: 100 }} />
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="col2">
-            <SceneObject name="obj2" focused>
-              <div style={{ minWidth: overflow ? 1000 : 200, height: 100 }} />
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>
-    );
-
-    const { rerender, getByTestId } = await render(build(false));
-    const scene = getByTestId("scene").element() as HTMLElement;
-    const before = scene.clientHeight;
-
-    await rerender(build(true));
-    await waitForAnimationFrame();
-
-    expect(scene.clientHeight).toBe(before);
-  });
+  // H10 test DELETED (ui#19 slice (a)) — obsolete, not failing: it pinned
+  // clientHeight stability across the OLD overflowX auto<->hidden toggle,
+  // which no longer exists (overflow is now unconditionally clip on both
+  // axes, never toggling). The wobble H10 investigated can no longer occur
+  // even in principle — clip never establishes a scrollbar under any
+  // circumstance, so there's nothing left for this pin to guard against.
+  // See Scene.tsx's viewport style comment (ui#19) for the historical
+  // writeup; git history has the full original investigation and test.
 });
 
 // ---------------------------------------------------------------------------
@@ -6305,7 +6312,14 @@ describe("Scene scroll position management", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene scroll edge cases", () => {
-  test("diagonal trackpad gesture scrolls both axes simultaneously", async () => {
+  // ui#19 slice (a): SKIPPED, not deleted — this test's deltaX half is dead
+  // (asserted a `scene.scrollLeft === 0` baseline that's now permanently,
+  // trivially true under clip, and never actually checked deltaX's effect
+  // afterward — currently still PASSES but no longer tests anything
+  // meaningful about the horizontal axis). Restored + rewritten in slice
+  // (b): deltaX drives cameraX directly (assert camera movement, not
+  // scrollLeft), deltaY still drives column scroll, simultaneity preserved.
+  test.skip("diagonal trackpad gesture scrolls both axes simultaneously", async () => {
     // A wheel event with both deltaX and deltaY should:
     // - Route deltaY to the column's vertical scroll state
     // - Route deltaX to the viewport's native horizontal scroll (overflow-x: auto)
@@ -8112,12 +8126,18 @@ describe("SceneObject click-to-focus", () => {
     expect(notPrevented).toBe(false);
   });
 
-  test("DELTA-2: tab-focusing a parked (offscreen) column's D3 activation wrapper leaves the camera's horizontal framing unchanged, and Enter still activates it normally", async () => {
-    // Regression for the browser's native scroll-into-view-on-focus, which
-    // (unguarded) drags the viewport's native scrollLeft out from under the
-    // camera's own stageLeft pan (probe-confirmed: 0 -> 782 with stageLeft
-    // unchanged). Layout: three 400px columns in a 500px viewport, only "a"
-    // focused — "c" is parked well outside the visible region.
+  test("DELTA-2 (ui#19: pure immunity assertion): tab-focusing a parked (offscreen) column's D3 activation wrapper leaves the camera's horizontal framing unchanged, and Enter still activates it normally", async () => {
+    // DELTA-2's original regression was the browser's native scroll-into-
+    // view-on-focus dragging the viewport's native scrollLeft out from
+    // under the camera's own stageLeft pan (probe-confirmed pre-ui#19: 0 ->
+    // 782 with stageLeft unchanged) — that mechanism required correcting
+    // AFTER the fact (DELTA-2's bare reset, then absorb-and-re-pan). Under
+    // ui#19's unconditional overflow-x:clip, native scroll-into-view cannot
+    // move scrollLeft at all (probe-confirmed bulletproof — see this
+    // codebase's ui#19 clip probe), so there is nothing to correct; this is
+    // now a pure immunity assertion, not a correction-cycle test. Layout:
+    // three 400px columns in a 500px viewport, only "a" focused — "c" is
+    // parked well outside the visible region.
     let activated = false;
     const { getByTestId } = await render(
       <TestWrapper fullPage width={500} height={600}>
@@ -8155,8 +8175,9 @@ describe("SceneObject click-to-focus", () => {
     expect(document.activeElement).toBe(cWrapper);
     // The camera's own pan target is untouched...
     expect(stage.style.left).toBe(stageLeftBefore);
-    // ...and the DELTA-2 fix restored native scrollLeft to 0 (the browser's
-    // scroll-into-view is undone within the same synchronous focusin tick).
+    // ...and scrollLeft was never able to move at all (clip immunity, not
+    // a correction) — the browser's native scroll-into-view attempt is
+    // structurally a no-op against a clip container.
     expect(scene.scrollLeft).toBe(0);
 
     // Enter still activates it normally.
@@ -8166,38 +8187,42 @@ describe("SceneObject click-to-focus", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Absorb-and-re-pan: the DELTA-2 fix reworked. The ORIGINAL DELTA-2 bare
-// reset (`el.scrollLeft = 0` on focusin) restored the correct FINAL resting
-// position, but the reset itself is a native scroll mutation landing
+// Scene horizontal scrollLeft immunity (ui#19 single-writer). History:
+// DELTA-2's bare `el.scrollLeft = 0` reset-on-focusin restored the correct
+// FINAL resting position but was itself a native scroll mutation landing
 // mid-click-gesture — measured in the consuming app: 21/21 + 27/27 + 24/24
-// clicks eaten across three N=20 loops, all in the overflowsX === false
-// regime (96% of events). Absorb-and-re-pan instead: (1) absorbs the
-// corruption's delta into the stage's CSS `left` in the SAME synchronous
-// step as the scrollLeft reset (a representation transfer, not a visual
-// correction — this step causes ZERO additional visual movement beyond
-// what the native corruption already did, which is what makes the
-// scrollLeft:0 write itself a no-op for hit-testing), then (2) explicitly
-// re-pans the camera from that absorbed position back to its canonical
-// target via Motion (a snap under duration=0, a real spring otherwise),
-// never via a second native scroll mutation. Registered on BOTH "focusin"
-// (the original DELTA-2 trigger) and "scroll" (any other scrollLeft
-// mutation) — delta is re-read fresh every invocation, so this handles
-// corruption sources beyond focus-driven auto-scroll too.
+// clicks eaten across three N=20 loops (96% of events). An interim
+// "absorb-and-re-pan" fix (compensate stage.left by the corruption's delta,
+// then explicitly re-pan via Motion) closed that, but remained a TWO-WRITER
+// system needing reconciliation code — and that reconciliation code shipped
+// a real regression of its own: a Promise/`.then()`-tracked "already
+// animating toward this target" guard could get permanently orphaned when a
+// second correction's `cameraX.jump()` cancelled the first's still-in-
+// flight re-pan spring before its `.then()` fired, silently stranding the
+// camera ~450px off canonical for the rest of the interaction. THE LESSON —
+// no Promise/`.then()`-tracked in-flight guards, ever; idempotent re-issue
+// instead (SceneColumn.tsx F17's driveBoundedSpring pattern) — carries
+// forward as a standing rule for every cameraX-driving function ui#19 adds
+// (see Scene.tsx's viewport style comment for the fuller history).
 //
-// Environment note (probe-confirmed while building this suite): calling
-// `.focus()` directly on an off-viewport element does NOT trigger native
-// scroll-into-view in this headless Chromium test environment (unlike a
-// real browser with real window/OS focus) — `element.scrollIntoView()` and
-// a direct `el.scrollLeft = x` write both DO reliably corrupt scrollLeft
-// here, and both fire the native "scroll" event exactly the way a real
+// ui#19 removes the second writer entirely: overflow-x/-y are
+// unconditionally clip, so there is no corrupted scrollLeft to ever
+// reconcile — no correction handler exists anymore. The tests below assert
+// IMMUNITY, not correction.
+//
+// Environment note (probe-confirmed): calling `.focus()` directly on an
+// off-viewport element does NOT trigger native scroll-into-view in this
+// headless Chromium test environment (unlike a real browser with real
+// window/OS focus) — `element.scrollIntoView()` and a direct
+// `el.scrollLeft = x` write both DO reliably attempt the corruption here,
+// and both fire the native "scroll" event exactly the way a real
 // multi-tick native auto-scroll's own intermediate ticks would. The tests
-// below use a direct scrollLeft write as the corruption-injection
-// technique for this reason — one of the two techniques named in the
-// original brief for this fix.
+// below use a direct scrollLeft write as the corruption-ATTEMPT technique
+// for this reason.
 // ---------------------------------------------------------------------------
 
-describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
-  test("net-zero visual: the reset+absorb write itself introduces no additional visual jump beyond what the native corruption already did — restoring the true resting position is deferred to the separate, explicit re-pan step", async () => {
+describe("Scene horizontal scrollLeft immunity (ui#19)", () => {
+  test("frame-sampling immunity guard: no sampled frame — nor the object's own position — ever shows any effect of a scrollLeft corruption attempt, across a real multi-frame window", async () => {
     const { getByTestId } = await render(
       <TestWrapper fullPage width={500} height={600}>
         <Scene>
@@ -8211,50 +8236,9 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
               <div data-testid="content-b" style={{ width: 400, height: 300 }} />
             </SceneObject>
           </SceneColumn>
-        </Scene>
-      </TestWrapper>,
-    );
-    // Let the mount spring fully settle before probing.
-    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
-
-    const scene = getByTestId("scene").element() as HTMLElement;
-    const stableObj = getByTestId("content-a").element() as HTMLElement;
-
-    const preRect = stableObj.getBoundingClientRect();
-    const DELTA = 150;
-    // Analytically, an UNCORRECTED corruption of this delta shifts the
-    // object left by exactly DELTA px (scrollLeft increases -> the visible
-    // window shifts right -> content appears to shift left). This is what
-    // the ABSORB step's compensated write should land on — NOT the original
-    // resting position, which the separate re-pan step (tested below)
-    // recovers afterward.
-    const expectedAbsorbedX = preRect.x - DELTA;
-
-    scene.scrollLeft = DELTA;
-    // One frame is enough for the async "scroll" event — and therefore this
-    // correction handler — to have fired (probe-confirmed: scrollLeft
-    // reads back to 0, absorbed-but-not-yet-repanned, after exactly one
-    // frame; motion's own spring progression hasn't ticked yet at this
-    // exact checkpoint).
-    await waitForAnimationFrame();
-
-    expect(scene.scrollLeft).toBe(0);
-    const postAbsorbRect = stableObj.getBoundingClientRect();
-    expect(Math.abs(postAbsorbRect.x - expectedAbsorbedX)).toBeLessThan(1);
-  });
-
-  test("frame-sampling defeat-check: no sampled frame ever observes scrollLeft still nonzero (uncorrected) — the correction always completes before that frame paints, and the camera fully recovers by the end", async () => {
-    const { getByTestId } = await render(
-      <TestWrapper fullPage width={500} height={600}>
-        <Scene>
-          <SceneColumn name="a">
-            <SceneObject name="a-obj" focused>
-              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="b">
-            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
-              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
+          <SceneColumn name="c">
+            <SceneObject name="c-obj" focused={false} onActivate={() => {}}>
+              <div data-testid="content-c" style={{ width: 400, height: 300 }} />
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -8264,9 +8248,14 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     const stableObj = getByTestId("content-a").element() as HTMLElement;
+    const cWrapper = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
     const preRect = stableObj.getBoundingClientRect();
 
+    // Two independent corruption-attempt techniques, back to back (a direct
+    // write, then scrollIntoView on a parked column) — both probe-confirmed
+    // elsewhere in this codebase to attempt a real native scroll.
     scene.scrollLeft = 150;
+    cWrapper.scrollIntoView();
 
     const samples: { frame: number; scrollLeft: number; x: number }[] = [];
     for (let i = 0; i < 60; i++) {
@@ -8274,50 +8263,14 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
       samples.push({ frame: i, scrollLeft: scene.scrollLeft, x: stableObj.getBoundingClientRect().x });
     }
 
-    const violating = samples.filter((s) => s.scrollLeft !== 0);
+    const violating = samples.filter((s) => s.scrollLeft !== 0 || Math.abs(s.x - preRect.x) >= 1);
     expect(
       violating.length,
-      `${violating.length} sampled frame(s) observed scrollLeft still nonzero (uncorrected): ${JSON.stringify(violating)}`,
+      `${violating.length} sampled frame(s) observed a corruption effect (nonzero scrollLeft or object movement): ${JSON.stringify(violating)}`,
     ).toBe(0);
-
-    // By the end, the camera has fully recovered to the original position —
-    // the explicit re-pan (tested in isolation below) actually landed.
-    const finalRect = stableObj.getBoundingClientRect();
-    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
   });
 
-  test("spring-back: after correction under a real (non-zero) spring, the camera converges back to its canonical resting position within a bounded number of frames", async () => {
-    const { getByTestId } = await render(
-      <TestWrapper fullPage width={500} height={600}>
-        <Scene>
-          <SceneColumn name="a">
-            <SceneObject name="a-obj" focused>
-              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="b">
-            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
-              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
-    );
-    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
-
-    const scene = getByTestId("scene").element() as HTMLElement;
-    const stableObj = getByTestId("content-a").element() as HTMLElement;
-    const preRect = stableObj.getBoundingClientRect();
-
-    scene.scrollLeft = 150;
-
-    for (let i = 0; i < 60; i++) await waitForAnimationFrame();
-
-    const finalRect = stableObj.getBoundingClientRect();
-    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
-  });
-
-  test("mid-gesture click-eater regression: a scrollLeft corruption between pointerdown and click does not leave the click target permanently stranded", async () => {
+  test("mid-gesture click-eater regression: a scrollLeft corruption attempt between pointerdown and click does not leave the click target permanently stranded", async () => {
     let clicked = false;
     const { getByTestId } = await render(
       <TestWrapper fullPage width={500} height={600}>
@@ -8349,12 +8302,12 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
     const clickX = rect.x + rect.width / 2;
     const clickY = rect.y + rect.height / 2;
 
-    // Capture-phase pointerdown listener corrupts scrollLeft mid-gesture, a
-    // direct property write standing in for a real native auto-scroll (see
-    // this describe block's header comment for why — .focus() doesn't
-    // trigger native scroll-into-view in this headless environment, but a
-    // direct write fires the identical "scroll" event a real multi-tick
-    // native auto-scroll's own ticks would).
+    // Capture-phase pointerdown listener attempts to corrupt scrollLeft
+    // mid-gesture, a direct property write standing in for a real native
+    // auto-scroll (see this describe block's header comment for why —
+    // .focus() doesn't trigger native scroll-into-view in this headless
+    // environment, but a direct write fires the identical "scroll" event a
+    // real multi-tick native auto-scroll's own ticks would).
     const pdListener = () => {
       scene.scrollLeft = 300;
     };
@@ -8364,12 +8317,12 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
     pdHitEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: clickX, clientY: clickY }));
     document.removeEventListener("pointerdown", pdListener, true);
 
-    // One frame is enough for the async "scroll" event — and therefore the
-    // correction — to have fired; under duration=0 the absorb AND the
-    // explicit re-pan snap collapse into that same synchronous handler
-    // call, so the object is fully back at its original position by here.
+    // The corruption attempt is a no-op under clip — nothing to wait for,
+    // but one frame costs nothing and keeps this test structurally similar
+    // to a real gesture's timing.
     await waitForAnimationFrame();
 
+    expect(scene.scrollLeft).toBe(0);
     const clickHitEl = document.elementFromPoint(clickX, clickY)!;
     clickHitEl.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: clickX, clientY: clickY }));
 
@@ -8377,50 +8330,14 @@ describe("Scene absorb-and-re-pan (scrollLeft corruption fix)", () => {
     expect(clicked).toBe(true);
   });
 
-  test("double-correction race: a second scrollLeft corruption arriving mid-repan-spring does not permanently strand the camera off its canonical target", async () => {
-    const { getByTestId } = await render(
-      <TestWrapper fullPage width={500} height={600}>
-        <Scene>
-          <SceneColumn name="a">
-            <SceneObject name="a-obj" focused>
-              <div data-testid="content-a" style={{ width: 400, height: 300 }} />
-            </SceneObject>
-          </SceneColumn>
-          <SceneColumn name="b">
-            <SceneObject name="b-obj" focused={false} onActivate={() => {}}>
-              <div data-testid="content-b" style={{ width: 400, height: 300 }} />
-            </SceneObject>
-          </SceneColumn>
-        </Scene>
-      </TestWrapper>,
-    );
-    for (let i = 0; i < 30; i++) await waitForAnimationFrame();
-
-    const scene = getByTestId("scene").element() as HTMLElement;
-    const stableObj = getByTestId("content-a").element() as HTMLElement;
-    const preRect = stableObj.getBoundingClientRect();
-
-    // First corruption — the correction's explicit re-pan spring starts
-    // (a real, non-zero duration; see the "spring-back" test above for the
-    // established multi-frame convergence timing this relies on).
-    scene.scrollLeft = 150;
-
-    // A few frames in, while that spring is still genuinely in flight (NOT
-    // settled — the spring-back test above shows this specific spring is
-    // still ~50% away from its target after 10 frames), a second
-    // corruption arrives — mirroring Playwright's own actionability
-    // scrolling re-firing mid-animation in the real consuming app.
-    for (let i = 0; i < 3; i++) await waitForAnimationFrame();
-    scene.scrollLeft = 200;
-
-    // Generous settle window — well past what an undisturbed single
-    // correction needs (see "spring-back" above).
-    for (let i = 0; i < 90; i++) await waitForAnimationFrame();
-
-    expect(scene.scrollLeft).toBe(0);
-    const finalRect = stableObj.getBoundingClientRect();
-    expect(Math.abs(finalRect.x - preRect.x)).toBeLessThan(1);
-  });
+  // "double-correction race" test DELETED (ui#19 slice (a)) — its entire
+  // premise (a second scrollLeft corruption arriving while the first
+  // correction's re-pan spring is still in flight) requires the
+  // absorb-and-re-pan correction mechanism this slice removes; there is no
+  // more re-pan spring to race against. The LESSON it caught — see this
+  // describe block's header comment — carries forward as a standing rule
+  // for this arc, not as a test against dead code. git history has the
+  // full original investigation and test.
 });
 
 // ---------------------------------------------------------------------------
@@ -10291,7 +10208,13 @@ describe("Scene padding cluster (S6)", () => {
     expect(rightRect.left - middleRect.left).toBeCloseTo(0, -1);
   });
 
-  test.each([0, 4, 32])(
+  // ui#19 slice (a): SKIPPED, not deleted — the right-inset half of this
+  // test reaches max-scroll via `scene.scrollLeft = scrollWidth -
+  // clientWidth`, a dead no-op under clip (the left-inset half, unaffected,
+  // is skipped too rather than partially applying this edit — both
+  // restored together in slice (b), which reaches max-right via the new
+  // pan path: synthetic wheel deltaX or a direct drive-function call).
+  test.skip.each([0, 4, 32])(
     "overflow mode: both edges are inset by exactly padding=%ipx (Michael's symmetric-padding ruling)",
     async (padding) => {
       // Two 1000px columns (2000px total) badly overflow the 1280px viewport
@@ -10337,7 +10260,11 @@ describe("Scene padding cluster (S6)", () => {
     },
   );
 
-  test("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
+  // ui#19 slice (a): SKIPPED, not deleted — same reason as the test.each
+  // block immediately above (the right-inset assertion reaches max-scroll
+  // via `scene.scrollLeft = scrollWidth - clientWidth`, dead under clip).
+  // Restored in slice (b) alongside it.
+  test.skip("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
     const build = (padding: number) => (
       <TestWrapper fullPage>
         <Scene padding={padding}>
