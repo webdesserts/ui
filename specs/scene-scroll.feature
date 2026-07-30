@@ -230,6 +230,32 @@ Feature: Scene Scroll
     Because the column's own keyboard handler only intercepts scroll keys
     when the column itself has something to scroll
 
+  Scenario: Keyboard parity pans the camera horizontally
+    Given a scene that overflows horizontally
+    And keyboard focus is somewhere inside the Camera viewport, on a
+    non-interactive element
+    When the user presses ArrowRight
+    Then the camera pans right by a fixed step, revealing further-right content
+    When the user presses ArrowLeft
+    Then the camera pans left by that same fixed step
+    When the user presses Home
+    Then the camera pans to its canonical (leftmost) position
+    When the user presses End
+    Then the camera pans to its maximum (rightmost) position
+    Because this replaces the implicit browser freebie (a focused native
+    horizontal scroll container responding to these same keys) that this
+    arc's single-writer channel removed — deliberately minimal, like-for-
+    like PARITY, not new UX: no PageUp/PageDown/Space equivalent, unlike
+    the considerably richer vertical key set
+    Note: never fires when there is no horizontal overflow to pan —
+    mirrors the vertical handler's own "nothing to scroll" early return
+    Note: never steals the key from an interactive or editable element (a
+    button, input, link, or ARIA-interactive-role descendant) — the same
+    curated exemption gate the vertical handler already uses, so a text
+    input's own arrow-key cursor movement is never hijacked
+    Note: judged a11y criterion — this minimal parity is the default;
+    whether a richer horizontal key set is warranted is Michael's call
+
   Scenario: Focus change during active scroll
     Given the user is actively scrolling
     When focus changes
