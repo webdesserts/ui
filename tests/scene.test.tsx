@@ -2524,6 +2524,159 @@ describe("SceneColumn vertical swap", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Entrance geometry: newly-mounted focus swap, coincidental content height
+// (predates ui#19 — the mechanism traces to a gap in the ResizeObserver/
+// per-render remeasure split, not to anything in the single-writer arc).
+//
+// Root cause (source-traced, all citations verified against 9b7f3d4):
+// computeTopOffset (:161-174) reads geometry captured by the PREVIOUS
+// render's layout effects (:1640-1644, "avoids a two-render cycle" — by
+// design). A newly-MOUNTED focused object has no previous-render geometry
+// entry at all, so its first render's topOffset falls back to `?? 0`
+// (:173). The drive effect (:2228-2240) either early-returns (when that
+// fallback 0 happens to match the already-driven target — exactly the
+// case when the previously-focused object's own offsetTop was also 0) or
+// drives toward the wrong value. The correcting re-render depends entirely
+// on setContentHeight(...) (:1882) actually producing a new number — the
+// synchronous per-render remeasure effect (:1879-1883) DOES correct
+// geometryStore via remeasureGeometryWithAnchorCompensation() (:1880), but
+// discards its `changed` return value and never calls setGeometryVersion,
+// unlike its ResizeObserver sibling (:1827,:1856), which captures `changed`
+// and bumps geometryVersion specifically to force this correcting
+// re-render. If the newly-focused object's content height coincidentally
+// equals what was already accounted for (i.e. computeFocusedContentHeight
+// returns the SAME number before and after the swap), setContentHeight
+// no-ops (React bails on an identical state update) and NO re-render ever
+// arrives to pick up the now-correct geometryStore data — the entrance
+// freezes permanently, not just late.
+//
+// Fixture constraint: SceneObject's own D5 focus-on-activate effect
+// (SceneObject.tsx:101-124) already calls .focus({preventScroll:true})
+// whenever an object newly becomes focused, and real Chromium (this suite
+// runs in real Chromium via vitest browser mode, not jsdom) honors
+// preventScroll — so a plain DOM .click() swap trigger (not a
+// Playwright-actionability-checked locator click, which scrolls its
+// target into view first) does not risk a native focus-scroll rescuing
+// the panel and masking the bug under master's overflow-y:hidden.
+// ---------------------------------------------------------------------------
+
+describe("Scene entrance geometry — newly-mounted focus swap", () => {
+  // Two-object column: A starts focused (height 200), B does not exist in
+  // the tree at all until the swap. `heightB` is the only difference
+  // between the repro and its control.
+  function SwapToNewMount({ heightB }: { heightB: number }) {
+    const [showB, setShowB] = useState(false);
+    return (
+      <>
+        {/* position:fixed takes this out of normal flow — TestWrapper's
+            fullPage div is a plain block, so an in-flow sibling here would
+            push it down and contaminate the gBCR comparison against the
+            reference render below (which has no such sibling). */}
+        <button data-testid="swap-btn" style={{ position: "fixed" }} onClick={() => setShowB(true)}>
+          Swap
+        </button>
+        <TestWrapper fullPage>
+          <Scene duration={0} padding={0}>
+            <SceneColumn name="col" objectGap={0}>
+              <SceneObject name="obj-a" focused={!showB}>
+                <div data-testid="content-a" style={{ width: 300, height: 200 }}>
+                  A
+                </div>
+              </SceneObject>
+              {showB && (
+                <SceneObject name="obj-b" focused>
+                  <div data-testid="content-b" style={{ width: 300, height: heightB }}>
+                    B
+                  </div>
+                </SceneObject>
+              )}
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      </>
+    );
+  }
+
+  // A fresh, never-swapped mount with B already the sole focused object —
+  // the "canonical top" reference. Same technique ui#19's B1-replacement
+  // test used (comparing against a fresh render of the equivalent final
+  // state, not a hand-derived pixel value) — this sidesteps needing to
+  // independently re-derive the exact expected offset and instead proves
+  // the swapped B ends up in the SAME place a correctly-entered B would.
+  function FreshMountWithBFocused({ heightB }: { heightB: number }) {
+    return (
+      <TestWrapper fullPage>
+        <Scene duration={0} padding={0}>
+          <SceneColumn name="col" objectGap={0}>
+            <SceneObject name="obj-a" focused={false}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>
+                A
+              </div>
+            </SceneObject>
+            <SceneObject name="obj-b" focused>
+              <div data-testid="content-b" style={{ width: 300, height: heightB }}>
+                B
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  async function settle() {
+    await waitForAnimationFrame();
+    for (const delay of [16, 100, 300, 600]) {
+      await wait(delay);
+    }
+  }
+
+  test("REPRO: swapping to a newly-mounted object whose height coincidentally matches the outgoing one freezes the entrance", async () => {
+    // A is 200 tall; B is ALSO 200 tall — computeFocusedContentHeight
+    // returns the same number before and after the swap, so setContentHeight
+    // no-ops and (under the bug) the correcting re-render never arrives.
+    const { getByTestId } = await render(<SwapToNewMount heightB={200} />);
+
+    (getByTestId("swap-btn").element() as HTMLElement).click();
+    await settle();
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const swappedTop = objB.getBoundingClientRect().top;
+
+    await cleanup();
+
+    const { getByTestId: getByTestIdFresh } = await render(<FreshMountWithBFocused heightB={200} />);
+    await settle();
+    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const canonicalTop = freshObjB.getBoundingClientRect().top;
+
+    expect(swappedTop).toBeCloseTo(canonicalTop, 0);
+  });
+
+  test("CONTROL: swapping to a newly-mounted object with a DIFFERENT height reaches its canonical top (discriminates the repro on the coincidence, not on mounting mechanics)", async () => {
+    // A is 200 tall; B is 350 tall — computeFocusedContentHeight necessarily
+    // changes, so setContentHeight fires a real re-render and the entrance
+    // is expected to reach canonical even on master.
+    const { getByTestId } = await render(<SwapToNewMount heightB={350} />);
+
+    (getByTestId("swap-btn").element() as HTMLElement).click();
+    await settle();
+
+    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const swappedTop = objB.getBoundingClientRect().top;
+
+    await cleanup();
+
+    const { getByTestId: getByTestIdFresh } = await render(<FreshMountWithBFocused heightB={350} />);
+    await settle();
+    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const canonicalTop = freshObjB.getBoundingClientRect().top;
+
+    expect(swappedTop).toBeCloseTo(canonicalTop, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 2: Multi-focus stacking within a column
 // ---------------------------------------------------------------------------
 
