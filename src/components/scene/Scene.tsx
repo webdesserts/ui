@@ -15,6 +15,7 @@ import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { MotionSeamContext, type MotionSeamRegistration } from "./motionSeam";
 import {
   normalizeWheelDelta,
+  normalizeWheelDeltaX,
   decideWheelTargetColumn,
   interiorCanConsume,
   type ScrollCommand,
@@ -1601,6 +1602,55 @@ function SceneViewport({
   // This runs on every render so it stays in sync with column layout changes.
   // Runs as useLayoutEffect so the stage position is applied before paint,
   // avoiding a visible flash of mis-aligned content.
+
+  // ui#19: shared cameraX drive — the ONLY place any code should move
+  // cameraX. Used below by the recentering effect (composed canonical +
+  // pan target) AND by every input handler this arc adds (wheel/touch/
+  // keyboard — each composes its own target from stageLeftRef + its
+  // updated panOffsetRef and calls this). Deliberately UNGUARDED — no
+  // "already animating toward this target" check, ever (cross-cutting ban;
+  // see this file's viewport style comment for the regression this
+  // shipped when a prior version of this codebase's absorb-and-re-pan
+  // mechanism had exactly such a guard). Retargeting an in-flight spring
+  // to the same destination is a stable no-op — motion's spring generator
+  // inherits the live value's current velocity — matching SceneColumn.tsx
+  // F17's driveBoundedSpring precedent.
+  //
+  // duration===0 raw DOM write (probe-caught while building the panOffset
+  // layer): the stage JSX below binds `left` to the `stageLeft` REACT STATE
+  // number under duration===0 (not the cameraX MotionValue, which only
+  // backs `left` when duration!==0 — see the JSX). The recentering effect
+  // ALSO calls setStageLeft alongside driveCameraX, so for canonical-only
+  // moves this write is redundant with React's own re-render (harmless).
+  // But pan-only calls (wheel/touch/keyboard, added later in this arc)
+  // never touch stageLeft state at all — panning only moves panOffsetRef —
+  // so without this write, `stage.style.left` would never visually reflect
+  // a pan under duration===0 at all. Mirrors the (now-deleted) absorb-and-
+  // re-pan correction handler's own identical duration===0 raw write.
+  const driveCameraX = useCallback(
+    (target: number) => {
+      if (duration === 0) {
+        cameraX.set(target);
+        const stage = stageRef.current;
+        if (stage) stage.style.left = `${target}px`;
+      } else if (firstPaintRef.current) {
+        cameraX.jump(target);
+      } else {
+        const token = ++cameraTransitionTokenRef.current;
+        onTransitionStart();
+        const controls = animate(cameraX, target, transition);
+        motionSeam?.registerControls("cameraX", controls);
+        motionSeam?.registerTarget?.("cameraX", target);
+        controls.then(() => {
+          if (cameraTransitionTokenRef.current === token) {
+            onTransitionComplete();
+          }
+        });
+      }
+    },
+    [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX],
+  );
+
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     const stage = stageRef.current;
@@ -1690,19 +1740,44 @@ function SceneViewport({
     const stageLeftChanged = stageLeft !== newStageLeft;
     setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
 
-    // ui#19: pan bounds for the current focused layout, gated on the
-    // settling latch above — hold the last-committed bounds steady while
-    // vpWidth is still settling, to avoid flapping the clamp range a user
-    // could be actively panning against (mirrors the retired overflowsX
-    // classification write's own gating exactly). Once settled, this
-    // always fires (the latch never resets). Range = how much of the
-    // overflowing focused content sits beyond the viewport once it's
-    // already left-aligned at its canonical position — 0 when content
-    // fits. Sign convention documented at panOffsetRef's declaration.
+    // ui#19: fresh pan bounds for THIS render — used to clamp panOffsetRef
+    // immediately below regardless of the settling latch (the latch only
+    // governs panBoundsRef's own WRITE, for input handlers reading it
+    // between renders; the camera's own immediate positioning this render
+    // uses live geometry, matching how newStageLeft itself is never
+    // latch-gated). Range must include `2 * padding`, not just the raw
+    // overflow (focusedWidth - vpWidth) — probe-caught while restoring the
+    // padding-cluster inset tests: at panOffset=0, newStageLeft's own
+    // `+padding` already insets the LEFT edge by padding (leftInset =
+    // padding, independent of range); reaching the symmetric RIGHT-edge
+    // inset at full pan needs panOffset to travel the raw overflow amount
+    // PLUS both paddings (the left inset the camera starts already holding,
+    // and the right inset it still needs to gain) — omitting `2 * padding`
+    // overshot the right inset by exactly that amount (measured: -4px
+    // instead of +4px at padding=4, an 8px = 2×4 error; padding=0 masked it
+    // entirely, which is why that case alone passed before this fix). 0
+    // when content fits (no pan range at all). Sign convention documented
+    // at panOffsetRef's declaration.
+    const range = contentOverflows ? Math.max(0, focusedWidth - vpWidth + 2 * padding) : 0;
+    const bounds = { min: -range, max: 0 };
     if (vpWidthWasSettled) {
-      const range = contentOverflows ? Math.max(0, focusedWidth - vpWidth) : 0;
-      panBoundsRef.current = { min: -range, max: 0 };
+      panBoundsRef.current = bounds;
     }
+
+    // A1: a geometry-driven bounds shrink (e.g. a resize, or a sibling
+    // column's content changing height, while the user is actively panned)
+    // must clamp panOffsetRef itself, not just the drive target below —
+    // otherwise the ref keeps pointing outside its own valid range, and a
+    // LATER pan delta layered on top of it (wheel/touch, both compute
+    // relative to the current panOffsetRef value) would compound from a
+    // stale, out-of-range base. Without this, any stageLeftChanged-free
+    // geometry re-measure mid-pan would silently discard the clamp and
+    // leave the camera showing content past its own overflow bounds — the
+    // exact "a resize/reflow discards the user's pan" bug class this
+    // effect exists to prevent (see driveCameraX's own call below).
+    const clampedPanOffset = Math.max(bounds.min, Math.min(bounds.max, panOffsetRef.current));
+    const panWasClamped = clampedPanOffset !== panOffsetRef.current;
+    panOffsetRef.current = clampedPanOffset;
 
     // useCamera() target rect (S6 reshape): the union of every focused
     // column's page-relative bounds, inflated by Scene's padding on every
@@ -1731,44 +1806,28 @@ function SceneViewport({
       height: focusedUnion.bottom - focusedUnion.top + padding * 2,
     });
 
-    // Drive cameraX in parallel (S3 motion pipeline seam), gated on an actual
-    // change to avoid restarting a spring toward its own current target on
-    // every render (this effect runs unconditionally every render). duration=0
-    // uses `.set()` directly (forecast-gate adjudication #1 — async completion
-    // semantics differ from animate(...,{duration:0})); otherwise `animate()`
-    // retargets the in-flight spring, matching the old animate={{left}} prop's
-    // per-render retarget behavior.
+    // Drive cameraX (via the shared driveCameraX above) whenever the
+    // COMPOSED target — canonical stageLeft + the clamped pan layer — needs
+    // to move: either the canonical position itself changed (stageLeftChanged,
+    // same trigger as before ui#19: focus/layout changes), or panOffsetRef
+    // was JUST clamped above (a bounds shrink discarding part of an active
+    // pan — A1). Gated on one of those two, not on every render, for the
+    // same reason as before ui#19: avoid restarting a spring toward its own
+    // current target every render (this effect runs unconditionally every
+    // render). Pan-driven target changes (wheel/touch/keyboard input, added
+    // later in this arc) are NOT this effect's concern — those handlers
+    // compose their own target and call driveCameraX directly; this effect
+    // only reacts to LAYOUT-driven changes.
     //
-    // A4 first-paint gate: cameraX is seeded to 0 (useMotionValue(0) below),
-    // so on Scene's true first commit `stageLeftChanged` is (almost) always
-    // true even though there is nothing to actually TRANSIT from — the
-    // camera was never at 0, it just hasn't been positioned yet. Without this
-    // gate, that first commit springs cameraX from 0 to the real centered
-    // position over the configured transition, producing a visible climb on
-    // every mount. `.jump()` snaps it straight to rest instead, mirroring
-    // SceneColumn's mountInitial/topOffsetMV first-paint gating.
-    //
-    // useCamera() transitioning (forecast-gate adjudication #5c): the token
-    // captured at invocation guards onTransitionComplete against a
-    // superseded animation's `.then()` firing after a newer retarget has
-    // already started (e.g. a rapid re-focus mid-pan).
-    if (stageLeftChanged) {
-      if (duration === 0) {
-        cameraX.set(newStageLeft);
-      } else if (firstPaintRef.current) {
-        cameraX.jump(newStageLeft);
-      } else {
-        const token = ++cameraTransitionTokenRef.current;
-        onTransitionStart();
-        const controls = animate(cameraX, newStageLeft, transition);
-        motionSeam?.registerControls("cameraX", controls);
-        motionSeam?.registerTarget?.("cameraX", newStageLeft);
-        controls.then(() => {
-          if (cameraTransitionTokenRef.current === token) {
-            onTransitionComplete();
-          }
-        });
-      }
+    // A4 first-paint gate (inside driveCameraX): cameraX is seeded to 0
+    // (useMotionValue(0) below), so on Scene's true first commit
+    // stageLeftChanged is (almost) always true even though there is
+    // nothing to actually TRANSIT from — the camera was never at 0, it
+    // just hasn't been positioned yet. `.jump()` snaps it straight to rest
+    // instead, mirroring SceneColumn's mountInitial/topOffsetMV first-paint
+    // gating.
+    if (stageLeftChanged || panWasClamped) {
+      driveCameraX(newStageLeft + panOffsetRef.current);
     }
   });
 
@@ -1806,38 +1865,36 @@ function SceneViewport({
     setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
   });
 
-  // Route wheel input to a target column's registered command applier
-  // (S5 — replaces the old `columnscroll` CustomEvent bridge). Registered as
-  // non-passive so preventDefault() is allowed — normalize -> decide ->
-  // apply all run synchronously within the same event so preventDefault()
-  // timing is preserved exactly as before.
+  // Route wheel input: deltaY to a target column's registered command
+  // applier (S5 — replaces the old `columnscroll` CustomEvent bridge),
+  // deltaX to the camera's panOffset (ui#19 slice (b) — was left to native
+  // overflow-x:auto scroll pre-single-writer; now JS-owned end to end, same
+  // as deltaY always has been). Registered as non-passive so
+  // preventDefault() is allowed — normalize -> decide -> apply all run
+  // synchronously within the same event so preventDefault() timing is
+  // preserved exactly as before. The two axes are independent: either can
+  // be claimed, declined (interior island first refusal), or (deltaX only)
+  // range-exhausted, and each decision is made separately per axis.
   //
-  // deltaX handling is STALE pending ui#19 slice (b): this handler (and the
-  // deltaX-related comment below, inside it) still describes "left to the
-  // native horizontal scroll on the viewport" — that native scroll no
-  // longer exists as of slice (a)'s unconditional overflow-x:clip. deltaX
-  // is currently a no-op (routed nowhere, preventDefault'd nowhere useful).
-  // Slice (b) makes deltaX drive the camera's panOffset directly and
-  // rewrites this comment block in full alongside that change.
-  //
-  // F17 commit 2: wheel-driven scrollBy deltas are BUFFERED per column and
-  // flushed as ONE applyScrollCommand call per real animation frame, rather
-  // than one call per wheel event. Mechanism this closes (F17 commit 1's
-  // own investigation, pinned at source): a real trackpad/wheel stream
-  // fires MULTIPLE events per animation frame, and applying each one
-  // immediately calls driveScrollYRef's spring-chase animate() call
-  // synchronously per event — so pairs of retargets can land with ~0ms
-  // elapsed between them (measured: 72 of 143 inter-retarget gaps were
-  // <1ms, in a 72-event stream). Motion's spring generator inherits the
-  // CURRENT velocity as each retarget's starting condition; a near-zero
-  // elapsed time between two retargets is exactly the numerically unstable
-  // case for a velocity estimate (Δvalue/Δtime, Δtime→0). Commit 1 bounds
-  // the resulting overshoot structurally (so this coalescing is not load-
-  // bearing for correctness on its own), but buffering to one retarget per
-  // real frame removes the near-zero-Δt pairing at its source AND is a
-  // straightforward perf win (one spring retarget instead of two-plus per
-  // frame during a dense stream).
+  // F17 commit 2: wheel-driven deltas are BUFFERED (per column for deltaY,
+  // as a single accumulator for deltaX — one pan target for the whole
+  // Scene) and flushed as ONE write per real animation frame, rather than
+  // one write per wheel event. Mechanism this closes (F17 commit 1's own
+  // investigation, pinned at source): a real trackpad/wheel stream fires
+  // MULTIPLE events per animation frame, and applying each one immediately
+  // calls a spring-chase animate() call synchronously per event — so pairs
+  // of retargets can land with ~0ms elapsed between them (measured: 72 of
+  // 143 inter-retarget gaps were <1ms, in a 72-event stream, on the
+  // deltaY/vertical path this pattern originates from). Motion's spring
+  // generator inherits the CURRENT velocity as each retarget's starting
+  // condition; a near-zero elapsed time between two retargets is exactly
+  // the numerically unstable case for a velocity estimate
+  // (Δvalue/Δtime, Δtime→0). Buffering to one retarget per real frame
+  // removes the near-zero-Δt pairing at its source AND is a straightforward
+  // perf win (one spring retarget instead of two-plus per frame during a
+  // dense stream) — applies identically to the new deltaX/panOffset path.
   const pendingWheelDeltaRef = useRef<Map<string, number>>(new Map());
+  const pendingPanDeltaRef = useRef(0);
   const wheelFlushScheduledRef = useRef(false);
 
   useEffect(() => {
@@ -1852,63 +1909,102 @@ function SceneViewport({
         applyScrollCommand?.({ type: "scrollBy", delta });
       }
       pendingWheelDeltaRef.current.clear();
+
+      const panDelta = pendingPanDeltaRef.current;
+      pendingPanDeltaRef.current = 0;
+      if (panDelta !== 0) {
+        // Positive deltaX (native "scroll right" convention) reveals
+        // content further to the right — panOffset moves toward its
+        // negative end (bounds.min = -range; sign convention documented at
+        // panOffsetRef's declaration), hence the subtraction.
+        const bounds = panBoundsRef.current;
+        const next = Math.max(bounds.min, Math.min(bounds.max, panOffsetRef.current - panDelta));
+        if (next !== panOffsetRef.current) {
+          panOffsetRef.current = next;
+          driveCameraX(stageLeftRef.current + next);
+        }
+      }
     };
 
     const handler = (e: WheelEvent) => {
-      if (e.deltaY === 0) return;
+      if (e.deltaY === 0 && e.deltaX === 0) return;
 
-      // ctrlKey (pinch-zoom) -> null: never routed, never preventDefault-ed,
-      // letting the browser's native pinch-zoom pass through untouched.
-      const scaledDeltaY = normalizeWheelDelta(e, el.clientHeight);
-      if (scaledDeltaY === null) return;
+      let claimedAnyAxis = false;
 
-      // F8a interior claim gate: give a real interior scroll container (e.g.
-      // a consumer's own overflow-y: auto island) first refusal on the
-      // delta before Scene claims the event for column routing. e.target is
-      // already the innermost element (the listener bubbles from the
-      // viewport), so no elementFromPoint hit-test is needed here.
-      const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
-      if (eventColumn && interiorCanConsume(e.target as Element, eventColumn, "y", scaledDeltaY)) {
-        // The interior element can consume the delta itself — decline to
-        // route or preventDefault, letting the browser's native scroll
-        // proceed exactly as it would outside a Scene.
-        return;
+      if (e.deltaY !== 0) {
+        // ctrlKey (pinch-zoom) -> null: never routed, never preventDefault-ed,
+        // letting the browser's native pinch-zoom pass through untouched.
+        const scaledDeltaY = normalizeWheelDelta(e, el.clientHeight);
+        if (scaledDeltaY !== null) {
+          // F8a interior claim gate: give a real interior scroll container
+          // (e.g. a consumer's own overflow-y: auto island) first refusal
+          // on the delta before Scene claims the event for column routing.
+          // e.target is already the innermost element (the listener
+          // bubbles from the viewport), so no elementFromPoint hit-test is
+          // needed here.
+          const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
+          const yConsumedByInterior =
+            eventColumn && interiorCanConsume(e.target as Element, eventColumn, "y", scaledDeltaY);
+          if (!yConsumedByInterior) {
+            const column = decideWheelTargetColumn(el, e.clientX, e.clientY);
+            const name = column?.getAttribute("data-column");
+            const applyScrollCommand = name ? scrollCommandRegistry.get(name) : undefined;
+            if (name && applyScrollCommand) {
+              claimedAnyAxis = true;
+              // F17 commit 2: buffer instead of applying immediately —
+              // only the actual write is deferred to the next real
+              // animation frame, coalescing however many wheel events land
+              // in that frame into a single delta per column.
+              const prevDelta = pendingWheelDeltaRef.current.get(name) ?? 0;
+              pendingWheelDeltaRef.current.set(name, prevDelta + scaledDeltaY);
+            }
+          }
+        }
       }
 
-      const column = decideWheelTargetColumn(el, e.clientX, e.clientY);
-      if (!column) return;
+      if (e.deltaX !== 0) {
+        const scaledDeltaX = normalizeWheelDeltaX(e, el.clientWidth);
+        if (scaledDeltaX !== null) {
+          // F8a horizontal twin (ui#19 slice (b), A4): same first-refusal
+          // as deltaY, on the same eventColumn boundary — a consumer's own
+          // overflow-x: auto island (e.g. a wide table/code block) gets to
+          // consume its own horizontal wheel input before the camera does.
+          const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
+          const xConsumedByInterior =
+            eventColumn && interiorCanConsume(e.target as Element, eventColumn, "x", scaledDeltaX);
+          if (!xConsumedByInterior) {
+            // Range-exhaustion check: preventDefault semantics flip (ui#19
+            // slice (b)) — JS now owns deltaX end to end, so claiming it
+            // means preventDefault; but if panOffset is ALREADY at the
+            // bound this delta would push further past, decline instead —
+            // preserving today's observable native-scroll-chaining
+            // behavior (the old overflow-x:auto viewport let the event
+            // chain to a scrollable ancestor once scrollLeft maxed out;
+            // there is no reason for this migration to newly dead-stop
+            // that). Positive deltaX pushes toward bounds.min (see
+            // flushWheelDeltas' own comment on the sign convention).
+            const bounds = panBoundsRef.current;
+            const atBound = scaledDeltaX > 0 ? panOffsetRef.current <= bounds.min : panOffsetRef.current >= bounds.max;
+            if (!atBound) {
+              claimedAnyAxis = true;
+              pendingPanDeltaRef.current += scaledDeltaX;
+            }
+          }
+        }
+      }
 
-      const name = column.getAttribute("data-column");
-      if (!name) return;
-      const applyScrollCommand = scrollCommandRegistry.get(name);
-      if (!applyScrollCommand) return;
-
-      // Prevent the viewport from scrolling vertically. When the event also has
-      // deltaX (diagonal trackpad gesture), only prevent default if there's no
-      // horizontal scroll needed — otherwise the browser needs the event to
-      // execute its native horizontal scroll via overflow-x: auto. Since the
-      // viewport has overflow-y: hidden, not preventing default is safe for
-      // the vertical axis in that case.
-      if (e.deltaX === 0) {
+      if (claimedAnyAxis) {
         e.preventDefault();
-      }
-
-      // F17 commit 2: buffer instead of applying immediately — preventDefault()
-      // above still runs synchronously within THIS event (timing preserved
-      // exactly as before); only the actual applyScrollCommand write is
-      // deferred to the next real animation frame, coalescing however many
-      // wheel events land in that frame into a single delta per column.
-      const prevDelta = pendingWheelDeltaRef.current.get(name) ?? 0;
-      pendingWheelDeltaRef.current.set(name, prevDelta + scaledDeltaY);
-      if (!wheelFlushScheduledRef.current) {
-        wheelFlushScheduledRef.current = true;
-        requestAnimationFrame(flushWheelDeltas);
+        if (!wheelFlushScheduledRef.current) {
+          wheelFlushScheduledRef.current = true;
+          requestAnimationFrame(flushWheelDeltas);
+        }
       }
     };
 
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
-  }, [scrollCommandRegistry]);
+  }, [scrollCommandRegistry, driveCameraX]);
 
   // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
   // browser's native focus-driven auto-scroll (and other native scrollLeft

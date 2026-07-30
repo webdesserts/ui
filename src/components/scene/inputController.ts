@@ -38,6 +38,26 @@ export function normalizeWheelDelta(e: WheelEvent, viewportHeight: number): numb
 }
 
 /**
+ * Horizontal twin of normalizeWheelDelta (ui#19 slice (b) — deltaX now
+ * drives the camera's panOffset, mirroring deltaY's existing column-scroll
+ * routing). Same scaling rules, mirrored onto deltaX/viewportWidth; same
+ * pinch-zoom exemption (a ctrl+wheel event carries both delta axes in some
+ * browsers, so this must decline identically to its Y twin).
+ */
+export function normalizeWheelDeltaX(e: WheelEvent, viewportWidth: number): number | null {
+  if (e.ctrlKey) return null;
+
+  switch (e.deltaMode) {
+    case 1: // DOM_DELTA_LINE
+      return e.deltaX * 16;
+    case 2: // DOM_DELTA_PAGE
+      return e.deltaX * viewportWidth;
+    default: // DOM_DELTA_PIXEL
+      return e.deltaX;
+  }
+}
+
+/**
  * Decides which column element a wheel event should scroll.
  *
  * A10 fallback: if exactly one focused column in the viewport is scrollable
@@ -89,6 +109,21 @@ function isVerticalScrollContainer(el: Element): boolean {
 }
 
 /**
+ * Horizontal twin of isVerticalScrollContainer (ui#19 slice (b), F8a's
+ * horizontal counterpart — the wheel handler now routes deltaX to the
+ * camera's panOffset, so a consumer's own `overflow-x: auto|scroll` island
+ * needs the same first-refusal gate the Y axis already had, or JS-owned
+ * deltaX would hijack native horizontal scroll inside consumer content —
+ * F8a's exact bug class, on the other axis). Same two-part test:
+ * `overflow-x: auto|scroll` AND `scrollWidth > clientWidth`.
+ */
+function isHorizontalScrollContainer(el: Element): boolean {
+  const overflowX = getComputedStyle(el).overflowX;
+  if (overflowX !== "auto" && overflowX !== "scroll") return false;
+  return el.scrollWidth > el.clientWidth;
+}
+
+/**
  * Effective `overscroll-behavior-y` for `el`, falling back to the shorthand
  * `overscroll-behavior` when the Y-specific longhand isn't declared. Both
  * resolve to the initial value `"auto"` when neither is set.
@@ -96,6 +131,14 @@ function isVerticalScrollContainer(el: Element): boolean {
 function effectiveOverscrollBehaviorY(el: Element): string {
   const style = getComputedStyle(el);
   const longhand = style.getPropertyValue("overscroll-behavior-y").trim();
+  if (longhand) return longhand;
+  return style.getPropertyValue("overscroll-behavior").trim() || "auto";
+}
+
+/** Horizontal twin of effectiveOverscrollBehaviorY (ui#19 slice (b)). */
+function effectiveOverscrollBehaviorX(el: Element): string {
+  const style = getComputedStyle(el);
+  const longhand = style.getPropertyValue("overscroll-behavior-x").trim();
   if (longhand) return longhand;
   return style.getPropertyValue("overscroll-behavior").trim() || "auto";
 }
@@ -109,51 +152,53 @@ function effectiveOverscrollBehaviorY(el: Element): string {
  * inside a Scene object, normal CSS/JS just works" contract (F8 interior
  * contract plan).
  *
- * - A candidate = `isVerticalScrollContainer(el)`.
+ * - A candidate = `isVerticalScrollContainer(el)` (axis "y") or
+ *   `isHorizontalScrollContainer(el)` (axis "x", ui#19 slice (b) — Scene's
+ *   wheel handler now routes deltaX to panOffset, so a consumer's own
+ *   overflow-x island needs the same first-refusal this axis's Y twin
+ *   already had).
  * - A candidate that can still move further in `delta`'s direction consumes
  *   — return true immediately.
  * - A candidate at its edge in that direction defers to its own
- *   `overscroll-behavior-y`: `contain`/`none` means the consumer's own CSS
- *   says "don't chain past this edge" — still consume (dead-stop; the
+ *   `overscroll-behavior-y`/`-x`: `contain`/`none` means the consumer's own
+ *   CSS says "don't chain past this edge" — still consume (dead-stop; the
  *   caller must not also react). The default `auto` declines at this
  *   candidate and the walk continues outward (natural scroll-chaining) to
  *   the next ancestor.
  * - Reaching `columnBoundary` (exclusive) with no consuming candidate found
  *   — decline (return false).
- *
- * `axis` is threaded through (rather than hardcoded) so F8b's touch
- * interior contract can reuse this walk; the wheel caller always passes
- * `"y"` — Scene's wheel handler only ever routes the Y axis — so only Y
- * semantics are implemented here today; no unused X-axis logic.
  */
 export function interiorCanConsume(
   target: Element,
   columnBoundary: Element,
-  axis: "y",
+  axis: "x" | "y",
   delta: number,
 ): boolean {
-  if (axis !== "y" || delta === 0) return false;
+  if (delta === 0) return false;
 
+  const isContainer = axis === "x" ? isHorizontalScrollContainer : isVerticalScrollContainer;
+  const effectiveOverscroll = axis === "x" ? effectiveOverscrollBehaviorX : effectiveOverscrollBehaviorY;
   const movingForward = delta > 0;
 
   let el: Element | null = target;
   while (el && el !== columnBoundary) {
-    if (isVerticalScrollContainer(el)) {
+    if (isContainer(el)) {
       const node = el as HTMLElement;
-      const maxScrollTop = node.scrollHeight - node.clientHeight;
-      // 1px epsilon on the forward edge only: `scrollTop` is fractional and
-      // on non-integer devicePixelRatio displays can settle permanently a
-      // fraction of a pixel short of the integer `maxScrollTop` (MDN's
-      // documented caveat) — without the tolerance, at-edge never
-      // registers, the gate never declines, and wheel input goes dead at
-      // the island's visual edge instead of chaining outward. The `<= 0`
-      // bottom edge needs no epsilon: scrollTop clamps at exactly 0.
+      const scrollPos = axis === "x" ? node.scrollLeft : node.scrollTop;
+      const maxScrollPos = axis === "x" ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
+      // 1px epsilon on the forward edge only: scrollTop/scrollLeft are
+      // fractional and on non-integer devicePixelRatio displays can settle
+      // permanently a fraction of a pixel short of the integer
+      // maxScrollPos (MDN's documented caveat) — without the tolerance,
+      // at-edge never registers, the gate never declines, and wheel input
+      // goes dead at the island's visual edge instead of chaining outward.
+      // The `<= 0` backward edge needs no epsilon: it clamps at exactly 0.
       const atEdge = movingForward
-        ? node.scrollTop >= maxScrollTop - 1
-        : node.scrollTop <= 0;
+        ? scrollPos >= maxScrollPos - 1
+        : scrollPos <= 0;
       if (!atEdge) return true;
 
-      const overscroll = effectiveOverscrollBehaviorY(el);
+      const overscroll = effectiveOverscroll(el);
       if (overscroll === "contain" || overscroll === "none") return true;
       // "auto" (the default): decline at this candidate, keep walking outward.
     }

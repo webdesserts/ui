@@ -3897,24 +3897,13 @@ describe("Scene horizontal scroll", () => {
     expect(stageLeftAfter).toBeGreaterThan(0);
   });
 
-  // ui#19 slice (a): SKIPPED, not deleted — this test's mechanism (a direct
-  // `scene.scrollLeft = 300` write standing in for user panning) is
-  // structurally dead under overflow-x:clip (a no-op write, confirmed
-  // elsewhere in this file's clip-immunity tests). B1's underlying BEHAVIOR
-  // (a stale user pan must reset to canonical when the focused column set
-  // changes) still needs its OWN mechanism and its OWN test — restored in
-  // slice (b) as the panOffset-reset test: synthetic wheel deltaX through
-  // the real handler establishes a nonzero pan, then a focused-set change
-  // must drive cameraX back to the new canonical — asserted on cameraX/
-  // stage.left, never scrollLeft. See ui#19 slice (b).
-  test.skip("horizontal scroll resets when the focused column set changes, even if the new layout still overflows (B1)", async () => {
+  test("pan resets when the focused column set changes, even if the new layout still overflows (B1, ui#19: panOffset replaces native scrollLeft)", async () => {
     // Four 500px columns; three are focused at a time (a sliding window) so
     // the focused region overflows the 1280px viewport in both the before
-    // and after layouts — overflow-x stays "auto" throughout and the browser
-    // never auto-clamps scrollLeft on its own. This isolates the real bug:
-    // the Camera's stageLeft re-centers for the newly-focused region, but
-    // nothing resets the separate native scrollLeft, which stays stuck at a
-    // position calibrated to the OLD focused region.
+    // and after layouts. This isolates the real bug B1 guards against: the
+    // Camera's stageLeft re-centers for the newly-focused region, but
+    // nothing resets a separate user-pan layer, which would otherwise stay
+    // stuck at an offset calibrated to the OLD focused region.
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -3943,11 +3932,27 @@ describe("Scene horizontal scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    expect(window.getComputedStyle(scene).overflowX).toBe("auto");
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    expect(window.getComputedStyle(scene).overflowX).toBe("clip");
 
-    scene.scrollLeft = 300;
+    const canonicalBeforePan = stage.style.left;
+
+    // Synthetic wheel deltaX through the REAL handler (not a direct
+    // scrollLeft write — that's a permanent no-op under clip, confirmed
+    // elsewhere in this file) establishes a nonzero pan.
+    const sceneRect = scene.getBoundingClientRect();
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 300,
+        deltaY: 0,
+        clientX: sceneRect.left + sceneRect.width / 2,
+        clientY: sceneRect.top + sceneRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
     await waitForAnimationFrame();
-    expect(scene.scrollLeft).toBeGreaterThan(0);
+    expect(stage.style.left).not.toBe(canonicalBeforePan);
 
     // Focus shifts to a different column set (col2+col3+col4 instead of
     // col1+col2+col3) — the layout as a whole still overflows the viewport.
@@ -3979,8 +3984,46 @@ describe("Scene horizontal scroll", () => {
     );
     await waitForAnimationFrame();
 
-    expect(window.getComputedStyle(scene).overflowX).toBe("auto");
-    expect(scene.scrollLeft).toBe(0);
+    expect(window.getComputedStyle(scene).overflowX).toBe("clip");
+    // Proof that the pan reset to 0 (not merely that stage.left moved SOME
+    // amount — a stale nonzero pan compounded onto the new canonical would
+    // ALSO move stage.left, just to the WRONG place): compare against a
+    // fresh, never-panned render of the identical post-rerender layout.
+    // Never asserts on scrollLeft (ui#19 — scrollLeft is not the mechanism
+    // anymore). Captured before cleanup(), even though .style is a plain
+    // property on the (still-referenced) detached element and would read
+    // back fine either way — avoids any ambiguity about DOM-connection.
+    const stageLeftAfterReset = stage.style.left;
+    await cleanup();
+    const { getByTestId: fresh } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused={false}>
+              <div data-testid="content1" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col3">
+            <SceneObject name="obj3" focused>
+              <div data-testid="content3" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col4">
+            <SceneObject name="obj4" focused>
+              <div data-testid="content4" style={{ width: 500, height: 100 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+    const freshScene = fresh("scene").element() as HTMLElement;
+    const freshStage = freshScene.querySelector("[data-stage]") as HTMLElement;
+    expect(parseFloat(stageLeftAfterReset)).toBeCloseTo(parseFloat(freshStage.style.left), 0);
   });
 
   // H10 test DELETED (ui#19 slice (a)) — obsolete, not failing: it pinned
@@ -6312,18 +6355,11 @@ describe("Scene scroll position management", () => {
 // ---------------------------------------------------------------------------
 
 describe("Scene scroll edge cases", () => {
-  // ui#19 slice (a): SKIPPED, not deleted — this test's deltaX half is dead
-  // (asserted a `scene.scrollLeft === 0` baseline that's now permanently,
-  // trivially true under clip, and never actually checked deltaX's effect
-  // afterward — currently still PASSES but no longer tests anything
-  // meaningful about the horizontal axis). Restored + rewritten in slice
-  // (b): deltaX drives cameraX directly (assert camera movement, not
-  // scrollLeft), deltaY still drives column scroll, simultaneity preserved.
-  test.skip("diagonal trackpad gesture scrolls both axes simultaneously", async () => {
+  test("diagonal trackpad gesture pans and scrolls both axes simultaneously (ui#19: deltaX drives the camera, not native scroll)", async () => {
     // A wheel event with both deltaX and deltaY should:
     // - Route deltaY to the column's vertical scroll state
-    // - Route deltaX to the viewport's native horizontal scroll (overflow-x: auto)
-    // Both should happen in the same event, not sequentially.
+    // - Route deltaX to the camera's panOffset
+    // Both should happen from the SAME event, not sequentially.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -6342,17 +6378,18 @@ describe("Scene scroll edge cases", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
     const col1 = getByTestId("content1")
       .element()
       .closest("[data-column]") as HTMLElement;
     const col1Content = col1.querySelector("[data-column-content]") as HTMLElement;
     const col1Rect = col1.getBoundingClientRect();
 
-    // Initial state: no vertical or horizontal scroll
+    // Initial state: no vertical scroll, camera at its canonical position.
     expect(parseFloat(col1Content.style.top || "0")).toBe(0);
-    expect(scene.scrollLeft).toBe(0);
+    const stageLeftBefore = parseFloat(stage.style.left);
 
-    // Diagonal wheel event: deltaX scrolls horizontally, deltaY scrolls vertically
+    // Diagonal wheel event: deltaX pans the camera, deltaY scrolls col1.
     scene.dispatchEvent(
       new WheelEvent("wheel", {
         deltaX: 100,
@@ -6364,16 +6401,22 @@ describe("Scene scroll edge cases", () => {
       }),
     );
 
-    // Input is rAF-coalesced as of F17 — the vertical (deltaY) write is
-    // buffered and applied on the NEXT real animation frame; deltaX's
-    // native horizontal scroll is unaffected (never routed through the
-    // coalescing buffer).
+    // Input is rAF-coalesced as of F17 (both axes, ui#19 extended the
+    // buffering to deltaX too) — both writes are buffered and applied on
+    // the NEXT real animation frame, from the SAME dispatched event.
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    // Vertical: col1 should have scrolled by 150px
+    // Vertical: col1 should have scrolled by 150px.
     const verticalTop = parseFloat(col1Content.style.top || "0");
     expect(verticalTop).toBe(-150);
+
+    // Horizontal: the camera should have panned — positive deltaX (native
+    // "scroll right" convention) reveals content further right, moving
+    // stage.left more negative (sign convention documented at
+    // panOffsetRef's declaration in Scene.tsx).
+    const stageLeftAfter = parseFloat(stage.style.left);
+    expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - 100, 0);
   });
 
   test("viewport resize: content now fits — scrollbar disappears", async () => {
@@ -6574,6 +6617,191 @@ describe("Scene wheel input controller (S5)", () => {
 
     expect(parseFloat(colBContent.style.top || "0")).toBe(-60);
     expect(parseFloat(colAContent.style.top || "0")).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#19 slice (b): horizontal pan (deltaX -> panOffset)
+// ---------------------------------------------------------------------------
+
+describe("Scene horizontal pan (ui#19 slice (b))", () => {
+  test("pan within bounds: a moderate deltaX moves the camera by exactly that amount, well short of either bound", async () => {
+    // Two 1000px columns (2000px total) in a 1280px viewport, padding=0 ->
+    // range = 2000 - 1280 + 0 = 720. A 100px pan is nowhere near either
+    // bound (0 or -720).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const vpRect = scene.getBoundingClientRect();
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 100,
+        deltaY: 0,
+        clientX: vpRect.left + vpRect.width / 2,
+        clientY: vpRect.top + vpRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    expect(scene.scrollLeft).toBe(0);
+    const stageLeftAfter = parseFloat(stage.style.left);
+    // Positive deltaX moves panOffset (and therefore stage.left) more
+    // negative — sign convention documented at panOffsetRef's declaration.
+    expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - 100, 0);
+  });
+
+  test("clamp at both ends: a deltaX far exceeding the range clamps to the bound, not the raw delta — in EITHER direction", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col1">
+            <SceneObject name="obj1" focused>
+              <div data-testid="content1" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col2">
+            <SceneObject name="obj2" focused>
+              <div data-testid="content2" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const vpRect = scene.getBoundingClientRect();
+    const stageLeftAtOffset0 = parseFloat(stage.style.left);
+    // Measured, not hardcoded — mirrors this file's own established
+    // padding-cluster convention (real scrollWidth/clientWidth reads stay
+    // valid under clip; only the SCROLLING mechanism they used to drive is
+    // gone). scrollWidth reflects the stage's true rendered content extent
+    // (including its own CSS padding) regardless of overflow:clip.
+    const expectedRange = scene.scrollWidth - scene.clientWidth;
+
+    // Pan far past the right end (positive deltaX, clamps at panOffset = -range).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 5000,
+        deltaY: 0,
+        clientX: vpRect.left + vpRect.width / 2,
+        clientY: vpRect.top + vpRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    const stageLeftAtMin = parseFloat(stage.style.left);
+    expect(stageLeftAtMin).toBeCloseTo(stageLeftAtOffset0 - expectedRange, 0);
+
+    // One more huge positive deltaX must NOT move it any further (already
+    // at the bound) — proves the clamp, not just a coincidentally-matching
+    // single delta.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 5000,
+        deltaY: 0,
+        clientX: vpRect.left + vpRect.width / 2,
+        clientY: vpRect.top + vpRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftAtMin, 0);
+
+    // Pan far past the LEFT end (negative deltaX, clamps at panOffset = 0
+    // — back to canonical, never past it).
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: -5000,
+        deltaY: 0,
+        clientX: vpRect.left + vpRect.width / 2,
+        clientY: vpRect.top + vpRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    expect(scene.scrollLeft).toBe(0);
+    expect(parseFloat(stage.style.left)).toBeCloseTo(stageLeftAtOffset0, 0);
+  });
+
+  test("F8a horizontal twin: wheel deltaX over an interior overflow-x:auto island declines to route — the camera does not pan", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="island-col">
+            <SceneObject name="panel" focused>
+              <div
+                data-testid="scroll-container"
+                style={{ width: 400, height: 400, overflowX: "auto" }}
+              >
+                <div style={{ width: 3000, height: 400 }}>wide content</div>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="sibling-col">
+            <SceneObject name="sibling-obj" focused>
+              <div data-testid="sibling-content" style={{ minWidth: 1000, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const island = getByTestId("scroll-container").element() as HTMLElement;
+    const islandRect = island.getBoundingClientRect();
+    const stageLeftBefore = parseFloat(stage.style.left);
+
+    const notPrevented = island.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 60,
+        deltaY: 0,
+        clientX: islandRect.left + islandRect.width / 2,
+        clientY: islandRect.top + islandRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // The camera never panned, and Scene declined to preventDefault —
+    // letting the browser's native horizontal scroll run on the island
+    // exactly as it would outside a Scene. (Matches this file's existing
+    // vertical F8a claim-gate test: a synthetic/untrusted WheelEvent
+    // doesn't trigger the browser's OWN native scroll in this test
+    // environment, so island.scrollLeft itself isn't asserted here either
+    // — same limitation, same established pattern.)
+    expect(parseFloat(stage.style.left)).toBe(stageLeftBefore);
+    expect(notPrevented).toBe(true);
   });
 });
 
@@ -10208,13 +10436,7 @@ describe("Scene padding cluster (S6)", () => {
     expect(rightRect.left - middleRect.left).toBeCloseTo(0, -1);
   });
 
-  // ui#19 slice (a): SKIPPED, not deleted — the right-inset half of this
-  // test reaches max-scroll via `scene.scrollLeft = scrollWidth -
-  // clientWidth`, a dead no-op under clip (the left-inset half, unaffected,
-  // is skipped too rather than partially applying this edit — both
-  // restored together in slice (b), which reaches max-right via the new
-  // pan path: synthetic wheel deltaX or a direct drive-function call).
-  test.skip.each([0, 4, 32])(
+  test.each([0, 4, 32])(
     "overflow mode: both edges are inset by exactly padding=%ipx (Michael's symmetric-padding ruling)",
     async (padding) => {
       // Two 1000px columns (2000px total) badly overflow the 1280px viewport
@@ -10241,30 +10463,42 @@ describe("Scene padding cluster (S6)", () => {
       const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
       const vpRect = scene.getBoundingClientRect();
 
-      // At scrollLeft=0: the leftmost focused column's left edge should be
-      // inset from the viewport's left edge by exactly `padding`.
+      // At panOffset=0 (mount default): the leftmost focused column's left
+      // edge should be inset from the viewport's left edge by exactly
+      // `padding`.
       expect(scene.scrollLeft).toBe(0);
       const leftInset = col1.getBoundingClientRect().left - vpRect.left;
       expect(leftInset).toBeCloseTo(padding, 0);
 
-      // At maximum scroll: the rightmost focused column's right edge should
-      // be inset from the viewport's right edge by exactly `padding` too —
-      // NOT flush (the pre-fix bug: the left inset was subtracted away by
-      // `newStageLeft = -focusedNaturalLeft`, while the right side already
-      // got it right via the stage's own CSS padding surviving into
-      // scrollWidth — a flush-left/padding-right mix).
-      scene.scrollLeft = scene.scrollWidth - scene.clientWidth;
+      // At maximum pan (ui#19: reached via a real wheel deltaX through the
+      // handler, clamped to panBoundsRef.current.min — deltaX intentionally
+      // FAR exceeds any plausible range so the clamp, not the raw delta,
+      // determines the landing position): the rightmost focused column's
+      // right edge should be inset from the viewport's right edge by
+      // exactly `padding` too — NOT flush (the pre-fix bug: the left inset
+      // was subtracted away by `newStageLeft = -focusedNaturalLeft`, while
+      // the right side already got it right via the stage's own CSS
+      // padding surviving into scrollWidth — a flush-left/padding-right
+      // mix).
+      scene.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 5000,
+          deltaY: 0,
+          clientX: vpRect.left + vpRect.width / 2,
+          clientY: vpRect.top + vpRect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       await waitForAnimationFrame();
+      await waitForAnimationFrame();
+      expect(scene.scrollLeft).toBe(0);
       const rightInset = vpRect.right - col2.getBoundingClientRect().right;
       expect(rightInset).toBeCloseTo(padding, 0);
     },
   );
 
-  // ui#19 slice (a): SKIPPED, not deleted — same reason as the test.each
-  // block immediately above (the right-inset assertion reaches max-scroll
-  // via `scene.scrollLeft = scrollWidth - clientWidth`, dead under clip).
-  // Restored in slice (b) alongside it.
-  test.skip("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
+  test("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
     const build = (padding: number) => (
       <TestWrapper fullPage>
         <Scene padding={padding}>
@@ -10312,8 +10546,22 @@ describe("Scene padding cluster (S6)", () => {
     const leftInsetAfter = col1.getBoundingClientRect().left - vpRect.left;
     expect(leftInsetAfter).toBeCloseTo(32, 0);
 
-    scene.scrollLeft = scene.scrollWidth - scene.clientWidth;
-    await waitForAnimationFrame();
+    // ui#19: reach max pan via a real wheel deltaX through the handler
+    // (deltaX intentionally far exceeds any plausible range, clamped by
+    // panBoundsRef.current.min) — a real spring here, so give it a
+    // generous settle window rather than a single frame.
+    scene.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaX: 5000,
+        deltaY: 0,
+        clientX: vpRect.left + vpRect.width / 2,
+        clientY: vpRect.top + vpRect.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await wait(1500);
+    expect(scene.scrollLeft).toBe(0);
     const rightInsetAfter = vpRect.right - col2.getBoundingClientRect().right;
     expect(rightInsetAfter).toBeCloseTo(32, 0);
   });
