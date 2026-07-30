@@ -1877,9 +1877,21 @@ export function SceneColumn({
   // prop changing) reaches; useLayoutEffect fires pre-paint, same commit
   // tier as the compensation write, so it lands before paint here too.
   useLayoutEffect(() => {
-    remeasureGeometryWithAnchorCompensation();
+    const changed = remeasureGeometryWithAnchorCompensation();
     if (!columnFocused) return;
     setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));
+    // Mirrors the ResizeObserver sibling above (:1856) — without this, a
+    // newly-MOUNTED focused object's first render reads stale (missing)
+    // geometry (computeTopOffset falls back to `?? 0`, since it reads
+    // geometry captured by the PREVIOUS render's layout effects — see that
+    // function's own comment). This effect's remeasure call above DOES
+    // correct geometryStore with the new object's real geometry, but if its
+    // content height happens to coincide with what was already accounted
+    // for, setContentHeight no-ops (React bails on an identical state
+    // update) and nothing else forces the re-render computeTopOffset needs
+    // to pick up the corrected geometry — the entrance freezes permanently,
+    // not just late by one frame.
+    if (changed) setGeometryVersion((v) => v + 1);
   });
 
   // Swap-reset scroll model (A2): decides this column's scroll offset
