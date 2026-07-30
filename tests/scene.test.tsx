@@ -3391,6 +3391,284 @@ describe("Scene first paint at rest (A4)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ui#17 Slice 1 (2026-07-30, re-scoped post-ui#19): re-attempt of the same
+// instrumentation techniques the original ui#17 investigation proved out
+// (`fix/ui17-node-split`, commit 885c40d, and `scratch/ui#o9 repro package
+// for ui#17`) against TODAY's post-ui#19 code — the single-writer horizontal
+// rewrite that landed since that investigation touched Scene.tsx's camera
+// channel (panOffset/cameraX), not SceneColumn's own same-node
+// `layout`+`animate` composition (the plan note's topology map confirmed
+// this at pickup: `animateX` is 0 for every focused/bystander column, the
+// camera pan lives entirely on the stage ancestor's `style.left`).
+//
+// OUTCOME: reproduces cleanly (the plan's evidence-state carryforward
+// section's outcome 1, not the hazard-class fallback). Bounded per the
+// plan/ruling: ONE fresh fixture variant attempted for the corruption
+// mechanism (see below — a first attempt anchored the always-focused
+// bystander with `anchor="end"`, which reads a constant zero transform the
+// whole time — anchor pinning routes through a different position channel,
+// not the FLIP transform this fixture needs to exercise; the ONE committed
+// variant below moves the bystander to plain flex flow, matching the
+// original SiblingReflowDemo mechanism, which is not a second "hunt", just
+// correcting the same fixture to actually engage the code path under test).
+// Both mechanisms measured with a FIXED N=10 in a disposable diagnostic
+// harness (not committed) before writing the assertions below, per the
+// plan's stop-on-first-failure-bias lesson:
+//   - Mid-flight corruption (production-shaped fixture, cqw units,
+//     differently-sized `tasks`(40cqw)/`problems`(55cqw) siblings swapping
+//     focus in one commit, `chat` the always-focused bystander after them in
+//     flex order): 10/10 runs produced a frame-to-frame raw-transform
+//     discontinuity of ~68-80px/ms (a ~570-600px swing within ~8-9ms) — the
+//     same signature 885c40d measured pre-ui#19 (there: ~35-39px/ms against
+//     a smaller-amplitude fixture), now against post-ui#19 production code.
+//   - Clicks-land (SiblingReflowDemo geometry, list/detail/chat, "chat" the
+//     bystander): 10/10 runs mistargeted the click onto the content
+//     wrapper `div` instead of the button — the same class of miss the
+//     original o9 production capture recorded (repro package §3d: a real
+//     click landing on a ButtonGroup wrapper instead of its intended
+//     button).
+// Both committed tests below are single instances of these fixed-N-verified
+// reproductions — the red baseline Slice 2's split must turn green.
+// ---------------------------------------------------------------------------
+
+describe("Column transition gate: mid-flight corruption (ui#o9), production-shaped fixture", () => {
+  test("a second sibling focus toggle landing mid-spring produces a transform-channel discontinuity on a bystander column, not continuous spring motion", async () => {
+    // Production-shaped: cqw-sized columns (container-query width, matching
+    // the real app's sizing idiom — see repro package §1/§2), a pair of
+    // DIFFERENTLY-sized siblings ("tasks" 40cqw, "problems" 55cqw) that swap
+    // focus in a SINGLE commit (mirroring the real trigger: one click flips
+    // both), and "chat" — always focused, its own classification never
+    // changes — positioned AFTER them in flex order so its box genuinely
+    // reflows when the combined tasks/problems width changes between the
+    // two states (a bystander column earlier in DOM order wouldn't move at
+    // all: a flex child's position is unaffected by later siblings resizing).
+    function ProductionCorruptionDemo() {
+      const [tasksFocused, setTasksFocused] = useState(true);
+      return (
+        <TestWrapper fullPage width={1024} height={600}>
+          <button data-testid="toggle" onClick={() => setTasksFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene columnGap={8}>
+            <SceneColumn name="tasks">
+              <SceneObject name="tasks-obj" focused={tasksFocused} style={{ width: "40cqw" }}>
+                <div style={{ height: 400 }}>tasks</div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="problems">
+              <SceneObject name="problems-obj" focused={!tasksFocused} style={{ width: "55cqw" }}>
+                <div style={{ height: 400 }}>problems</div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="chat">
+              <SceneObject name="chat-obj" focused style={{ width: "55cqw" }}>
+                <div data-testid="chat-content" style={{ height: 400 }}>chat</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<ProductionCorruptionDemo />);
+    await wait(600);
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const stageEl = scene.querySelector("[data-stage]") as HTMLElement;
+    // `chatCol` resolves to the element carrying `data-column` — TODAY the
+    // single combined motion.div with both `layout` and `animate`. Per the
+    // plan's consumer map, `layout` and `data-column`/registry/ref both stay
+    // on the OUTER node after the Slice 2 split, so this read survives the
+    // split unmodified.
+    const chatCol = getByTestId("chat-content").element().closest("[data-column]") as HTMLElement;
+    const relLeft = () => chatCol.getBoundingClientRect().left - stageEl.getBoundingClientRect().left;
+    // Before any animation has touched this element, `.style.transform` is
+    // the literal string "none" — normalized to 0 (identity), same
+    // precedent as 885c40d's readTx.
+    const readTx = () => {
+      const t = chatCol.style.transform;
+      return t === "none" || t === "" ? 0 : parseTranslateX(t);
+    };
+    const before = relLeft();
+
+    const toggleBtn = getByTestId("toggle").element() as HTMLElement;
+    const start = performance.now();
+    toggleBtn.click();
+
+    // Sample continuously across the FIRST toggle, fire the second ~150ms in
+    // (mid-spring), then keep sampling through the corruption's window —
+    // same timing as 885c40d's precedent.
+    const samples: { t: number; x: number; tx: number; event?: string }[] = [];
+    let fired2 = false;
+    while (performance.now() - start < 1200) {
+      await waitForAnimationFrame();
+      const now = performance.now() - start;
+      if (!fired2 && now >= 150) {
+        toggleBtn.click();
+        fired2 = true;
+        samples.push({ t: now, x: relLeft(), tx: readTx(), event: "toggle2" });
+      }
+      samples.push({ t: now, x: relLeft(), tx: readTx() });
+    }
+    expect(fired2).toBe(true); // sanity: the second toggle actually fired
+
+    const settled = samples[samples.length - 1]!.x;
+
+    // Sanity: this is a NET-ZERO double-toggle (tasks/problems end up in the
+    // same focus state they started in), so `settled` must be close to
+    // `before` — a real difference here would mean the fixture itself is
+    // wrong. NOT the basis for the assertion below (a self-referential bound
+    // derived from before/settled is exactly what let a strictly-better
+    // implementation score strictly worse under discrimination-sever review
+    // in 885c40d's round 2 — see that commit's message for the full finding).
+    expect(settled).toBeCloseTo(before, 0);
+
+    // FRAME-TO-FRAME tx-DELTA CONTINUITY (the actual assertion). A
+    // legitimate spring's transform-channel velocity is bounded and smooth;
+    // the composition bug's signature is a STEP — the transform snaps by
+    // hundreds of px within one rAF tick at the moment the second toggle
+    // lands, then resumes ordinary spring motion from the new value.
+    //
+    // Threshold derived from this exact fixture (disposable diagnostic, not
+    // guessed): a single UNINTERRUPTED toggle's own max frame-to-frame rate
+    // measured 5.11px/ms. MAX_LEGIT_RATE_PER_MS is set to 20 — ~3.9x over
+    // that measured legit max (same margin philosophy as 885c40d's own
+    // ~4.2x-over-legit-max derivation) — and comfortably below the observed
+    // bug spike (~68-80px/ms in this fixture, ~3.4-4x over this threshold on
+    // the other side).
+    const MAX_LEGIT_RATE_PER_MS = 20;
+    const spikes: { from: (typeof samples)[number]; to: (typeof samples)[number]; rate: number }[] = [];
+    for (let i = 1; i < samples.length; i++) {
+      const prev = samples[i - 1]!;
+      const cur = samples[i]!;
+      const dt = cur.t - prev.t;
+      if (dt <= 0) continue;
+      const rate = Math.abs(cur.tx - prev.tx) / dt;
+      if (rate > MAX_LEGIT_RATE_PER_MS) {
+        spikes.push({ from: prev, to: cur, rate });
+      }
+    }
+    if (spikes.length > 0) {
+      const worst = spikes.reduce((a, b) => (b.rate > a.rate ? b : a));
+      const txTrace = samples.map((s) => `t=${s.t.toFixed(1)} x=${s.x.toFixed(2)} tx=${s.tx.toFixed(2)}`).join("\n");
+      expect(
+        spikes.length,
+        `${spikes.length} frame-to-frame tx-delta spike(s) exceeded ${MAX_LEGIT_RATE_PER_MS}px/ms, worst: ` +
+          `t=${worst.from.t.toFixed(1)}ms tx=${worst.from.tx.toFixed(2)} -> t=${worst.to.t.toFixed(1)}ms tx=${worst.to.tx.toFixed(2)} ` +
+          `(${worst.rate.toFixed(2)}px/ms).\nFull trace:\n${txTrace}`,
+      ).toBe(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#17 Slice 1: the "clicks-land" criterion, ported unchanged (per the
+// plan's explicit instruction) from `885c40d`'s FINAL (round-3) shape — a
+// user tracking a target button with their eyes aims a click at its
+// legitimate, pre-transition (at-rest) screen position, and the target
+// should still receive it even though a sibling-driven sweep carries it away
+// mid-transition. Dispatches a real hit-tested click (`elementFromPoint` +
+// `dispatchEvent`) at coordinates valid immediately before the transition —
+// see 885c40d's own commit message for the three discrimination-sever
+// findings that shaped this exact fixture design (target must be a
+// bystander whose own focus never changes; must be swept by a genuine
+// sibling-driven reflow, not just an animation artifact; position must be
+// captured before EITHER toggle fires, not between them).
+// ---------------------------------------------------------------------------
+
+describe("Column transition gate: clicks land during a sibling focus toggle (ui#o9)", () => {
+  test("a click aimed at the target's pre-transition position lands on the target, not wherever the sibling-driven sweep left it stranded", async () => {
+    let targetClicked = false;
+
+    function ClicksLandDemo() {
+      const [detailFocused, setDetailFocused] = useState(true);
+      return (
+        <TestWrapper fullPage>
+          <button data-testid="toggle-detail" onClick={() => setDetailFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene>
+            <SceneColumn name="list">
+              <SceneObject name="list-panel" focused style={{ width: 200, height: "100%" }}>
+                <div style={{ width: "100%", height: "100%" }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="detail">
+              <SceneObject
+                name="detail-panel"
+                focused={detailFocused}
+                style={{ width: 300, height: "100%" }}
+              >
+                <div style={{ width: "100%", height: "100%" }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="chat">
+              <SceneObject name="chat-panel" focused style={{ width: 300, height: "100%" }}>
+                <div data-testid="chat-content" style={{ width: "100%", height: "100%" }}>
+                  <button
+                    data-testid="chat-target"
+                    onClick={() => {
+                      targetClicked = true;
+                    }}
+                  >
+                    target
+                  </button>
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<ClicksLandDemo />);
+    await wait(600);
+
+    const target = getByTestId("chat-target").element() as HTMLElement;
+    const toggleBtn = getByTestId("toggle-detail").element() as HTMLElement;
+
+    // The target's TRUE resting position for the CURRENT committed state,
+    // captured BEFORE either toggle below fires — see 885c40d's message for
+    // why this is the only capture point that survives all three
+    // discrimination-sever findings.
+    const preRect = target.getBoundingClientRect();
+    const clickX = preRect.x + preRect.width / 2;
+    const clickY = preRect.y + preRect.height / 2;
+
+    // Capture-phase document click listener records where the dispatched
+    // click actually lands — direct precedent: repro package §3d.
+    let landedOn = "none";
+    const listener = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      landedOn = t ? `${t.tagName}[data-testid=${t.getAttribute("data-testid")}]` : "null";
+    };
+    document.addEventListener("click", listener, true);
+
+    // The transition under test: unfocus "detail" (triggers the
+    // sibling-driven sweep on "chat"), then — WITHOUT waiting for it to
+    // settle — refocus it again, returning to the ORIGINAL committed state.
+    toggleBtn.click();
+    await wait(100); // mid-sweep, deliberately NOT settled
+    toggleBtn.click();
+
+    await wait(600);
+
+    // A real hit-tested click at fixed screen coordinates.
+    const hitEl = document.elementFromPoint(clickX, clickY);
+    hitEl?.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: clickX, clientY: clickY }));
+
+    document.removeEventListener("click", listener, true);
+
+    expect(
+      targetClicked,
+      `click aimed at the target's pre-transition position (${clickX.toFixed(1)}, ${clickY.toFixed(1)}) ` +
+        `landed on ${landedOn} instead of the target — the sibling-driven sweep had already carried ` +
+        `the target away by the time the click dispatched`,
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // S7 coverage backfill: Alignment & Centering (scene-scroll.feature, each
 // axis handled independently — these assert BOTH axes together in one
 // scenario, which the pre-existing per-axis tests above don't do).
