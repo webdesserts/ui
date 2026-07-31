@@ -7716,8 +7716,81 @@ describe("Scene depth deck stacking", () => {
     const middleRect = middleCol.getBoundingClientRect();
 
     // The column's rendered (projected) width should be less than its frozen width (300px).
-    // Perspective projection reduces apparent size for elements pushed back in Z.
+    // ui#17 never-leave-the-flow: narrower now for two compounding reasons —
+    // perspective projection (translateZ pushing it back in 3D) AND a real
+    // CSS width shrink to the peek-width footprint (see widthTarget's
+    // comment in SceneColumn.tsx) — this assertion doesn't need to
+    // distinguish the two, just that the rendered box is smaller.
     expect(middleRect.width).toBeLessThan(300);
+  });
+
+  test("in-between column clips a full-width content wrapper instead of rewrapping it (ui#17 criterion 6, no text distortion)", async () => {
+    // ui#17 never-leave-the-flow: the OUTER column's width channel targets
+    // a narrow peek-width footprint (see widthTarget's comment in
+    // SceneColumn.tsx) so the flex row reshapes smoothly — but the INNER
+    // content wrapper stays pinned at the frozen full width (see the
+    // wrapper's own style comment), clipped by the outer's overflow:clip.
+    // A crushed (un-pinned) wrapper would rewrap any text content at 300px
+    // narrower than its natural size — the exact visual distortion
+    // criterion 6 bans (ui#o21, the Chat-tab text-stretch observation this
+    // ticket traces back to). Starts col-middle FOCUSED and unfocuses it
+    // (rather than mounting it already unfocused) so frozenSize is
+    // genuinely populated from a real focus-loss transition — the pin is
+    // sourced from frozenSize.width, which only a column that has been
+    // focused at least once has (see this ticket's own Noticed section for
+    // the never-focused-deck-card gap this scenario deliberately avoids).
+    function Demo() {
+      const [middleFocused, setMiddleFocused] = useState(true);
+      return (
+        <TestWrapper fullPage>
+          <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene duration={0}>
+            <SceneColumn name="col-left">
+              <SceneObject name="obj-left" focused>
+                <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-middle">
+              <SceneObject name="obj-middle" focused={middleFocused}>
+                <div data-testid="content-middle" style={{ width: 300, height: 200 }}>
+                  some long text content that would visibly rewrap if its container were crushed to a 12px peek width
+                  instead of staying pinned at its natural full size
+                </div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-right">
+              <SceneObject name="obj-right" focused>
+                <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<Demo />);
+    await waitForAnimationFrame();
+
+    (getByTestId("toggle").element() as HTMLElement).click();
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    const middleContent = getByTestId("content-middle").element();
+    const middleOuter = middleContent.closest("[data-column]") as HTMLElement;
+    const middleWrapper = middleContent.closest("[data-column-content]") as HTMLElement;
+
+    // The outer column's rendered box is clipped down to the narrow
+    // peek-width footprint (default peekOffset=12).
+    expect(middleOuter.getBoundingClientRect().width).toBeLessThan(50);
+
+    // The content wrapper INSIDE it stays laid out at its frozen full
+    // width (300px) — offsetWidth (not gBCR), since gBCR would report the
+    // ancestor's clipped paint region, not the wrapper's own layout box
+    // (same offsetWidth-is-clip-immune precedent as remeasureGeometry's
+    // own capture, H11).
+    expect(middleWrapper.offsetWidth).toBeCloseTo(300, -1);
   });
 
   test("multiple in-between columns: deeper columns appear further back", async () => {
@@ -7963,15 +8036,24 @@ describe("Scene depth deck stacking", () => {
       </TestWrapper>
     );
 
-    // Render once with peekOffset=0 to establish the flush anchor (stackTargetLeft
-    // itself — the pre-A5 baseline, unaffected by the peek mechanism), then
+    // Render once with peekOffset=0 to establish the flush anchor, then
     // again with the default peekOffset — cleanup() between renders keeps the
     // two mounts from colliding on shared data-testids within this one test.
     const flush = await render(scene(0));
+    const flushRight = flush.getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
     const flushMiddle = flush.getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
     await waitForAnimationFrame();
     await waitForAnimationFrame();
-    const flushX = parseTranslateX(flushMiddle.style.transform);
+    // ui#17 never-leave-the-flow: the fan is now produced by a combination
+    // of the width channel's own peek-width footprint (see widthTarget's
+    // comment in SceneColumn.tsx) and animateX's gap-closing correction
+    // (see its own comment) — no longer a single raw transform value in
+    // isolation the way it was pre-ui#17 — so this reads the REAL rendered
+    // gap between the columns (gBCR) rather than the raw pre-projection
+    // transform, same rationale as the corruption fixture's own sharpened
+    // assertion this session (measures what actually painted, stays
+    // meaningful regardless of which channel(s) produce it).
+    const flushGap = flushRight.getBoundingClientRect().left - flushMiddle.getBoundingClientRect().left;
     await cleanup();
 
     const peeked = await render(scene(12));
@@ -7980,10 +8062,9 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    // The raw x offset written to the transform (pre-projection) sits
-    // exactly peekOffset left of the flush anchor — this is what
-    // SceneColumn's animateX actually computes, undistorted by rendering.
-    expect(flushX - parseTranslateX(middleCol.style.transform)).toBe(12);
+    // At peekOffset=0 the deck column renders flush against the focused
+    // column (no visible gap).
+    expect(flushGap).toBeCloseTo(0, -1);
 
     // Rendered (post-perspective-projection) left edge: the peek is also
     // visibly observable, attenuated somewhat by perspective foreshortening
@@ -8030,13 +8111,15 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
     const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
 
-    const depth1X = parseTranslateX(middle2.style.transform);
-    const depth2X = parseTranslateX(middle1.style.transform);
+    // ui#17 never-leave-the-flow: gBCR, not raw transform — see the
+    // "depth-1 ... peeks left by exactly peekOffset" test's own comment for
+    // why. toBeCloseTo(-1) (±5px) accommodates perspective foreshortening.
+    const depth1Rect = middle2.getBoundingClientRect();
+    const depth2Rect = middle1.getBoundingClientRect();
 
     // Each successive depth level peeks by one additional peekOffset
-    // increment (12px default) — exact, since this reads the raw
-    // pre-projection transform value rather than rendered pixels.
-    expect(depth1X - depth2X).toBe(12);
+    // increment (12px default).
+    expect(depth1Rect.left - depth2Rect.left).toBeCloseTo(12, -1);
   });
 
   test("custom peekOffset prop changes the column deck peek offsets accordingly", async () => {
@@ -8073,13 +8156,15 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
     const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
 
-    const depth1X = parseTranslateX(middle2.style.transform);
-    const depth2X = parseTranslateX(middle1.style.transform);
+    // ui#17 never-leave-the-flow: gBCR, not raw transform — see the
+    // "depth-1 ... peeks left by exactly peekOffset" test's own comment.
+    const depth1Rect = middle2.getBoundingClientRect();
+    const depth2Rect = middle1.getBoundingClientRect();
 
     // With peekOffset=20, depth-1 peeks by 20 and depth-2 by 2*20=40 — the
     // fan increment between them is the configured peekOffset, not the
     // default.
-    expect(depth1X - depth2X).toBe(20);
+    expect(depth1Rect.left - depth2Rect.left).toBeCloseTo(20, -1);
   });
 
   test("peekOffset={0} reproduces the old flush-anchored behavior (no fan)", async () => {
@@ -8116,10 +8201,12 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
     const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
 
-    // With no peek offset, every in-between column anchors flush at
-    // stackTargetLeft regardless of depth — the pre-A5 behavior, where only
+    // With no peek offset, every in-between column renders flush at the
+    // same left edge regardless of depth — the pre-A5 behavior, where only
     // perspective projection (not a manual x offset) distinguished depths.
-    expect(parseTranslateX(middle1.style.transform)).toBe(parseTranslateX(middle2.style.transform));
+    // ui#17 never-leave-the-flow: gBCR, not raw transform — see the
+    // "depth-1 ... peeks left by exactly peekOffset" test's own comment.
+    expect(middle1.getBoundingClientRect().left).toBeCloseTo(middle2.getBoundingClientRect().left, -1);
   });
 
   test("H11: a never-before-focused deck card's marginTop converges monotonically on first focus (no swing)", async () => {

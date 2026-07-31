@@ -14,7 +14,6 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
-import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -385,13 +384,13 @@ export function SceneColumn({
 }: SceneColumnProps) {
   const columnFocused = deriveColumnFocused(children);
   const objectStates = deriveObjectStates(children);
-  const { duration, stiffness, damping, touchPower, touchTimeConstant, padding, slowMo, peekOffset } = useSceneConfig();
+  const { duration, stiffness, damping, touchPower, touchTimeConstant, padding, slowMo, peekOffset, columnGap } =
+    useSceneConfig();
   const { width: viewportWidth, height: viewportHeight } = useContext(ViewportContext);
   const columnPositions = useContext(ColumnPositionContext);
   const scrollOffsetStore = useContext(ScrollOffsetStoreContext);
   const scrollCommandRegistry = useContext(ScrollCommandRegistryContext);
   const position = columnPositions.get(name) ?? null;
-  const stackTargetLeft = useContext(DepthDeckContext);
   const stackDepths = useContext(StackDepthContext);
   const stackDepth = stackDepths.get(name) ?? 0;
   const firstPaintRef = useContext(SceneFirstPaintContext);
@@ -2351,7 +2350,26 @@ export function SceneColumn({
   // never "releases" to natural sizing.
   // ---------------------------------------------------------------------
   const focusedWidthTarget = computeFocusedWidth(objectStates, geometryStore.current);
-  const widthTarget = columnFocused ? focusedWidthTarget : frozenSize?.width;
+  // ui#17 depth-deck (never-leave-the-flow): an in-between column collapses
+  // to a narrow peek-width footprint instead of leaving flex flow entirely
+  // (see inBetweenStyle's own comment below for why staying in-flow
+  // matters — it's what lets a sibling-driven reflow spring instead of
+  // vanishing in one commit). Sized to peekOffset itself: that's already
+  // the per-depth-level visible-sliver width the deck's fan establishes
+  // (see animateX's own comment below), so a depth-1 column collapsing to
+  // exactly peekOffset reproduces today's single-sliver reveal without a
+  // second magic number. peekOffset={0} collapses this to a true
+  // zero-width footprint, matching the old flush/no-peek behavior at that
+  // config value (the column is fully hidden, same as before). Computed
+  // inline (duplicating isInBetween's own condition, declared later in
+  // this file) rather than reordering — same tradeoff F5 item 2's
+  // `animateX` comment already documents for this file.
+  const inBetweenNow = !columnFocused && position === "in-between" && stackDepth > 0;
+  const widthTarget = columnFocused
+    ? focusedWidthTarget
+    : inBetweenNow
+      ? peekOffset
+      : frozenSize?.width;
 
   const widthMV = useMotionValue(widthTarget ?? 0);
   useEffect(() => {
@@ -2408,19 +2426,31 @@ export function SceneColumn({
     flex: "0 1 auto",
   };
 
-  // Unfocused in-between columns exit flex flow and stack as a depth deck,
-  // positioned behind the rightmost focused column. top:0 anchors them to the
-  // stage top so they align with the focused row; x-translation (via animate)
-  // slides them to the left edge of the rightmost focused column. Frozen
-  // width is applied by the owned width channel below (ui#17) — single-
-  // writer rule, not written here directly. Frozen height stays a static
-  // value here — no owned height channel (see the channel's own doc
-  // comment for why: an externally-imposed dimension, nothing to
-  // interpolate).
+  // Unfocused in-between columns stay IN flex flow (ui#17 never-leave-the-
+  // flow) and stack as a depth deck, positioned behind the rightmost
+  // focused column. Staying position:relative — rather than exiting flow
+  // via position:absolute — is what lets the owned width channel below
+  // spring the column down to its peek-width footprint frame by frame, so
+  // a sibling reflowing past this column (the ui#o9 bystander problem)
+  // sees a smooth width-driven reshape instead of the column vanishing
+  // from flow in a single commit. align-items:stretch's default top-
+  // alignment (this style opts out of stretch via its own explicit
+  // height, same as before) keeps it flush with the stage top, same as
+  // top:0 did under position:absolute — no separate anchor needed.
+  // x-translation (via animate, see animateX below) closes the flex gaps
+  // between deck columns so they read as one contiguous stack rather than
+  // gap-separated slivers. overflow:clip masks the content wrapper's own
+  // pinned full width (see contentWrapperRef's style below) down to this
+  // narrow footprint — a clipped sliver of full-size content, not a
+  // crushed/rewrapped one (criterion 6, no text distortion). Frozen width
+  // is applied by the owned width channel below (ui#17) — single-writer
+  // rule, not written here directly. Frozen height stays a static value
+  // here — no owned height channel (see the channel's own doc comment for
+  // why: an externally-imposed dimension, nothing to interpolate).
   const inBetweenStyle: React.CSSProperties = {
-    position: "absolute",
-    top: 0,
-    flex: "none",
+    position: "relative",
+    flex: "0 0 auto",
+    overflow: "clip",
     ...(frozenSize ? { height: frozenSize.height } : {}),
   };
 
@@ -2469,17 +2499,26 @@ export function SceneColumn({
   // negative risk, it only closes the stale-registry window.
   const isInBetween = !columnFocused && position === "in-between" && stackDepth > 0;
 
-  // In-between columns animate toward the rightmost focused column's left edge,
-  // then peek out further left by an explicit per-depth offset (A5 — the
-  // pull-out-direction principle: a deck card peeks in the direction it
-  // travels when pulled from the deck, so a column deck anchored under the
-  // right focused column peeks left). Fanned by stackDepth so every deeper
-  // card's left edge stays visible past its shallower neighbors. This is a
-  // manual offset, not an emergent artifact of perspective projection.
+  // In-between columns close the flex gaps between themselves and the
+  // deck's rightmost edge (A5 — the pull-out-direction principle: a deck
+  // card peeks in the direction it travels when pulled from the deck, so a
+  // column deck anchored under the right focused column peeks left). This
+  // is a RELATIVE offset (ui#17 never-leave-the-flow), not the absolute
+  // stack-anchored one it replaces: once every in-between column already
+  // occupies exactly peekOffset of flex width (see widthTarget above),
+  // natural flex order alone already reproduces the fan — depth-2 sits
+  // immediately before depth-1 sits immediately before the focused column,
+  // each contributing one peekOffset-wide sliver, deepest-first. The ONLY
+  // thing flex flow doesn't do for free is close the `columnGap` the stage
+  // row inserts between every adjacent pair (deck-to-deck and deck-to-
+  // focused) — left alone that reads as gap-separated slivers rather than
+  // one contiguous stack. A depth-N column has N such gaps to its right
+  // (its own trailing gap, plus one inherited from each shallower sibling
+  // it must also catch up to) — stackDepth * columnGap closes all of them.
   // Outer columns stay at x:0 — they're in the natural flex row position.
   // Same `!columnFocused` guard as isInBetween above, and for the same
   // reason (F5 item 2).
-  const animateX = !columnFocused && position === "in-between" ? stackTargetLeft - peekOffset * stackDepth : 0;
+  const animateX = isInBetween ? stackDepth * columnGap : 0;
   // translateZ pushes in-between columns back in 3D space. The stage's
   // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
   // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.
@@ -2555,9 +2594,11 @@ export function SceneColumn({
     }
   });
 
-  // In-between columns are position:absolute from the stage top. To visually
-  // align them with the focused content (which is centered via marginTop),
-  // we translate them down to the vertical center of the viewport.
+  // In-between columns stay top-aligned at the stage row's own top edge
+  // (align-items:stretch's default alignment for a flex item with its own
+  // explicit height — see inBetweenStyle's comment). To visually align
+  // them with the focused content (which is centered via marginTop), we
+  // translate them down to the vertical center of the viewport.
   // colHeight is the column's frozen or natural height — used for centering.
   // For in-between columns without a frozenSize, skip centering (top-aligned)
   // rather than calling getBoundingClientRect which returns projected sizes
@@ -2929,6 +2970,14 @@ export function SceneColumn({
             // above (unchanged) — only its own instant-mode style mirror
             // moves with `duration === 0` here, same as before.
             ...(duration === 0 ? { top: combinedTop, marginTop } : { top: composedTop }),
+            // ui#17 never-leave-the-flow: while the outer column is
+            // narrowed to its peek-width footprint, this wrapper stays
+            // pinned to the pre-unfocus frozenSize.width so `children`
+            // never re-lays-out at the narrow width — the outer's own
+            // overflow:clip (inBetweenStyle) masks everything past the
+            // peek window, producing a clipped sliver of full-size content
+            // rather than crushed/rewrapped text (criterion 6).
+            ...(isInBetween && frozenSize ? { width: frozenSize.width } : {}),
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
