@@ -14,7 +14,7 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
-import { SettleSignalContext } from "./SettleSignalContext";
+import { useOwnedAnimation } from "./ownedAnimation";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -232,6 +232,13 @@ function computeMeasuredWidth(
   return width;
 }
 
+// The owned-channel settle counter's own claim/retire guard now lives at
+// the shared seam every animate()/jump() call for an owned MotionValue
+// flows through — see ownedAnimation.ts's useOwnedAnimation() doc comment
+// (ui#17 cascade-fix round, Step 2) for the full rationale, including why
+// this replaced the hand-wired per-channel guard that originally lived
+// here.
+
 /**
  * Identifies unfocused SceneObjects that are sandwiched between two focused
  * siblings in DOM order and computes depth info for each. These objects will
@@ -429,11 +436,6 @@ export function SceneColumn({
   // rendered outside a Scene (shouldn't happen in practice) — guarded
   // defensively at each call site below rather than assumed non-null.
   const panControl = useContext(PanControlContext);
-  // Fired from every owned-channel settle site below (width, margin, panel
-  // width) — see SettleSignalContext's own doc comment for the full
-  // rationale. Null outside a Scene, same as every other Scene-provided
-  // context here.
-  const onColumnGeometrySettled = useContext(SettleSignalContext);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing.
@@ -488,6 +490,28 @@ export function SceneColumn({
   // re-render on every pointermove. scrollY represents the JS scroll amount
   // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
   // for inertia's min/max in commit 2.
+  //
+  // Deliberately NOT routed through ownedAnimation's settle-signal seam
+  // (ui#17 cascade-fix round, Step 2 audit) despite being an animate()-
+  // driven channel like width/margin/z/topOffset above: scrollY is
+  // vertical content-scroll offset WITHIN a column, which never changes
+  // the column's own outer bounding box — the only thing Scene's camera-
+  // recentering effect ever measures — so wiring it in would add zero
+  // camera-correctness benefit. It would add real risk: scrollY drives a
+  // heavily-tuned, empirically-measured physics system (wheel coalescing,
+  // reentrant boundary rubber-banding, touch-drag 1:1 tracking, release
+  // inertia — see driveBoundedSpring's own comment for the measured
+  // tuning this represents) across many call sites, several of which are
+  // continuously re-triggered during active user interaction (a sustained
+  // wheel/drag session would keep this channel perpetually claimed,
+  // delaying every OTHER channel's zero-crossing for as long as the user
+  // keeps scrolling — harmless for camera correctness since scrollY was
+  // never camera-relevant, but an unnecessary coupling between two
+  // unrelated systems for no benefit). Confirmed empirically irrelevant to
+  // the specific late-mover bug this round diagnosed: a direct frame-by-
+  // frame trace of scrollY:detail through the exact window cameraX was
+  // proven to still be settling in showed scrollY's own value never
+  // changing by more than floating-point noise.
   const scrollY = useMotionValue(0);
   // scrollY.getVelocity() is used at TWO call sites, both mid-animation
   // (never at release — F13 commit 2 replaced the release-time read with
@@ -2398,15 +2422,16 @@ export function SceneColumn({
   // confirmed the render where topOffset's underlying geometry first
   // settles already has firstPaintRef.current === false (see
   // columnGeometrySettledRef's declaration above).
+  const topOffsetOwnedAnimation = useOwnedAnimation();
   useLayoutEffect(() => {
     if (topOffset === topOffsetTargetRef.current) return;
     topOffsetTargetRef.current = topOffset;
     if (duration === 0) {
       topOffsetMV.set(topOffset);
     } else if (firstPaintRef.current || !columnGeometryWasSettled) {
-      topOffsetMV.jump(topOffset);
+      topOffsetOwnedAnimation.jump(topOffsetMV, topOffset);
     } else {
-      const controls = animate(topOffsetMV, topOffset, transition);
+      const controls = topOffsetOwnedAnimation.animateTo(topOffsetMV, topOffset, transition);
       motionSeam?.registerControls(`topOffset:${name}`, controls);
       motionSeam?.registerTarget?.(`topOffset:${name}`, topOffset);
     }
@@ -2505,6 +2530,7 @@ export function SceneColumn({
   // releases; see the style binding below). Starts true so a column that
   // never transitions never applies an override to begin with.
   const [widthSettled, setWidthSettled] = useState(true);
+  const widthOwnedAnimation = useOwnedAnimation();
 
   useLayoutEffect(() => {
     if (widthTarget === undefined || widthTarget === widthTargetRef.current) return;
@@ -2512,17 +2538,12 @@ export function SceneColumn({
     widthHasHadTargetRef.current = true;
     widthTargetRef.current = widthTarget;
     if (duration === 0 || isFirstTarget || firstPaintRef.current || !columnGeometryWasSettled) {
-      widthMV.jump(widthTarget);
+      widthOwnedAnimation.jump(widthMV, widthTarget);
       setWidthSettled(true);
-      onColumnGeometrySettled?.();
     } else {
       setWidthSettled(false);
-      const controls = animate(widthMV, widthTarget, {
-        ...transition,
-        onComplete: () => {
-          setWidthSettled(true);
-          onColumnGeometrySettled?.();
-        },
+      const controls = widthOwnedAnimation.animateTo(widthMV, widthTarget, transition, () => {
+        setWidthSettled(true);
       });
       motionSeam?.registerControls(`width:${name}`, controls);
       motionSeam?.registerTarget?.(`width:${name}`, widthTarget);
@@ -2556,17 +2577,14 @@ export function SceneColumn({
   }, [motionSeam, marginMV, name]);
 
   const marginTargetRef = useRef(marginTarget);
+  const marginOwnedAnimation = useOwnedAnimation();
   useLayoutEffect(() => {
     if (marginTarget === marginTargetRef.current) return;
     marginTargetRef.current = marginTarget;
     if (duration === 0 || firstPaintRef.current || !columnGeometryWasSettled) {
-      marginMV.jump(marginTarget);
-      onColumnGeometrySettled?.();
+      marginOwnedAnimation.jump(marginMV, marginTarget);
     } else {
-      const controls = animate(marginMV, marginTarget, {
-        ...transition,
-        onComplete: () => onColumnGeometrySettled?.(),
-      });
+      const controls = marginOwnedAnimation.animateTo(marginMV, marginTarget, transition);
       motionSeam?.registerControls(`margin:${name}`, controls);
       motionSeam?.registerTarget?.(`margin:${name}`, marginTarget);
     }
@@ -2603,6 +2621,7 @@ export function SceneColumn({
   const panelWidthTargetRef = useRef(panelWidthTarget);
   const panelWidthHasHadTargetRef = useRef(panelWidthTarget !== undefined);
   const [panelWidthSettled, setPanelWidthSettled] = useState(true);
+  const panelWidthOwnedAnimation = useOwnedAnimation();
 
   useLayoutEffect(() => {
     if (panelWidthTarget === undefined || panelWidthTarget === panelWidthTargetRef.current) return;
@@ -2610,17 +2629,12 @@ export function SceneColumn({
     panelWidthHasHadTargetRef.current = true;
     panelWidthTargetRef.current = panelWidthTarget;
     if (duration === 0 || isFirstTarget || firstPaintRef.current || !columnGeometryWasSettled) {
-      panelWidthMV.jump(panelWidthTarget);
+      panelWidthOwnedAnimation.jump(panelWidthMV, panelWidthTarget);
       setPanelWidthSettled(true);
-      onColumnGeometrySettled?.();
     } else {
       setPanelWidthSettled(false);
-      const controls = animate(panelWidthMV, panelWidthTarget, {
-        ...transition,
-        onComplete: () => {
-          setPanelWidthSettled(true);
-          onColumnGeometrySettled?.();
-        },
+      const controls = panelWidthOwnedAnimation.animateTo(panelWidthMV, panelWidthTarget, transition, () => {
+        setPanelWidthSettled(true);
       });
       motionSeam?.registerControls(`panelWidth:${name}`, controls);
       motionSeam?.registerTarget?.(`panelWidth:${name}`, panelWidthTarget);
@@ -2813,6 +2827,7 @@ export function SceneColumn({
     return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
   }, [motionSeam, zMV, name]);
   const zTargetRef = useRef(depthZ);
+  const zOwnedAnimation = useOwnedAnimation();
 
   useLayoutEffect(() => {
     if (depthZ === zTargetRef.current) return;
@@ -2821,9 +2836,9 @@ export function SceneColumn({
     if (duration === 0) {
       zMV.set(depthZ);
     } else if (firstPaintRef.current || !columnGeometryWasSettled) {
-      zMV.jump(depthZ);
+      zOwnedAnimation.jump(zMV, depthZ);
     } else {
-      const controls = animate(zMV, depthZ, transition);
+      const controls = zOwnedAnimation.animateTo(zMV, depthZ, transition);
       motionSeam?.registerControls(`z:${name}`, controls);
       motionSeam?.registerTarget?.(`z:${name}`, depthZ);
     }

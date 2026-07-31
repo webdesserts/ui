@@ -1,32 +1,49 @@
 import { createContext } from "react";
 
 /**
- * Fired by a column whenever one of its owned geometry channels (width,
- * margin, panel width — any MotionValue-driven channel whose settled state
- * the camera's own recentering measurement depends on) reaches its settled
- * state. Idempotent and fire-on-settle-only: call it once per settle event,
- * never per-frame during a spring's own progress.
+ * A column's owned geometry channels (width, margin, panel width — any
+ * MotionValue-driven channel whose settled state the camera's own
+ * recentering measurement depends on) report their own active/idle state
+ * through this pair, so Scene can re-measure exactly once per activity
+ * burst — when the WHOLE scene quiets, not each time one individual
+ * channel happens to finish.
  *
- * Why this exists: Scene's camera-recentering effect (the no-deps
- * useLayoutEffect that computes `stageLeft`) re-measures column geometry on
- * every SCENE render — but a column's own MotionValue-driven springs don't
- * inherently trigger a Scene render when they complete (a per-column
- * `setState` re-renders that column, not its parent). Without this signal,
- * the camera's measurement is a snapshot taken at the moment of whatever
- * commit last touched Scene (typically a focus toggle), never refreshed as
- * the spring that toggle started continues past that point — proven
- * empirically (ui#17 glass-stack rework, Slice 1): a 37px silent drift on
- * the committed baseline with a fully-settled, uninterrupted refocus; an
- * 86px click-mistargeting at a tested double-interruption timing under the
- * anchor/panel design specifically.
+ * `animationStarted` fires when a channel begins driving toward a new
+ * target (the animate() branch only — a synchronous jump has no genuine
+ * "start" distinct from its own completion). `animationEnded` fires at
+ * every path that retires that channel's own contribution: the natural
+ * animate().onComplete, the jump() branch (whether or not that specific
+ * jump followed a start — SceneColumn's own per-channel guard is what
+ * keeps this pair balanced, not this context), and any future cancel
+ * path a channel adds. Scene aggregates these into a single active-count;
+ * only the transition INTO zero triggers the actual re-render/re-measure.
+ *
+ * Why the aggregate, not the original per-settle-event fire-and-forget
+ * version this replaced: Motion's `MotionValue.start()` calls `stop()` on
+ * any animation it supersedes, which fires that PRIOR animation's
+ * `animationCancel`, never its `onComplete` — confirmed at source
+ * (motion-dom's value/index.mjs). A column mid-transition can retarget a
+ * channel several times before anything naturally completes (measured
+ * directly, ui#17 Slice 1 close-out: a single unfocus-then-refocus
+ * produced a byte-reproducible 324→424→409→324 cameraX retarget
+ * sequence, a full 100px swing, purely from firing on every individual
+ * channel's own settle event while OTHER channels were still mid-flight).
+ * Each of those intermediate fires re-measured geometry that hadn't
+ * actually reached its final state yet — "settled" per-channel is not
+ * "worth re-measuring against." Firing only at the count's zero-crossing
+ * is what makes the fire mean "the scene is actually quiet now."
  *
  * Minimal precursor for ui#20's own settle-registry design (Michael ruled
- * ui#17 lands first so ui#20 can hook the final animation topology) — this
- * is intentionally a single fire-and-forget signal, not a per-channel
- * registry. ui#20 is expected to absorb/replace this with its own richer
- * settle-tracking mechanism.
+ * ui#17 lands first so ui#20 can hook the final animation topology) —
+ * this begin/end counter IS the registry-lite shape, one step closer to
+ * ui#20's own begin/end-counter design than the single-signal version it
+ * replaced. ui#20 is expected to absorb/replace this with its own richer,
+ * per-channel-keyed settle-tracking mechanism.
  */
-export type SettleSignal = () => void;
+export type SettleSignal = {
+  animationStarted: () => void;
+  animationEnded: () => void;
+};
 
 /**
  * Provided by Scene to every descendant SceneColumn. `null` outside a Scene

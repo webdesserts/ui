@@ -6,7 +6,8 @@ import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
-import { SettleSignalContext } from "./SettleSignalContext";
+import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
+import { useOwnedAnimation } from "./ownedAnimation";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -1525,6 +1526,21 @@ function SceneViewport({
     return () => motionSeam?.unregisterMotionValue?.("cameraX");
   }, [motionSeam, cameraX]);
 
+  // Routes every cameraX.jump()/animate() call site in this component
+  // (driveCameraX's own recentering below, the touch-fling inertia, the
+  // drag-start stop-jump — all driving the SAME MotionValue, sharing ONE
+  // claim state) through Scene's aggregate settle counter, read here via
+  // context since SceneViewport is a descendant of Scene's own
+  // <SettleSignalContext.Provider> (below, in Scene's own JSX). This is
+  // the specific fix for this round's named late mover: cameraX's own
+  // corrective retarget (triggered BY the zero-crossing once width/
+  // margin/panelWidth settle) previously wasn't itself tracked, so the
+  // counter reached zero — and Scene re-measured — before the camera had
+  // actually finished springing to the value that re-measurement
+  // produced. See ownedAnimation.ts's own doc comment for the full
+  // rationale.
+  const ownedCameraAnimation = useOwnedAnimation();
+
   // useCamera() `transitioning` (S6 reshape, forecast-gate adjudication #5c):
   // a monotonic token identifying the CURRENT cameraX animate() call. Each
   // new invocation increments it and captures its own value; the returned
@@ -1686,11 +1702,11 @@ function SceneViewport({
         const stage = stageRef.current;
         if (stage) stage.style.left = `${target}px`;
       } else if (firstPaintRef.current) {
-        cameraX.jump(target);
+        ownedCameraAnimation.jump(cameraX, target);
       } else {
         const token = ++cameraTransitionTokenRef.current;
         onTransitionStart();
-        const controls = animate(cameraX, target, transition);
+        const controls = ownedCameraAnimation.animateTo(cameraX, target, transition);
         motionSeam?.registerControls("cameraX", controls);
         motionSeam?.registerTarget?.("cameraX", target);
         controls.then(() => {
@@ -1700,7 +1716,7 @@ function SceneViewport({
         });
       }
     },
-    [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX],
+    [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX, ownedCameraAnimation],
   );
 
   // ui#19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
@@ -1751,7 +1767,7 @@ function SceneViewport({
       // keyframes=[null, undefined], finishing instantly without ever
       // running. An explicit single-element keyframes array with the
       // current value is required for inertia to actually decelerate.
-      const controls = animate(cameraX, [cameraX.get()], {
+      const controls = ownedCameraAnimation.animateTo(cameraX, [cameraX.get()], {
         type: "inertia",
         velocity,
         min: base + bounds.min,
@@ -1775,7 +1791,7 @@ function SceneViewport({
         }
       });
     },
-    [duration, cameraX, touchPower, touchTimeConstant, stiffness, damping, motionSeam, onTransitionStart, onTransitionComplete],
+    [duration, cameraX, touchPower, touchTimeConstant, stiffness, damping, motionSeam, onTransitionStart, onTransitionComplete, ownedCameraAnimation],
   );
 
   const getPanOffset = useCallback(() => panOffsetRef.current, []);
@@ -2135,12 +2151,12 @@ function SceneViewport({
       // axis (jump(), not stop() — resets Motion's internal velocity
       // tracking too, not just the animation, avoiding a residual-velocity
       // re-fling defect on a quick re-grab).
-      cameraX.jump(cameraX.get());
+      ownedCameraAnimation.jump(cameraX, cameraX.get());
       panDragStartOffset.current = panOffsetRef.current;
       panVelocitySamplesRef.current = [];
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cameraX],
+    [cameraX, ownedCameraAnimation],
   );
 
   const handleViewportPointerMove = useCallback(
@@ -2549,20 +2565,51 @@ export function Scene({
   // in SceneViewport's stageLeft effect.
   const [transitioning, setTransitioning] = useState(false);
 
-  // Settle-signal counter (see SettleSignalContext's own doc comment for
-  // the full rationale). A column's owned geometry channels (width,
-  // margin, panel width) are MotionValue-driven and settling doesn't
-  // inherently re-render Scene — this counter exists purely to force one.
-  // Its own value is never read anywhere; bumping it is the entire
+  // Aggregate settle-signal counter (see SettleSignalContext's own doc
+  // comment for the full rationale, including why this replaced a
+  // fire-per-settle-event version). activeAnimationCountRef is the number
+  // of owned channels (across every column, AND SceneViewport's own
+  // cameraX — see ownedCameraAnimation there) currently mid-transition;
+  // only the transition INTO zero bumps the render-triggering state below
+  // — a re-render while the count is still positive would re-measure
+  // geometry that hasn't actually reached its final state yet. The count
+  // itself is never rendered (a ref, not state) — bumpSettleSignal's own
+  // value is never read anywhere either; bumping it is the entire
   // mechanism (React re-renders Scene, which re-renders SceneViewport as
   // a plain child, which re-runs its own no-deps camera-recentering
-  // effect against the now-truly-settled geometry). useCallback keeps the
+  // effect against the now-truly-settled geometry). useMemo keeps the
   // context value referentially stable across renders that don't touch
   // it, avoiding a spurious re-provide on every unrelated Scene render.
+  const activeAnimationCountRef = useRef(0);
   const [, bumpSettleSignal] = useState(0);
-  const onColumnGeometrySettled = useCallback(() => {
-    bumpSettleSignal((c) => c + 1);
-  }, []);
+  const onColumnGeometrySettled = useMemo<SettleSignal>(
+    () => ({
+      animationStarted: () => {
+        activeAnimationCountRef.current++;
+      },
+      animationEnded: () => {
+        // Floored at 0, never negative: an unmatched extra `animationEnded`
+        // call (a bug elsewhere — every real call site is paired 1:1 with
+        // its own `animationStarted`, audited in SceneColumn/SceneObject/
+        // SceneViewport) would otherwise push the count below zero, and
+        // the NEXT genuine start+end pair would then land on -1/0 forever
+        // instead of 1/0 — silently and PERMANENTLY wedging the camera's
+        // own re-measure, the exact failure this counter exists to avoid.
+        // The warning keeps that bug visible without letting it wedge
+        // anything at runtime.
+        if (activeAnimationCountRef.current <= 0) {
+          console.warn("SettleSignalContext: animationEnded called with no matching animationStarted — a channel's start/end pair is unbalanced.");
+          activeAnimationCountRef.current = 0;
+          return;
+        }
+        activeAnimationCountRef.current--;
+        if (activeAnimationCountRef.current === 0) {
+          bumpSettleSignal((c) => c + 1);
+        }
+      },
+    }),
+    [],
+  );
 
   // Track the camera viewport's rect for useCamera() consumers. Updated via
   // callback from SceneViewport whenever the viewport element is measured.

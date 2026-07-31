@@ -5,6 +5,7 @@ import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
+import { useOwnedAnimation } from "./ownedAnimation";
 
 export interface SceneObjectProps {
   /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
@@ -197,6 +198,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // driving toward it unconditionally — and binding `top` unconditionally in
   // `style` below — gives every branch somewhere real to animate back to,
   // the same fix shape H8 applied to opacity/z/filter.
+  const topOwnedAnimation = useOwnedAnimation();
   useLayoutEffect(() => {
     if (withinDepthTop === topTargetRef.current) return;
     topTargetRef.current = withinDepthTop;
@@ -204,9 +206,9 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     if (duration === 0) {
       topMV.set(withinDepthTop);
     } else if (isFirstPaint) {
-      topMV.jump(withinDepthTop);
+      topOwnedAnimation.jump(topMV, withinDepthTop);
     } else {
-      const controls = animate(topMV, withinDepthTop, transition);
+      const controls = topOwnedAnimation.animateTo(topMV, withinDepthTop, transition);
       motionSeam?.registerControls(`withinColumnTop:${name}`, controls);
       motionSeam?.registerTarget?.(`withinColumnTop:${name}`, withinDepthTop);
     }
