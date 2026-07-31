@@ -3866,33 +3866,72 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
  * regardless of what it asserts (probe-confirmed directly: `data-
  * column-position` read back unchanged immediately after a click, for
  * both the directly-toggled column and a bystander sibling). Returns
- * the gBCR from the frame immediately before the change and the frame
- * it was first observed in, the same "last pre-flip frame vs first
- * post-flip frame" methodology the spike's own trace-refocus.log used.
+ * the geometry from the frame immediately before the change and the
+ * frame it was first observed in, the same "last pre-flip frame vs
+ * first post-flip frame" methodology the spike's own trace-refocus.log
+ * used.
+ *
+ * Layout-box geometry (ui#17 target-derived-aiming round, Part B's
+ * structurally final form, superseding an earlier gBCR-rebased-against-
+ * anchor draft of this same helper): `offsetLeft`/`offsetTop` (relative
+ * to `offsetParent`, which is verified elsewhere to be the panel's own
+ * anchor on BOTH sides of the flip — position:relative and
+ * position:absolute both resolve to it) plus `offsetWidth`/
+ * `offsetHeight`. Transform-free BY CONSTRUCTION: stage/camera
+ * translation, the depth-deck's `translateZ` perspective projection, and
+ * `panelAnimateX`'s own tuck offset are all CSS transforms, invisible to
+ * offset* — while every REAL defect class this suite exists to catch
+ * stays visible, because each one is a layout-box change: the 175px
+ * refocus bug drove `width` (a layout property, ΔoffsetWidth sees it
+ * directly); a `static`-vs-`absolute` position break moves the box
+ * itself; a margin bug moves it too. The flip's zero-pixel promise IS a
+ * layout-box promise — an EARLIER round of this suite measured it
+ * through the perspective projection (gBCR, even after rebasing against
+ * the anchor to cancel translation) and that measurement is what caught
+ * one real frame of lawful, continuous mid-spring Z motion as a false
+ * positive (innocence-checked directly: the flip-frame delta was
+ * comparable to — often smaller than — its own frame-neighbor deltas,
+ * and the Z MotionValue's own sequence was smoothly monotonic with no
+ * jump coinciding with the position-mode flip).
+ *
+ * `anchorEl`, when provided, is an assertion-only sanity guard (not used
+ * for any measurement): throws immediately if `el.offsetParent` isn't
+ * `anchorEl` at either sample, so a future architecture change that
+ * breaks the offsetParent-is-the-anchor assumption fails loudly here
+ * instead of silently changing what these tests measure.
  */
 async function captureFlipCommit(
   el: HTMLElement,
   timeoutMs = 2000,
   hasChanged?: () => boolean,
+  anchorEl?: HTMLElement,
 ): Promise<{ before: DOMRect; after: DOMRect; framesWaited: number }> {
   const initialPosition = el.style.position;
   const changed = hasChanged ?? (() => el.style.position !== initialPosition);
-  let before = el.getBoundingClientRect();
+  const captureBox = (): DOMRect => {
+    if (anchorEl && el.offsetParent !== anchorEl) {
+      throw new Error(
+        `captureFlipCommit: expected el.offsetParent to be anchorEl but it was ${el.offsetParent ? `<${el.offsetParent.tagName}>` : "null"} — the offsetParent-is-the-anchor assumption this helper's layout-box measurement depends on no longer holds`,
+      );
+    }
+    return new DOMRect(el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight);
+  };
+  let before = captureBox();
   const start = performance.now();
   let frames = 0;
   while (performance.now() - start < timeoutMs) {
     await waitForAnimationFrame();
     frames++;
     if (changed()) {
-      return { before, after: el.getBoundingClientRect(), framesWaited: frames };
+      return { before, after: captureBox(), framesWaited: frames };
     }
-    before = el.getBoundingClientRect();
+    before = captureBox();
   }
   throw new Error(`change predicate never became true within ${timeoutMs}ms (initial panel position: "${initialPosition}")`);
 }
 
 describe("Glass-stack deck: zero-pixel flip", () => {
-  test("unfocus direction: panel gBCR has no discontinuity at the flip commit", async () => {
+  test("unfocus direction: panel-local geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
       const [midFocused, setMidFocused] = useState(true);
       return (
@@ -3918,10 +3957,15 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const panelEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+    const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
+    const panelEl = anchorEl.querySelector("[data-column-panel]") as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(panelEl);
+    // Layout-box geometry (Part B's final form) — transform-free by
+    // construction, so neither stage/camera translation nor the
+    // depth-deck's own Z-projection can register as a false discontinuity
+    // here — see captureFlipCommit's own doc comment.
+    const { before, after } = await captureFlipCommit(panelEl, 2000, undefined, anchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -3929,7 +3973,7 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     expect(Math.abs(after.height - before.height)).toBeLessThan(1);
   });
 
-  test("refocus direction (was-focused-before): panel gBCR has no discontinuity at the flip commit", async () => {
+  test("refocus direction (was-focused-before): panel-local geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
       const [midFocused, setMidFocused] = useState(true);
       return (
@@ -3955,7 +3999,8 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const panelEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+    const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
+    const panelEl = anchorEl.querySelector("[data-column-panel]") as HTMLElement;
 
     // Deck first (was-focused-before, matching the spike's own validated
     // trace-refocus.log scenario), let it fully settle, THEN test the
@@ -3964,7 +4009,9 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     await wait(1000);
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(panelEl);
+    // Layout-box geometry (Part B's final form) — see the unfocus-direction
+    // test above.
+    const { before, after } = await captureFlipCommit(panelEl, 2000, undefined, anchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -4239,9 +4286,12 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
   // in with a second toggle back to focused (mid-a's own transition
   // reverses AND mid-b's stackDepth reverts in the same commit) — the
   // exact interruption timing the original layout-FLIP defect needed.
-  // Single first-frame-discontinuity assertion on mid-b's own panel gBCR
-  // at the second toggle's commit, not the full outlier-detector
-  // methodology (that's Slice 3's extension of this same test).
+  // Single first-frame-discontinuity assertion on mid-b's own layout-box
+  // geometry (Part B's final form: offsetLeft/offsetTop/offsetWidth/
+  // offsetHeight against the anchor, transform-free by construction — see
+  // captureFlipCommit's own doc comment) at the second toggle's commit,
+  // not the full outlier-detector methodology (that's Slice 3's extension
+  // of this same test).
   test("a second focus change landing mid-transition does not corrupt a bystander column's panel geometry", async () => {
     function Demo() {
       const [midAFocused, setMidAFocused] = useState(true);
@@ -4289,15 +4339,24 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
 
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
 
+    const midAAnchorEl = midAPanel.closest("[data-column]") as HTMLElement;
+
     // "mid-a" itself: position flips synchronously-in-intent but not
     // synchronously-in-commit (same registry-correction lag every other
     // Scene-derived read in this file has shown) — poll for its own
-    // style.position to actually change.
-    const midA = await captureFlipCommit(midAPanel);
+    // style.position to actually change. Layout-box geometry (Part B's
+    // final form) against mid-a's own anchor.
+    const midA = await captureFlipCommit(midAPanel, 2000, undefined, midAAnchorEl);
     // "mid-b": never itself toggles, so its own style.position never
     // changes — poll for its stackDepth-driven retarget instead (the
     // side-effect signal that its bystander geometry depends on).
-    const midB = await captureFlipCommit(midBPanel, 2000, () => midBAnchorEl.getAttribute("data-stack-depth") !== initialMidBDepth);
+    // Layout-box geometry (Part B's final form) against mid-b's own anchor.
+    const midB = await captureFlipCommit(
+      midBPanel,
+      2000,
+      () => midBAnchorEl.getAttribute("data-stack-depth") !== initialMidBDepth,
+      midBAnchorEl,
+    );
 
     expect(Math.abs(midB.after.left - midB.before.left)).toBeLessThan(1);
     expect(Math.abs(midB.after.top - midB.before.top)).toBeLessThan(1);
