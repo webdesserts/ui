@@ -1870,6 +1870,22 @@ function SceneViewport({
     // below (which stays as the verification pass, not the primary aim).
     const allColumnEls = Array.from(stage.querySelectorAll<HTMLElement>("[data-column]"));
     const registry = columnRegistryRef.current;
+
+    // Pre-pass (delta claim review, 2026-07-31): the index of the LAST
+    // focused column, needed below to tell "an unresolved column that
+    // might still matter" from "one that provably can't." INVARIANT: the
+    // main walk only ever assigns targetLeft/targetRight from a FOCUSED
+    // column's own cursor position — so no column past the last focused
+    // one can change either value, and an unresolved widthTarget there is
+    // safe to ignore rather than forcing a fallback for a rendering detail
+    // the result will never read. One max-index scan; doesn't need
+    // widthTarget to be resolved, only `.focused`.
+    let lastFocusedIndex = -1;
+    for (let i = 0; i < allColumnEls.length; i++) {
+      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      if (registry.get(colName)?.focused) lastFocusedIndex = i;
+    }
+
     let cursor = padding;
     let targetLeft: number | undefined;
     let targetRight: number | undefined;
@@ -1878,11 +1894,31 @@ function SceneViewport({
       const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
       const registered = registry.get(colName);
       if (registered === undefined || registered.widthTarget === undefined) {
-        // A column past the focused span (targetRight already closed out)
-        // whose own target is unresolved doesn't matter — nothing further
-        // is needed once the span's right edge is known. Only a column
-        // that's STILL part of (or before) the span forces the fallback.
-        if (targetRight !== undefined) break;
+        // Past the last focused column (see the pre-pass's own invariant
+        // above): this column's own resolution status can never affect
+        // targetLeft/targetRight, so stop silently — no fallback needed.
+        // AT OR BEFORE it: this column (or a later one still to come)
+        // could still be the span's own left/right edge, so an unresolved
+        // target here forces the fallback. A prior version of this line
+        // fell back (or didn't) based only on whether targetRight already
+        // happened to be defined, which breaks when a LATER column is
+        // ALSO focused and hasn't been walked yet (delta claim review,
+        // 2026-07-31 — reproduced on a plain 3-column left/middle/right
+        // toggle, unfocus direction: "right" stays focused throughout, but
+        // "middle"'s own widthTarget is transiently unresolved the render
+        // its focus state changes; the old shortcut broke immediately
+        // after "left," computing targetRight=200 instead of the true
+        // 416 — a 108px wrong first aim, self-correcting one render later
+        // once "middle" resolves). A version that fell back UNCONDITIONALLY
+        // on any unresolved target fixed that, but over-triggered the
+        // fallback for an unresolved-but-irrelevant column past the last
+        // focused one (e.g. an unfocused sibling with nothing focused
+        // after it) — reintroducing the gBCR-measurement sub-pixel
+        // discrepancy the already-regenerated visual baselines don't
+        // expect, on fixtures that never needed the fallback for
+        // correctness in the first place. The last-focused-index check is
+        // exact: fall back only when it could possibly matter.
+        if (i > lastFocusedIndex) break;
         missingTargetColumn = colName;
         break;
       }
@@ -1902,7 +1938,13 @@ function SceneViewport({
     const stageRect = stage.getBoundingClientRect();
     let focusedNaturalLeft: number;
     let focusedWidth: number;
-    if (targetLeft !== undefined && targetRight !== undefined) {
+    // `missingTargetColumn` must also gate this branch, not just
+    // targetLeft/targetRight's own definedness — a walk that broke early on
+    // an unresolved column can ALREADY have both defined (e.g. a leading
+    // focused column set them before the walk ever reached the hole),
+    // which used to take this branch anyway with an incomplete span. See
+    // the walk's own comment above for the reproduction this fixes.
+    if (missingTargetColumn === undefined && targetLeft !== undefined && targetRight !== undefined) {
       focusedNaturalLeft = targetLeft;
       focusedWidth = targetRight - targetLeft;
     } else {
