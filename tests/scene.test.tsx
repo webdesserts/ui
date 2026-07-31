@@ -4254,6 +4254,127 @@ describe("Glass-stack deck: margin/width lockstep (forecast edit E2)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Target-derived camera aiming (ui#17 cascade-fix, d9cee3a): two behavioral
+// pins ordered by the delta claim review, since the ruling itself never
+// became a committed test. Both drive a standard left/middle/right toggle
+// (same fixture shape as the zero-pixel-flip tests above) and read every
+// `registerTarget("cameraX", ...)` call in order via a custom array-based
+// recorder — the built-in `createMotionSeamRecorder`'s own `registerTarget`
+// only keeps the LATEST value per key (a Map), which can't answer "how many
+// times, and to what sequence of values."
+// ---------------------------------------------------------------------------
+
+interface CameraXTrace {
+  targets: number[];
+  /** cameraX's own live value after full settling — the ground-truth "where
+   *  the camera actually ends up," independent of how many registerTarget
+   *  calls got it there. */
+  settledValue: number;
+}
+
+/**
+ * Drives ONE standard toggle (middle focused <-> unfocused, with left/right
+ * always focused — a contiguous 3-column span at both endpoints of the
+ * transition) from an already-settled Scene, and traces every cameraX
+ * registerTarget call across the whole settling window.
+ */
+async function runStandardCameraToggle(direction: "unfocus" | "refocus"): Promise<CameraXTrace> {
+  const targets: number[] = [];
+  const base = createMotionSeamRecorder();
+  const recorder: typeof base = {
+    ...base,
+    registerTarget: (key, target) => {
+      if (key === "cameraX") targets.push(target);
+    },
+  };
+
+  function Demo() {
+    const [midFocused, setMidFocused] = useState(direction === "unfocus");
+    return (
+      <TestWrapper fullPage>
+        <button data-testid="toggle" onClick={() => setMidFocused((v) => !v)}>
+          toggle
+        </button>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="left">
+              <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+            </SceneColumn>
+            <SceneColumn name="middle">
+              <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+  }
+
+  const { getByTestId } = await render(<Demo />);
+  await wait(600); // full initial settle, before the toggle under test
+
+  targets.length = 0; // only count retargets from the toggle itself
+
+  (getByTestId("toggle").element() as HTMLElement).click();
+  await wait(1000); // full settle: commit-aim, any re-aim, and the spring itself
+
+  const cameraX = base.values.get("cameraX")!;
+  return { targets, settledValue: cameraX.get() };
+}
+
+describe("Glass-stack deck: camera-recentering commit-aim pins (delta claim review, target-derived aiming)", () => {
+  test("unfocus direction: at most 2 cameraX retargets for one focus toggle", async () => {
+    const { targets } = await runStandardCameraToggle("unfocus");
+    expect(
+      targets.length,
+      `cameraX registerTarget fired ${targets.length} times for one focus toggle (targets: ${JSON.stringify(targets)}) — expected at most 2 (commit-aim + at most one re-aim)`,
+    ).toBeLessThanOrEqual(2);
+  });
+
+  test("refocus direction: at most 2 cameraX retargets for one focus toggle", async () => {
+    const { targets } = await runStandardCameraToggle("refocus");
+    expect(
+      targets.length,
+      `cameraX registerTarget fired ${targets.length} times for one focus toggle (targets: ${JSON.stringify(targets)}) — expected at most 2 (commit-aim + at most one re-aim)`,
+    ).toBeLessThanOrEqual(2);
+  });
+
+  // Redefined form (delta claim review, superseding the original "<2px
+  // verification-pass correction" wording): the FIRST cameraX target
+  // registered at the toggle's own commit must be within 2px of the value
+  // cameraX actually settles at. This is the direct statement of "aimed
+  // true from t=0" and doesn't care WHICH mechanism (the zero-crossing
+  // verification pass, or a registry-resolution re-aim like the span-walk's
+  // own unresolved-widthTarget early-exit) produced any gap between them —
+  // only whether one exists.
+  test("unfocus direction: the first cameraX aim is within 2px of the settled value", async () => {
+    const { targets, settledValue } = await runStandardCameraToggle("unfocus");
+    const firstAim = targets[0];
+    expect(firstAim, `no cameraX retarget fired at all for the toggle (targets: ${JSON.stringify(targets)})`).toBeDefined();
+    const gap = Math.abs(firstAim! - settledValue);
+    expect(
+      gap,
+      `first cameraX aim (${firstAim}) was ${gap.toFixed(2)}px from the settled value (${settledValue.toFixed(2)}) — ` +
+        `full trace: ${JSON.stringify(targets)}`,
+    ).toBeLessThan(2);
+  });
+
+  test("refocus direction: the first cameraX aim is within 2px of the settled value", async () => {
+    const { targets, settledValue } = await runStandardCameraToggle("refocus");
+    const firstAim = targets[0];
+    expect(firstAim, `no cameraX retarget fired at all for the toggle (targets: ${JSON.stringify(targets)})`).toBeDefined();
+    const gap = Math.abs(firstAim! - settledValue);
+    expect(
+      gap,
+      `first cameraX aim (${firstAim}) was ${gap.toFixed(2)}px from the settled value (${settledValue.toFixed(2)}) — ` +
+        `full trace: ${JSON.stringify(targets)}`,
+    ).toBeLessThan(2);
+  });
+});
+
 describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)", () => {
   // z doesn't show up in 2D gBCR sampling (the zero-pixel-flip test's own
   // capture), so this needs its own read. Paired with a paint-order check
