@@ -7591,6 +7591,74 @@ describe("Scene initial layout", () => {
     expect(width).toBeLessThan(700);
   });
 
+  test("a focused column's width transition does not visually distort text content (ui#17 criterion 6, focused-column width path)", async () => {
+    // ui#17 Test-design section ("stretch regression pin"): the FOCUSED
+    // width path (widthTarget = computeFocusedWidth, the widest currently-
+    // focused object's own measured width — SceneColumn.tsx's own comment)
+    // is a DIFFERENT code path from the in-between/deck path's tests above
+    // — no frozenSize pin, no overflow:clip, the width channel writes the
+    // OUTER column's real CSS width directly (never a transform). Swapping
+    // which sibling is focused (narrow -> wide) springs that width target,
+    // exercising this path's own width-changing transition. Real duration
+    // (no duration={0}) — the spring must actually run for a distortion
+    // (or its absence) to be observable across intermediate frames, same
+    // rationale as H11's own real-mode sampling above.
+    function Demo() {
+      const [wideFocused, setWideFocused] = useState(false);
+      return (
+        <TestWrapper fullPage>
+          <button data-testid="toggle" onClick={() => setWideFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="narrow-obj" focused={!wideFocused}>
+                <div data-testid="narrow-content" style={{ width: 200, height: 200 }} />
+              </SceneObject>
+              <SceneObject name="wide-obj" focused={wideFocused}>
+                <div data-testid="wide-content" style={{ width: 500, height: 200 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId } = await render(<Demo />);
+    await wait(500);
+
+    const col = getByTestId("narrow-content").element().closest("[data-column]") as HTMLElement;
+    const wrapper = col.querySelector("[data-column-content]") as HTMLElement;
+    (getByTestId("toggle").element() as HTMLElement).click();
+
+    // Sample the CONTENT WRAPPER's rendered vs. layout aspect ratio across
+    // the width spring (narrow 200px -> wide 500px) — not the outer column
+    // (Motion actively writes `transform` to the outer via its own
+    // animate={{x,y}} prop, an unrelated concern that would confound a
+    // transform-based check there); the wrapper only carries
+    // animate={{marginTop}}, a non-transform property, making it the clean
+    // measurement site — same choice the in-between path's own aspect-ratio
+    // assertion above makes, and the wrapper is what actually holds the
+    // rendered TEXT content criterion 6 protects. A uniform scale would be
+    // legitimate here too, in principle, though nothing in this path ever
+    // applies one; a non-uniform, horizontal-only stretch is what this
+    // catches.
+    const samples: { t: number; renderedAspect: number; layoutAspect: number }[] = [];
+    const start = performance.now();
+    for (const delay of [0, 16, 32, 50, 100, 150, 200, 300]) {
+      await wait(Math.max(0, delay - (performance.now() - start)));
+      const rect = wrapper.getBoundingClientRect();
+      samples.push({
+        t: performance.now() - start,
+        renderedAspect: rect.width / rect.height,
+        layoutAspect: wrapper.offsetWidth / wrapper.offsetHeight,
+      });
+    }
+    for (const s of samples) {
+      expect(s.renderedAspect).toBeCloseTo(s.layoutAspect, 2);
+    }
+  });
+
   test("Camera viewport has container-type: size", async () => {
     // The Camera viewport has container-type: size so consumers can use
     // cqw/cqh units to size columns relative to the viewport dimensions.
@@ -7734,11 +7802,12 @@ describe("Scene depth deck stacking", () => {
     // narrower than its natural size — the exact visual distortion
     // criterion 6 bans (ui#o21, the Chat-tab text-stretch observation this
     // ticket traces back to). Starts col-middle FOCUSED and unfocuses it
-    // (rather than mounting it already unfocused) so frozenSize is
-    // genuinely populated from a real focus-loss transition — the pin is
-    // sourced from frozenSize.width, which only a column that has been
-    // focused at least once has (see this ticket's own Noticed section for
-    // the never-focused-deck-card gap this scenario deliberately avoids).
+    // (rather than mounting it already unfocused) so the pin is sourced
+    // from frozenSize.width, populated by a genuine focus-loss transition
+    // — the sibling "mount already in-between" test below covers the
+    // never-focused-deck-card case, where the pin instead falls back to
+    // neverFocusedNaturalWidth's own deferred-measurement read (frozenSize
+    // stays null forever for a column that's never been focused).
     function Demo() {
       const [middleFocused, setMiddleFocused] = useState(true);
       return (
@@ -7790,6 +7859,89 @@ describe("Scene depth deck stacking", () => {
     // ancestor's clipped paint region, not the wrapper's own layout box
     // (same offsetWidth-is-clip-immune precedent as remeasureGeometry's
     // own capture, H11).
+    expect(middleWrapper.offsetWidth).toBeCloseTo(300, -1);
+
+    // offsetWidth alone is a layout metric, deliberately immune to any
+    // transform (that immunity is WHY it's used above) — which also makes
+    // it structurally blind to a transform-based stretch, the exact ui#o21
+    // bug shape (a scale transform faking a width change). This assertion
+    // closes that gap by checking PROPORTIONALITY rather than raw size:
+    // the wrapper's rendered aspect ratio (gBCR — unaffected by the outer
+    // ancestor's overflow:clip, which affects painting/visibility only,
+    // never the geometry API) must match its own layout aspect ratio
+    // (offsetWidth/offsetHeight). A UNIFORM scale (e.g. the legitimate
+    // depth-1 translateZ/perspective projection every in-between column
+    // already carries — ~0.889x both axes, part of the deck's own 3D
+    // visual, not a bug) preserves this ratio; a NON-uniform, horizontal-
+    // only stretch (the actual ui#o21 shape) does not. A raw gBCR-width-
+    // vs-offsetWidth comparison (tried first) false-positived on that
+    // legitimate perspective shrink (266.67 vs 300, the exact depth-1
+    // 8/9 factor) — aspect ratio is what actually distinguishes the two.
+    // Defeat-check-verified (2026-07-30): a temporarily reintroduced
+    // `transform: scaleX(0.04)` on this exact wrapper left offsetWidth-only
+    // assertions green while this one goes red (ratio collapses toward 0).
+    const middleWrapperRect = middleWrapper.getBoundingClientRect();
+    const renderedAspect = middleWrapperRect.width / middleWrapperRect.height;
+    const layoutAspect = middleWrapper.offsetWidth / middleWrapper.offsetHeight;
+    expect(renderedAspect).toBeCloseTo(layoutAspect, 2);
+  });
+
+  test("a column that mounts already in-between (never focused) still clips a full-width content wrapper (ui#17 criterion 6, never-focused-deck-card gap)", async () => {
+    // ui#17: mirrors dev/pages/ScenePage.tsx's own "Depth deck stacking"
+    // demo shape (Middle A/Middle B both mount with focused=false, never
+    // toggled) — real, not hypothetical (confirmed by reading that demo's
+    // own useState initializers before writing this test). A column that
+    // has NEVER been through a focus-loss transition has frozenSize===null
+    // forever (wasEverFocused starts false and only flips true on an
+    // actual focus commit — see its own declaration in SceneColumn.tsx),
+    // so the sibling test's frozenSize.width pin never applies here. The
+    // fallback is neverFocusedNaturalWidth's own deferred-measurement
+    // capture (see that state's declaration comment in SceneColumn.tsx for
+    // the full mechanism and why a live-geometry-store read alone doesn't
+    // work here — it would only ever observe the ALREADY-narrowed size).
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col-left">
+            <SceneObject name="obj-left" focused>
+              <div data-testid="content-left" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-middle">
+            <SceneObject name="obj-middle" focused={false}>
+              <div data-testid="content-middle" style={{ width: 300, height: 200 }}>
+                some long text content that would visibly rewrap if its container were crushed to a 12px peek width
+                instead of staying pinned at its natural full size
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-right">
+            <SceneObject name="obj-right" focused>
+              <div data-testid="content-right" style={{ width: 300, height: 200 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    await waitForAnimationFrame();
+
+    const middleContent = getByTestId("content-middle").element();
+    const middleOuter = middleContent.closest("[data-column]") as HTMLElement;
+    const middleWrapper = middleContent.closest("[data-column-content]") as HTMLElement;
+
+    // The outer column's rendered box is clipped down to the narrow
+    // peek-width footprint (default peekOffset=12) — this half already
+    // worked before the fix (widthTarget never depended on frozenSize for
+    // in-between columns).
+    expect(middleOuter.getBoundingClientRect().width).toBeLessThan(50);
+
+    // The content wrapper stays laid out at its full measured width
+    // (300px) via the neverFocusedNaturalWidth deferred-measurement
+    // fallback, not crushed to the peek width — this is the half that was
+    // broken before the fix (frozenSize is null, so the old
+    // `isInBetween && frozenSize` pin never applied for a never-focused
+    // column).
     expect(middleWrapper.offsetWidth).toBeCloseTo(300, -1);
   });
 

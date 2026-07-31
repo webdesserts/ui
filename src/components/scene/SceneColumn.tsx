@@ -763,6 +763,12 @@ export function SceneColumn({
   // Content height at the time the column lost focus, used for vertical
   // centering of unfocused columns (so they maintain consistent positioning).
   const [frozenContentHeight, setFrozenContentHeight] = useState(0);
+  // ui#17 never-leave-the-flow: a column that mounts already in-between
+  // (never focused — frozenSize is only ever set on a genuine focus-loss
+  // transition, see wasEverFocused below) has no frozen width to pin its
+  // content wrapper to. Captured by a deferred-measurement effect further
+  // down — see that effect's own comment for the full mechanism.
+  const [neverFocusedNaturalWidth, setNeverFocusedNaturalWidth] = useState<number | undefined>(undefined);
 
   // Tracks the latest size observed via ResizeObserver while focused.
   const lastObservedSize = useRef<FrozenSize>({ width: 0, height: 0 });
@@ -1753,9 +1759,13 @@ export function SceneColumn({
     }
   });
 
-  // Whether this column has ever been focused. Only columns that were
-  // previously focused need a frozen size — never-focused columns size to
-  // their content naturally (position: absolute, no explicit dimensions).
+  // Whether this column has ever been focused. Columns that were previously
+  // focused need a frozen size (frozenSize below). A never-focused, never-
+  // in-between column sizes to its content naturally (no width override —
+  // widthTarget's frozenSize?.width branch stays undefined). A never-focused
+  // IN-BETWEEN column is the one exception that still needs sizing without
+  // ever having been focused — see neverFocusedNaturalWidth's own comment
+  // (ui#17) for that deferred-measurement mechanism.
   const wasEverFocused = useRef(columnFocused);
 
   // True only on the very first render. Used to detect a freshly mounted
@@ -1861,6 +1871,43 @@ export function SceneColumn({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
+
+  // ui#17 never-leave-the-flow: deferred natural-width capture for a
+  // column that mounts already in-between and has never been focused (no
+  // frozenSize to pin its content wrapper to — see neverFocusedNaturalWidth's
+  // own declaration comment; real scenario, not hypothetical — mirrors
+  // dev/pages/ScenePage.tsx's own Depth deck stacking demo, whose middle
+  // columns mount with focused=false and are never toggled by default).
+  //
+  // Mechanism: widthTarget withholds the peek-width override until
+  // inBetweenKnownWidth is true (see its own comment), so on the FIRST
+  // render where this column is in-between and never-focused, it paints at
+  // its natural, un-narrowed width — this effect (running every render, no
+  // deps) measures that natural width right here, pre-paint, and stores
+  // it, which flips inBetweenKnownWidth true and triggers the corrective
+  // re-render that applies both the peek-shrink and this same measured
+  // value as the content wrapper's pin. React flushes a layout-effect-
+  // triggered update synchronously before paint (the same guarantee this
+  // file already relies on for the wasEverFocused effect above — see its
+  // own comment's probe-verified finding), so there is no visible "natural
+  // size" flash, just one extra render.
+  //
+  // Guarded on wasEverFocused.current (a ref, synchronously current within
+  // this same commit's effects), NOT frozenSize !== null — frozenSize
+  // reads stale (still null) on the exact commit a genuine focus-loss
+  // transition schedules its own setFrozenSize update above, since a state
+  // setter doesn't retroactively change what THIS render's closure sees.
+  // Using frozenSize here would spuriously fire this capture for a column
+  // that WAS just focused and is only one commit away from getting its
+  // real frozenSize, not just for the genuinely-never-focused case.
+  useLayoutEffect(() => {
+    const neverFocusedInBetween =
+      !columnFocused && position === "in-between" && stackDepth > 0 && !wasEverFocused.current;
+    if (neverFocusedInBetween && neverFocusedNaturalWidth === undefined && contentWrapperRef.current) {
+      const measured = contentWrapperRef.current.offsetWidth;
+      if (measured > 0) setNeverFocusedNaturalWidth(measured);
+    }
+  });
 
   // Single shared ResizeObserver for this column: observes colRef plus every
   // registered SceneObject element. Created once on mount; register/
@@ -2365,10 +2412,21 @@ export function SceneColumn({
   // this file) rather than reordering — same tradeoff F5 item 2's
   // `animateX` comment already documents for this file.
   const inBetweenNow = !columnFocused && position === "in-between" && stackDepth > 0;
+  // Deferred shrink for a never-focused deck column (no frozenSize, no
+  // captured neverFocusedNaturalWidth yet — see that state's own comment):
+  // withhold the peek-width override for exactly one render so this commit
+  // paints at the column's natural width, giving the deferred-measurement
+  // effect further down something real to measure. wasEverFocused.current
+  // (not frozenSize !== null) is the correct discriminator here — frozenSize
+  // reads stale (still null) on the SAME commit a focus-loss transition
+  // schedules its own update, since a state setter doesn't retroactively
+  // change what this render's closure sees; wasEverFocused.current is a
+  // ref, already true by the time that same commit's effects run.
+  const inBetweenKnownWidth = wasEverFocused.current || neverFocusedNaturalWidth !== undefined;
   const widthTarget = columnFocused
     ? focusedWidthTarget
     : inBetweenNow
-      ? peekOffset
+      ? (inBetweenKnownWidth ? peekOffset : undefined)
       : frozenSize?.width;
 
   const widthMV = useMotionValue(widthTarget ?? 0);
@@ -2972,12 +3030,19 @@ export function SceneColumn({
             ...(duration === 0 ? { top: combinedTop, marginTop } : { top: composedTop }),
             // ui#17 never-leave-the-flow: while the outer column is
             // narrowed to its peek-width footprint, this wrapper stays
-            // pinned to the pre-unfocus frozenSize.width so `children`
-            // never re-lays-out at the narrow width — the outer's own
-            // overflow:clip (inBetweenStyle) masks everything past the
-            // peek window, producing a clipped sliver of full-size content
-            // rather than crushed/rewrapped text (criterion 6).
-            ...(isInBetween && frozenSize ? { width: frozenSize.width } : {}),
+            // pinned to a full-size width so `children` never re-lays-out
+            // at the narrow width — the outer's own overflow:clip
+            // (inBetweenStyle) masks everything past the peek window,
+            // producing a clipped sliver of full-size content rather than
+            // crushed/rewrapped text (criterion 6). Prefers frozenSize.width
+            // (a column that WAS focused, then lost it); falls back to
+            // neverFocusedNaturalWidth for a column that mounts already
+            // in-between and has no frozenSize at all (see that state's own
+            // comment — the deferred-measurement effect further down is
+            // what populates it, in lockstep with widthTarget's own
+            // inBetweenKnownWidth gate, so this fallback is never consulted
+            // before it has a real value to give).
+            ...(isInBetween ? { width: frozenSize?.width ?? neverFocusedNaturalWidth } : {}),
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
