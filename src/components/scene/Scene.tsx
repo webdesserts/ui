@@ -741,7 +741,13 @@ function PaintOrderBadges({
       const badge = badgeRefs.current.get(card.key);
       if (!el || !badge) continue;
       const rect = el.getBoundingClientRect();
-      const z = parseTranslateZ(getComputedStyle(el).transform);
+      // ui#17 anchor/panel split: the depth translateZ lives on the column's
+      // inner panel node now, not the outer flex anchor `el` itself — read
+      // z from the panel when one exists (every column has one; this falls
+      // back to `el` defensively for non-column cards, which have no panel
+      // child to begin with).
+      const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
+      const z = parseTranslateZ(getComputedStyle(zSource).transform);
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
       badge.textContent = `z:${Math.round(z)}`;
