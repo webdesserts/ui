@@ -4460,6 +4460,171 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
 });
 
 // ---------------------------------------------------------------------------
+// Full-methodology outlier detector (forecast edit E1's own extension,
+// Slice 3). RAW panel gBCR, deliberately NOT rebased against each panel's
+// own anchor — team-lead's ruling: this detector's subject is what the user
+// SEES (camera, tuck, Z-projection, and reflow all compose into paint-space
+// geometry), complementing the FLIP tests' layout-space contract (Part B),
+// not duplicating it. A panel's layout-box position relative to its own
+// anchor is an architectural invariant BY CONSTRUCTION (that invariance IS
+// the zero-pixel-flip guarantee) — confirmed directly: a debug dump of the
+// layout-box form showed every sampled delta, for both mid-a and mid-b,
+// exactly 0 across the full post-interrupt window, every run. The o9-class
+// corruption this scenario historically produced (>1100px excursions while
+// layout was fine) was transform-driven and structurally invisible in
+// layout space — paint-space is the only instrument that can see it.
+// ---------------------------------------------------------------------------
+
+interface GBCRBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Ports the spike's outlier detector: flags a frame ONLY if its delta is
+ * BOTH >20px absolute AND >5x each of its two immediate neighbors — a flat
+ * threshold alone false-positives on normal, fast spring motion (a
+ * legitimately large but neighbor-proportional delta isn't a
+ * discontinuity, just a fast-moving frame — springs preserve position and
+ * velocity continuity even across a retarget, so a healthy interrupt
+ * commit produces no outlier here despite a real, large retarget).
+ */
+function findGbcrOutliers(deltas: number[]): number[] {
+  const outliers: number[] = [];
+  for (let i = 1; i < deltas.length - 1; i++) {
+    const d = deltas[i]!;
+    const prev = deltas[i - 1]!;
+    const next = deltas[i + 1]!;
+    if (d > 20 && d > 5 * prev && d > 5 * next) {
+      outliers.push(i);
+    }
+  }
+  return outliers;
+}
+
+function gbcrDeltasOf(samples: GBCRBox[]): number[] {
+  const deltas: number[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1]!;
+    const b = samples[i]!;
+    deltas.push(
+      Math.max(
+        Math.abs(b.left - a.left),
+        Math.abs(b.top - a.top),
+        Math.abs(b.width - a.width),
+        Math.abs(b.height - a.height),
+      ),
+    );
+  }
+  return deltas;
+}
+
+/**
+ * Runs the double-interruption fixture once (same shape and interruption
+ * timing as the minimal test above) and samples RAW gBCR for both mid-a
+ * (the directly-interrupted column) and mid-b (the bystander) every real
+ * frame across the whole post-interrupt settling window.
+ *
+ * Separate test() blocks per run (not a single test with an internal
+ * loop) — same reason the gap-math describe block above gives for its own
+ * two-test split: vitest-browser's render/cleanup cycle doesn't reliably
+ * tear down a component fast enough for a same-body re-render/re-mount.
+ */
+async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]; midBDeltas: number[] }> {
+  function Demo() {
+    const [midAFocused, setMidAFocused] = useState(true);
+    return (
+      <TestWrapper fullPage>
+        <button data-testid="toggle" onClick={() => setMidAFocused((v) => !v)}>
+          toggle
+        </button>
+        <Scene>
+          <SceneColumn name="left">
+            <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+          </SceneColumn>
+          <SceneColumn name="mid-b">
+            <SceneObject name="mid-b-panel" focused={false} style={{ width: 200, height: 300 }}>content</SceneObject>
+          </SceneColumn>
+          <SceneColumn name="mid-a">
+            <SceneObject name="mid-a-panel" focused={midAFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+          </SceneColumn>
+          <SceneColumn name="right">
+            <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  }
+
+  const { getByTestId } = await render(<Demo />);
+  await wait(500);
+
+  const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+  const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+  const toggleBtn = getByTestId("toggle").element() as HTMLElement;
+
+  const sampleGbcr = (el: HTMLElement): GBCRBox => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
+
+  toggleBtn.click();
+  await wait(150);
+
+  // Bug found and fixed here (2026-07-31): sampling started AT the
+  // interrupt commit gave the very first delta (commit-frame vs its
+  // first post-commit neighbor) no "previous" neighbor to compare
+  // against, so the outlier loop's own `i starts at 1` bound structurally
+  // excluded index 0 from ever being checked — the ONE delta most likely
+  // to catch a real flip-commit defect. Sampling a few PRE-interrupt
+  // frames too (mirroring this arc's own innocence-check methodology)
+  // gives that delta a genuine neighbor, closing the gap. Defeat-check-
+  // caught: a real ~149px width jump at the commit frame passed silently
+  // under the old sampling shape before this fix.
+  const midASamples: GBCRBox[] = [sampleGbcr(midAPanel)];
+  const midBSamples: GBCRBox[] = [sampleGbcr(midBPanel)];
+  for (let i = 0; i < 3; i++) {
+    await waitForAnimationFrame();
+    midASamples.push(sampleGbcr(midAPanel));
+    midBSamples.push(sampleGbcr(midBPanel));
+  }
+
+  toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
+
+  const start = performance.now();
+  while (performance.now() - start < 1000) {
+    await waitForAnimationFrame();
+    midASamples.push(sampleGbcr(midAPanel));
+    midBSamples.push(sampleGbcr(midBPanel));
+  }
+
+  return { midADeltas: gbcrDeltasOf(midASamples), midBDeltas: gbcrDeltasOf(midBSamples) };
+}
+
+describe("Glass-stack deck: double-interruption, full methodology (forecast edit E1's own extension, Slice 3)", () => {
+  for (let run = 0; run < 10; run++) {
+    test(`run ${run}: no frame-to-frame gBCR outlier across the full settling window, either column`, async () => {
+      const { midADeltas, midBDeltas } = await runDoubleInterruptionGbcrSample();
+      const midAOutliers = findGbcrOutliers(midADeltas);
+      const midBOutliers = findGbcrOutliers(midBDeltas);
+
+      expect(
+        midAOutliers,
+        `mid-a outlier frame(s) at delta indices ${JSON.stringify(midAOutliers)} ` +
+          `(deltas: ${JSON.stringify(midADeltas.map((d) => Math.round(d * 100) / 100))})`,
+      ).toEqual([]);
+      expect(
+        midBOutliers,
+        `mid-b outlier frame(s) at delta indices ${JSON.stringify(midBOutliers)} ` +
+          `(deltas: ${JSON.stringify(midBDeltas.map((d) => Math.round(d * 100) / 100))})`,
+      ).toEqual([]);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // S7 coverage backfill: Alignment & Centering (scene-scroll.feature, each
 // axis handled independently — these assert BOTH axes together in one
 // scenario, which the pre-existing per-axis tests above don't do).
