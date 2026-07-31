@@ -355,11 +355,16 @@ export interface SceneColumnProps {
  * position and swap vertically when focus changes. A column is considered
  * focused if any of its children are focused.
  *
- * Focused columns participate in the Scene's flex row (`position: relative`,
- * `flex: 1 1 0`). Unfocused columns exit the flex flow — they capture their
- * last known size via ResizeObserver, then switch to `position: absolute` with
- * explicit inline width/height (the "freeze"). On re-focus, the frozen size is
- * cleared and motion's `layout` FLIP-animates the column back into flex.
+ * Every column stays IN the Scene's flex row regardless of focus state
+ * (ui#17 never-leave-the-flow — no `position: absolute` anywhere in this
+ * component, and no Motion `layout` FLIP prop either). Focused columns are
+ * `flex: 0 1 auto`, sized to content. Unfocused columns capture their last
+ * known size via ResizeObserver and freeze it as an explicit inline width
+ * (an owned MotionValue channel, sprung imperatively — never a transform),
+ * clearing on re-focus. Unfocused columns sandwiched between two focused
+ * columns ("in-between") additionally shrink to a narrow peek-width
+ * footprint and clip their content, forming the depth-deck stacking visual
+ * — see widthTarget's and inBetweenStyle's own comments further down.
  *
  * Within a column, vertical swap is implemented by spring-animating the `top`
  * property on an inner content wrapper. When focus changes from object A to
@@ -1312,10 +1317,13 @@ export function SceneColumn({
   // H11 fix (first-focus-only vertical marginTop swing): height uses
   // `el.offsetHeight`, NOT `rect.height`. A column transitioning out of the
   // depth deck (in-between position) carries an active translateZ/scale
-  // transform — a layout-FLIP correction on top of the depth treatment,
-  // biggest on a column's FIRST focus (no frozenSize yet, so the box shape
-  // changes dramatically) — and getBoundingClientRect() reports that
-  // transform's PROJECTED size, not the true laid-out height. Unlike
+  // transform — the depth treatment's own perspective-projection shrink
+  // (computeDepthTreatment; ui#17 removed Motion's `layout` FLIP prop
+  // entirely, so this is no longer compounded by a second, FLIP-driven
+  // correction on top of it — the depth treatment's transform is the only
+  // one left), biggest on a column's FIRST focus (no frozenSize yet, so the
+  // box shape changes dramatically) — and getBoundingClientRect() reports
+  // that transform's PROJECTED size, not the true laid-out height. Unlike
   // offsetTop's rect-delta (both rects share the same transform context, so
   // it cancels out), there is no delta to cancel a direct scale factor
   // applied to a raw dimension. offsetHeight is a layout metric, immune to
@@ -2189,13 +2197,13 @@ export function SceneColumn({
     // offsetHeight (not getBoundingClientRect().height, H11), kept as
     // defensive-only and NOT provably reachable at paint (gate-requested
     // follow-up investigated, documented below) — this wrapper sits inside
-    // the outer column's own translateZ/scale transform (depth-deck
-    // treatment, or an in-flight layout-FLIP correction on first focus —
-    // see remeasureGeometry's matching fix, which HAS a proven paint-time
-    // effect), so IN PRINCIPLE getBoundingClientRect() could report a
-    // perspective-projected/scaled size here too, while offsetHeight (a
-    // layout metric, immune to transforms on the element or any ancestor)
-    // would not.
+    // the outer column's own translateZ/scale transform (the depth-deck
+    // treatment's perspective-projection shrink on first focus, per
+    // computeDepthTreatment — see remeasureGeometry's matching fix, which
+    // HAS a proven paint-time effect), so IN PRINCIPLE getBoundingClientRect()
+    // could report a perspective-projected/scaled size here too, while
+    // offsetHeight (a layout metric, immune to transforms on the element or
+    // any ancestor) would not.
     //
     // In practice: extensively probe-verified (render-by-render
     // instrumentation, multiple trigger shapes — mount, an unrelated prop
@@ -2687,8 +2695,11 @@ export function SceneColumn({
       : 0;
 
   // A column that mounts for the first time already focused should enter from
-  // the right (depth-forward navigation). motion will animate from this initial
-  // position to the flex layout position via the layout FLIP mechanism.
+  // the right (depth-forward navigation). Motion's `initial`/`animate` props
+  // spring `x` from this off-screen starting value to animateX's target (0
+  // for a focused column) — the same x transform channel `animate` always
+  // drives, not Motion's `layout` FLIP prop (removed from this node
+  // entirely, ui#17; this entrance slide never depended on it).
   // When duration=0 (tests), motion skips the initial state immediately.
   //
   // Gated on !firstPaintRef.current: during Scene's very first paint every

@@ -7943,6 +7943,15 @@ describe("Scene depth deck stacking", () => {
     // `isInBetween && frozenSize` pin never applied for a never-focused
     // column).
     expect(middleWrapper.offsetWidth).toBeCloseTo(300, -1);
+
+    // Same aspect-ratio distortion check as the sibling test above (see
+    // its own comment for the full rationale and defeat-check evidence) —
+    // offsetWidth alone is transform-immune and so structurally blind to
+    // the ui#o21 stretch shape; this catches it via proportionality.
+    const middleWrapperRect2 = middleWrapper.getBoundingClientRect();
+    const renderedAspect2 = middleWrapperRect2.width / middleWrapperRect2.height;
+    const layoutAspect2 = middleWrapper.offsetWidth / middleWrapper.offsetHeight;
+    expect(renderedAspect2).toBeCloseTo(layoutAspect2, 2);
   });
 
   test("multiple in-between columns: deeper columns appear further back", async () => {

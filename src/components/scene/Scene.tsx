@@ -6,7 +6,6 @@ import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
-import { DepthDeckContext } from "./DepthDeckContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -1423,8 +1422,9 @@ function SceneViewport({
 
   // Counter tracking how many Motion animations are currently in flight.
   // Tracks in-flight DECLARATIVE `animate`-prop transitions on SceneColumn's
-  // own divs (opacity/x/y/filter, layout FLIP, marginTop) via onStart/onEnd
-  // below. NOT used to gate the debug outline rAF loop anymore (F6 item 1
+  // own divs (opacity/x/y/filter, marginTop) via onStart/onEnd below — ui#17
+  // removed Motion's `layout` FLIP prop entirely, so it's no longer one of
+  // these. NOT used to gate the debug outline rAF loop anymore (F6 item 1
   // fix — SceneObjectOutlines now runs continuously while mounted; this
   // counter never covered the S3+ imperative motion pipeline in the first
   // place, which is why the outline went stale). Using a ref (not state) so
@@ -1497,9 +1497,6 @@ function SceneViewport({
   // declared further below) exactly like the retired overflowsX
   // classification write used to be — see that latch's own comment for why.
   const panBoundsRef = useRef({ min: 0, max: 0 });
-  // stackTargetLeft: left edge of the rightmost focused column relative to the
-  // stage. Starts at 0 and is updated after each layout measurement.
-  const [stackTargetLeft, setStackTargetLeft] = useState(0);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing. Declared
@@ -1961,40 +1958,6 @@ function SceneViewport({
     }
   });
 
-  // Measure the rightmost focused column's left edge relative to the stage
-  // after each render so in-between columns can align to it. Runs on every
-  // render so it stays current with focus changes.
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const focusedCols = Array.from(
-      stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
-    );
-    if (focusedCols.length === 0) return;
-
-    const rightmostFocused = focusedCols[focusedCols.length - 1]!;
-    const stageRect = stage.getBoundingClientRect();
-    const colRect = rightmostFocused.getBoundingClientRect();
-
-    // Left edge of the rightmost focused column relative to the stage. This is
-    // the in-stage x-offset used to position in-between (depth deck) columns so
-    // they peek leftward from behind the rightmost focused column.
-    //
-    // colRect/stageRect (getBoundingClientRect) are BORDER-BOX measurements
-    // (including the stage's own padding). But in-between columns are
-    // position:absolute flex items with no explicit `left` — their CSS
-    // static position (the implicit left:auto baseline that animateX's
-    // translateX offset is added on top of) is resolved CONTENT-BOX
-    // relative, i.e. already past the stage's padding. Subtracting padding
-    // here converts the border-box-relative measurement to that same
-    // content-box-relative basis (S6 padding cluster, pinned empirically:
-    // an unpatched measurement left in-between columns ~padding too far
-    // right of the focused column they're meant to anchor flush against).
-    const newTargetLeft = colRect.left - stageRect.left - padding;
-    setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
-  });
-
   // Route wheel input: deltaY to a target column's registered command
   // applier (S5 — replaces the old `columnscroll` CustomEvent bridge),
   // deltaX to the camera's panOffset (ui#19 slice (b) — was left to native
@@ -2316,204 +2279,202 @@ function SceneViewport({
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
     <PanControlContext.Provider value={panControl}>
-      <DepthDeckContext.Provider value={stackTargetLeft}>
-        {/* Viewport: the clipping window. position:relative establishes the
-            containing block for the absolutely-positioned stage.
-            ui#19 single-writer horizontal channel: overflow is
-            unconditionally clip on BOTH axes — never auto, never hidden.
-            This is a HARD requirement, not a style preference: CSS Overflow
-            3's degradation rule collapses `clip` back to `hidden` (silently
-            resurrecting the old scroll-container bug) whenever the OTHER
-            axis is anything but `visible` or `clip` itself — probe-verified
-            (ui#19 spike): overflow-x:clip + overflow-y:hidden computed to
-            hidden/hidden, not clip/clip. Both axes must change together, in
-            the same edit, forever. Native scrollLeft/scrollTop are now
-            structurally impossible (probe-confirmed bulletproof: direct
-            writes, scrollIntoView, focus-driven auto-scroll, and mid-
-            gesture corruption attempts all no-op, read-back stays 0, zero
-            visual shift) — the camera (stageLeft + panOffset) is the SOLE
-            horizontal-position writer. See :3594's test for the regression
-            pin on this exact computed-style pair.
+      {/* Viewport: the clipping window. position:relative establishes the
+          containing block for the absolutely-positioned stage.
+          ui#19 single-writer horizontal channel: overflow is
+          unconditionally clip on BOTH axes — never auto, never hidden.
+          This is a HARD requirement, not a style preference: CSS Overflow
+          3's degradation rule collapses `clip` back to `hidden` (silently
+          resurrecting the old scroll-container bug) whenever the OTHER
+          axis is anything but `visible` or `clip` itself — probe-verified
+          (ui#19 spike): overflow-x:clip + overflow-y:hidden computed to
+          hidden/hidden, not clip/clip. Both axes must change together, in
+          the same edit, forever. Native scrollLeft/scrollTop are now
+          structurally impossible (probe-confirmed bulletproof: direct
+          writes, scrollIntoView, focus-driven auto-scroll, and mid-
+          gesture corruption attempts all no-op, read-back stays 0, zero
+          visual shift) — the camera (stageLeft + panOffset) is the SOLE
+          horizontal-position writer. See :3594's test for the regression
+          pin on this exact computed-style pair.
 
-            MOUNTING CONTRACT: this immunity is local to Scene's own
-            viewport element — it says nothing about ancestors. A consumer
-            that mounts Scene inside its own horizontally-scrollable
-            container reopens the identical corruption class one DOM level
-            up (a browser focus-driven auto-scroll that can't move Scene's
-            clipped viewport chains to the next real scroll container
-            instead), just outside Scene's control. See
-            warnAncestorScrollChaining above for the dev-mode mount-time
-            check of this assumption. */}
-        <div
-          ref={viewportRef}
-          data-testid="scene"
-          data-reduced-motion={reducedMotion ? "" : undefined}
-          onPointerDown={handleViewportPointerDown}
-          onPointerMove={handleViewportPointerMove}
-          onPointerUp={handleViewportPointerUp}
-          onPointerCancel={handleViewportPointerUp}
+          MOUNTING CONTRACT: this immunity is local to Scene's own
+          viewport element — it says nothing about ancestors. A consumer
+          that mounts Scene inside its own horizontally-scrollable
+          container reopens the identical corruption class one DOM level
+          up (a browser focus-driven auto-scroll that can't move Scene's
+          clipped viewport chains to the next real scroll container
+          instead), just outside Scene's control. See
+          warnAncestorScrollChaining above for the dev-mode mount-time
+          check of this assumption. */}
+      <div
+        ref={viewportRef}
+        data-testid="scene"
+        data-reduced-motion={reducedMotion ? "" : undefined}
+        onPointerDown={handleViewportPointerDown}
+        onPointerMove={handleViewportPointerMove}
+        onPointerUp={handleViewportPointerUp}
+        onPointerCancel={handleViewportPointerUp}
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          overflowX: "clip",
+          overflowY: "clip",
+          // F8b interior contract: NO touch-action restriction at this
+          // level. touch-action resolves as the INTERSECTION of an
+          // element's own value and every ancestor's up to the nearest
+          // gesture-owning ancestor — a descendant can never LOOSEN a
+          // restriction declared here, so a blanket declaration on this
+          // element (as it used to be: "pan-x pinch-zoom") permanently
+          // blocked vertical touch-pan for every descendant in the whole
+          // scene, including a consumer's own interior overflow-y:auto
+          // scroll island (the F8b bug — the touch-side twin of F8a's
+          // wheel bug). "auto" here means this element imposes nothing;
+          // the vertical-pan exclusion that used to live here now lives
+          // on each column's own content wrapper (SceneColumn.tsx,
+          // [data-column-content]), scoped to that column being
+          // Scene-scrollable — so it restricts only the column that
+          // needs to own vertical drag, never anything else in the tree.
+          // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
+          // "auto" here is not stale — it never needs to change for
+          // horizontal panning. touch-action only governs the browser's
+          // OWN native scroll gesture; ui#19 blocks that gesture the same
+          // way SceneColumn's F13 vertical drag does (not via touch-
+          // action), with a non-passive `touchmove` listener below that
+          // calls preventDefault() once a horizontal drag commits (see
+          // handleNativeTouchMove). The actual panning motion is driven
+          // entirely by this file's own pointer-event triad
+          // (handleViewportPointerDown/Move/Up) writing panOffset — touch-
+          // action plays no role in producing the pan itself, only in
+          // suppressing the browser's competing native one.
+          touchAction: "auto",
+          outline: debug ? "2px solid cyan" : undefined,
+          // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
+          // gutter investigation both REMOVED — both were about styling
+          // and clientHeight-wobble concerns for a horizontal scrollbar
+          // that toggled on/off with the old overflow-x:auto/hidden
+          // scheme. Under unconditional overflow-x:clip, this element can
+          // never have ANY scrollbar under any circumstance (clip never
+          // establishes a scroll container, full stop) — both concerns
+          // are now structurally moot, not just empirically rejected. The
+          // full H10 writeup (the historical record of why
+          // scrollbar-gutter:stable was tried and rejected) lived in this
+          // comment block pre-ui#19; see git history if that
+          // investigation is ever relevant again.
+          // container-type: size lets consumers use cqw/cqh units to size
+          // columns relative to the Camera viewport dimensions.
+          containerType: "size",
+          // Perspective + preserve-3d establish the 3D stacking context for
+          // depth deck columns. Placing this on the viewport (rather than the
+          // stage) means the perspective origin is expressed relative to the
+          // visible window, so depth projection stays stable as the stage pans.
+          // CSS defaults perspective-origin to "50% 50%" (center), which works
+          // well for our use case without dynamic tracking.
+          perspective: `${perspective}px`,
+          transformStyle: "preserve-3d",
+        } as React.CSSProperties}
+      >
+        {/* Stage: absolutely positioned within the viewport. `left` pans the
+            scene so the focused region stays horizontally centered. No CSS
+            transforms are used for panning — direct `left` positioning
+            preserves text rendering quality (no subpixel transform artifacts).
+            3D context lives on the viewport div above, not here. */}
+        <motion.div
+          ref={stageRef}
+          data-stage
+          initial={false}
+          // onTransitionStart/onTransitionComplete (useCamera()
+          // `transitioning`) are wired directly to the cameraX animate()
+          // call in the stageLeft effect above, not to Motion's own
+          // onLayoutAnimationStart/onLayoutAnimationComplete — those only
+          // fire for a `layout`-prop-driven FLIP animation, which this
+          // element doesn't have (S6 reshape; the props were already dead
+          // wiring for the camera pan specifically since S3 moved `left`
+          // off the `animate` prop — see motionSeam.ts).
+          onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
+          onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
           style={{
-            position: "relative",
-            width: "100%",
+            position: "absolute",
+            top: 0,
+            // Instant mode (duration=0): the synchronous plain-number
+            // write, unchanged from before S3 (forecast-gate adjudication
+            // #1) — left is NOT MotionValue-driven here.
+            // Real animation: left is the cameraX MotionValue, driven by
+            // the stageLeft effect above off React's render cycle (no more
+            // `animate` prop on this element — onAnimationStart/Complete
+            // above are now dead wiring for the camera pan specifically;
+            // debug-overlay staleness is accepted, see motionSeam.ts).
+            ...(duration === 0 ? { left: stageLeft } : { left: cameraX }),
             height: "100%",
-            overflowX: "clip",
-            overflowY: "clip",
-            // F8b interior contract: NO touch-action restriction at this
-            // level. touch-action resolves as the INTERSECTION of an
-            // element's own value and every ancestor's up to the nearest
-            // gesture-owning ancestor — a descendant can never LOOSEN a
-            // restriction declared here, so a blanket declaration on this
-            // element (as it used to be: "pan-x pinch-zoom") permanently
-            // blocked vertical touch-pan for every descendant in the whole
-            // scene, including a consumer's own interior overflow-y:auto
-            // scroll island (the F8b bug — the touch-side twin of F8a's
-            // wheel bug). "auto" here means this element imposes nothing;
-            // the vertical-pan exclusion that used to live here now lives
-            // on each column's own content wrapper (SceneColumn.tsx,
-            // [data-column-content]), scoped to that column being
-            // Scene-scrollable — so it restricts only the column that
-            // needs to own vertical drag, never anything else in the tree.
-            // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
-            // "auto" here is not stale — it never needs to change for
-            // horizontal panning. touch-action only governs the browser's
-            // OWN native scroll gesture; ui#19 blocks that gesture the same
-            // way SceneColumn's F13 vertical drag does (not via touch-
-            // action), with a non-passive `touchmove` listener below that
-            // calls preventDefault() once a horizontal drag commits (see
-            // handleNativeTouchMove). The actual panning motion is driven
-            // entirely by this file's own pointer-event triad
-            // (handleViewportPointerDown/Move/Up) writing panOffset — touch-
-            // action plays no role in producing the pan itself, only in
-            // suppressing the browser's competing native one.
-            touchAction: "auto",
-            outline: debug ? "2px solid cyan" : undefined,
-            // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
-            // gutter investigation both REMOVED — both were about styling
-            // and clientHeight-wobble concerns for a horizontal scrollbar
-            // that toggled on/off with the old overflow-x:auto/hidden
-            // scheme. Under unconditional overflow-x:clip, this element can
-            // never have ANY scrollbar under any circumstance (clip never
-            // establishes a scroll container, full stop) — both concerns
-            // are now structurally moot, not just empirically rejected. The
-            // full H10 writeup (the historical record of why
-            // scrollbar-gutter:stable was tried and rejected) lived in this
-            // comment block pre-ui#19; see git history if that
-            // investigation is ever relevant again.
-            // container-type: size lets consumers use cqw/cqh units to size
-            // columns relative to the Camera viewport dimensions.
-            containerType: "size",
-            // Perspective + preserve-3d establish the 3D stacking context for
-            // depth deck columns. Placing this on the viewport (rather than the
-            // stage) means the perspective origin is expressed relative to the
-            // visible window, so depth projection stays stable as the stage pans.
-            // CSS defaults perspective-origin to "50% 50%" (center), which works
-            // well for our use case without dynamic tracking.
-            perspective: `${perspective}px`,
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "stretch",
+            gap: columnGap || undefined,
+            padding: padding || undefined,
+            // preserve-3d propagates the viewport's 3D context through to
+            // column children. Without this, translateZ on columns has no
+            // visible perspective effect — elements render flat.
             transformStyle: "preserve-3d",
-          } as React.CSSProperties}
+            // Debug: magenta outline on the stage to distinguish it from the
+            // cyan viewport outline. Purely cosmetic — no layout effect.
+            outline: debug ? "2px solid magenta" : undefined,
+          }}
         >
-          {/* Stage: absolutely positioned within the viewport. `left` pans the
-              scene so the focused region stays horizontally centered. No CSS
-              transforms are used for panning — direct `left` positioning
-              preserves text rendering quality (no subpixel transform artifacts).
-              3D context lives on the viewport div above, not here. */}
-          <motion.div
-            ref={stageRef}
-            data-stage
-            initial={false}
-            // onTransitionStart/onTransitionComplete (useCamera()
-            // `transitioning`) are wired directly to the cameraX animate()
-            // call in the stageLeft effect above, not to Motion's own
-            // onLayoutAnimationStart/onLayoutAnimationComplete — those only
-            // fire for a `layout`-prop-driven FLIP animation, which this
-            // element doesn't have (S6 reshape; the props were already dead
-            // wiring for the camera pan specifically since S3 moved `left`
-            // off the `animate` prop — see motionSeam.ts).
-            onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
-            onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
+          {children}
+        </motion.div>
+        {/* Object outlines: absolutely positioned colored borders for each
+            SceneObject. Rendered outside the stage so positions are relative
+            to the viewport, not the panning stage.
+            Wrapped in a clipping layer pinned exactly to the viewport's own
+            box (F4 purity fix): each outline's name label is a
+            width-unconstrained <span> that can overflow its own outline
+            box when the object's name is long/unbreakable — and since
+            scrollWidth/scrollHeight report the full overflow extent even
+            under overflow:hidden (only the visible scrollbar is
+            suppressed, not the JS-observable metric), an unclipped label
+            widened the viewport's own scroll extent in debug mode only —
+            the "Debug does not affect layout" scenario (spec:
+            scene-debug.feature) is violated by real content, the same
+            CameraDebug-incident class documented on warnStrayChild above,
+            just via a different mechanism (an overflowing debug-only
+            child, not a stray flex-row child). overflow: hidden here
+            clips ANY debug-only overflow (label text, or a future outline
+            rendering change) at the viewport's own edge, so it can never
+            propagate to the viewport's own scrollWidth/scrollHeight —
+            structurally closing the whole class, not just the label case
+            this was caught by. */}
+        {debug && (
+          <div
             style={{
               position: "absolute",
               top: 0,
-              // Instant mode (duration=0): the synchronous plain-number
-              // write, unchanged from before S3 (forecast-gate adjudication
-              // #1) — left is NOT MotionValue-driven here.
-              // Real animation: left is the cameraX MotionValue, driven by
-              // the stageLeft effect above off React's render cycle (no more
-              // `animate` prop on this element — onAnimationStart/Complete
-              // above are now dead wiring for the camera pan specifically;
-              // debug-overlay staleness is accepted, see motionSeam.ts).
-              ...(duration === 0 ? { left: stageLeft } : { left: cameraX }),
+              left: 0,
+              width: "100%",
               height: "100%",
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "stretch",
-              gap: columnGap || undefined,
-              padding: padding || undefined,
-              // preserve-3d propagates the viewport's 3D context through to
-              // column children. Without this, translateZ on columns has no
-              // visible perspective effect — elements render flat.
-              transformStyle: "preserve-3d",
-              // Debug: magenta outline on the stage to distinguish it from the
-              // cyan viewport outline. Purely cosmetic — no layout effect.
-              outline: debug ? "2px solid magenta" : undefined,
+              overflow: "hidden",
+              pointerEvents: "none",
             }}
           >
-            {children}
-          </motion.div>
-          {/* Object outlines: absolutely positioned colored borders for each
-              SceneObject. Rendered outside the stage so positions are relative
-              to the viewport, not the panning stage.
-              Wrapped in a clipping layer pinned exactly to the viewport's own
-              box (F4 purity fix): each outline's name label is a
-              width-unconstrained <span> that can overflow its own outline
-              box when the object's name is long/unbreakable — and since
-              scrollWidth/scrollHeight report the full overflow extent even
-              under overflow:hidden (only the visible scrollbar is
-              suppressed, not the JS-observable metric), an unclipped label
-              widened the viewport's own scroll extent in debug mode only —
-              the "Debug does not affect layout" scenario (spec:
-              scene-debug.feature) is violated by real content, the same
-              CameraDebug-incident class documented on warnStrayChild above,
-              just via a different mechanism (an overflowing debug-only
-              child, not a stray flex-row child). overflow: hidden here
-              clips ANY debug-only overflow (label text, or a future outline
-              rendering change) at the viewport's own edge, so it can never
-              propagate to the viewport's own scrollWidth/scrollHeight —
-              structurally closing the whole class, not just the label case
-              this was caught by. */}
-          {debug && (
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                overflow: "hidden",
-                pointerEvents: "none",
-              }}
-            >
-              <SceneObjectOutlines viewportRef={viewportRef} />
-              <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
-              <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
-              <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />
-            </div>
-          )}
-          {/* Overlay is inside the scene div so tests can find it via
-              scene.querySelector('[data-debug-overlay]'). position:fixed
-              ensures it doesn't participate in flex layout. */}
-          {debug && (
-            <SceneDebugOverlay
-              columnStacks={debugColumnStacks ?? []}
-              viewportRef={viewportRef}
-              stageRef={stageRef}
-              motionRecorder={debugMotionRecorderRef.current}
-              slowMo={slowMo}
-              onToggleSlowMo={onToggleSlowMo}
-            />
-          )}
-        </div>
-      </DepthDeckContext.Provider>
+            <SceneObjectOutlines viewportRef={viewportRef} />
+            <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
+            <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
+            <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />
+          </div>
+        )}
+        {/* Overlay is inside the scene div so tests can find it via
+            scene.querySelector('[data-debug-overlay]'). position:fixed
+            ensures it doesn't participate in flex layout. */}
+        {debug && (
+          <SceneDebugOverlay
+            columnStacks={debugColumnStacks ?? []}
+            viewportRef={viewportRef}
+            stageRef={stageRef}
+            motionRecorder={debugMotionRecorderRef.current}
+            slowMo={slowMo}
+            onToggleSlowMo={onToggleSlowMo}
+          />
+        )}
+      </div>
     </PanControlContext.Provider>
     </ViewportContext.Provider>
     </AnimationCallbackContext.Provider>
