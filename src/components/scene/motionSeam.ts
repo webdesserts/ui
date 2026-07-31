@@ -8,7 +8,10 @@ import type { AnimationPlaybackControls, MotionValue } from "motion/react";
  * `top`). NOT exported from either barrel — this is not public API. A future
  * test harness (S7) imports this module directly by its internal path to
  * scrub/inspect in-flight motion state deterministically instead of racing
- * real spring timing against `layout` FLIP animations in the same subtree.
+ * real spring timing (ui#17 removed Motion's `layout` FLIP prop from this
+ * subsystem entirely — no scene component uses it anymore — but the seam's
+ * other purpose, deterministic control over the imperative motion pipeline,
+ * stands regardless).
  *
  * Mirrors AnimationCallbackContext's null-unless-wrapped pattern: production
  * renders never wrap a provider, so registration calls below are no-ops

@@ -6,7 +6,8 @@ import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
-import { DepthDeckContext } from "./DepthDeckContext";
+import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
+import { useOwnedAnimation } from "./ownedAnimation";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -741,7 +742,13 @@ function PaintOrderBadges({
       const badge = badgeRefs.current.get(card.key);
       if (!el || !badge) continue;
       const rect = el.getBoundingClientRect();
-      const z = parseTranslateZ(getComputedStyle(el).transform);
+      // ui#17 anchor/panel split: the depth translateZ lives on the column's
+      // inner panel node now, not the outer flex anchor `el` itself — read
+      // z from the panel when one exists (every column has one; this falls
+      // back to `el` defensively for non-column cards, which have no panel
+      // child to begin with).
+      const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
+      const z = parseTranslateZ(getComputedStyle(zSource).transform);
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
       badge.textContent = `z:${Math.round(z)}`;
@@ -1391,6 +1398,7 @@ function SceneViewport({
   onTransitionComplete,
   onViewportSizeChange,
   onTargetChange,
+  columnRegistryRef,
 }: {
   children: React.ReactNode;
   /** Unfocused column stacking info for the debug overlay. */
@@ -1409,6 +1417,19 @@ function SceneViewport({
   onViewportSizeChange: (size: ViewportDimensions) => void;
   /** Called whenever the focused content's target bounds are (re)measured. */
   onTargetChange: (target: CameraRect) => void;
+  /**
+   * Scene's own column registry (ui#17 target-derived camera aiming) —
+   * the same Map registerColumn writes into, keyed by column name. Read
+   * by the camera-recentering effect below to compute the focused span's
+   * final left/width from each column's own owned-channel width/margin
+   * TARGETS (known synchronously at the focus-change commit) instead of
+   * measuring the DOM (which mid-transition reflects a layout about to
+   * stop existing, not the one the camera needs to aim at). Passed as a
+   * ref, not a snapshot — SceneViewport reads its CURRENT contents at
+   * the moment the effect runs, same "always current, never stale" shape
+   * every other ref-based measurement in this file already uses.
+   */
+  columnRegistryRef: React.RefObject<Map<string, RegisteredColumn>>;
 }) {
   const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo, touchPower, touchTimeConstant } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -1423,8 +1444,9 @@ function SceneViewport({
 
   // Counter tracking how many Motion animations are currently in flight.
   // Tracks in-flight DECLARATIVE `animate`-prop transitions on SceneColumn's
-  // own divs (opacity/x/y/filter, layout FLIP, marginTop) via onStart/onEnd
-  // below. NOT used to gate the debug outline rAF loop anymore (F6 item 1
+  // own divs (opacity/x/y/filter, marginTop) via onStart/onEnd below — ui#17
+  // removed Motion's `layout` FLIP prop entirely, so it's no longer one of
+  // these. NOT used to gate the debug outline rAF loop anymore (F6 item 1
   // fix — SceneObjectOutlines now runs continuously while mounted; this
   // counter never covered the S3+ imperative motion pipeline in the first
   // place, which is why the outline went stale). Using a ref (not state) so
@@ -1497,9 +1519,6 @@ function SceneViewport({
   // declared further below) exactly like the retired overflowsX
   // classification write used to be — see that latch's own comment for why.
   const panBoundsRef = useRef({ min: 0, max: 0 });
-  // stackTargetLeft: left edge of the rightmost focused column relative to the
-  // stage. Starts at 0 and is updated after each layout measurement.
-  const [stackTargetLeft, setStackTargetLeft] = useState(0);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing. Declared
@@ -1520,6 +1539,21 @@ function SceneViewport({
     motionSeam?.registerMotionValue("cameraX", cameraX);
     return () => motionSeam?.unregisterMotionValue?.("cameraX");
   }, [motionSeam, cameraX]);
+
+  // Routes every cameraX.jump()/animate() call site in this component
+  // (driveCameraX's own recentering below, the touch-fling inertia, the
+  // drag-start stop-jump — all driving the SAME MotionValue, sharing ONE
+  // claim state) through Scene's aggregate settle counter, read here via
+  // context since SceneViewport is a descendant of Scene's own
+  // <SettleSignalContext.Provider> (below, in Scene's own JSX). This is
+  // the specific fix for this round's named late mover: cameraX's own
+  // corrective retarget (triggered BY the zero-crossing once width/
+  // margin/panelWidth settle) previously wasn't itself tracked, so the
+  // counter reached zero — and Scene re-measured — before the camera had
+  // actually finished springing to the value that re-measurement
+  // produced. See ownedAnimation.ts's own doc comment for the full
+  // rationale.
+  const ownedCameraAnimation = useOwnedAnimation();
 
   // useCamera() `transitioning` (S6 reshape, forecast-gate adjudication #5c):
   // a monotonic token identifying the CURRENT cameraX animate() call. Each
@@ -1682,11 +1716,11 @@ function SceneViewport({
         const stage = stageRef.current;
         if (stage) stage.style.left = `${target}px`;
       } else if (firstPaintRef.current) {
-        cameraX.jump(target);
+        ownedCameraAnimation.jump(cameraX, target);
       } else {
         const token = ++cameraTransitionTokenRef.current;
         onTransitionStart();
-        const controls = animate(cameraX, target, transition);
+        const controls = ownedCameraAnimation.animateTo(cameraX, target, transition);
         motionSeam?.registerControls("cameraX", controls);
         motionSeam?.registerTarget?.("cameraX", target);
         controls.then(() => {
@@ -1696,7 +1730,7 @@ function SceneViewport({
         });
       }
     },
-    [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX],
+    [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX, ownedCameraAnimation],
   );
 
   // ui#19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
@@ -1747,7 +1781,7 @@ function SceneViewport({
       // keyframes=[null, undefined], finishing instantly without ever
       // running. An explicit single-element keyframes array with the
       // current value is required for inertia to actually decelerate.
-      const controls = animate(cameraX, [cameraX.get()], {
+      const controls = ownedCameraAnimation.animateTo(cameraX, [cameraX.get()], {
         type: "inertia",
         velocity,
         min: base + bounds.min,
@@ -1771,7 +1805,7 @@ function SceneViewport({
         }
       });
     },
-    [duration, cameraX, touchPower, touchTimeConstant, stiffness, damping, motionSeam, onTransitionStart, onTransitionComplete],
+    [duration, cameraX, touchPower, touchTimeConstant, stiffness, damping, motionSeam, onTransitionStart, onTransitionComplete, ownedCameraAnimation],
   );
 
   const getPanOffset = useCallback(() => panOffsetRef.current, []);
@@ -1816,16 +1850,132 @@ function SceneViewport({
       return;
     }
 
-    const stageRect = stage.getBoundingClientRect();
-    const first = focusedCols[0]!.getBoundingClientRect();
-    const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
+    // Target-derived aiming (ui#17 cascade-fix round, ruled): a focus
+    // commit collapses/grows column footprints by hundreds of px in one
+    // step — geometry measured from the DOM at that exact commit is a
+    // faithful read of a layout that's about to stop existing, not a
+    // stale one (probe-confirmed: the DOM attribute driving this query
+    // was already correct at the same commit; the WIDTH was the thing
+    // mid-transition). Every owned channel already knows its OWN final
+    // target synchronously at this same commit — computeFocusedWidth's
+    // result for a focused column, the permanent zero-footprint target
+    // (with its -columnGap margin compensation) for a decked one — so
+    // walking the row's own targets, in DOM order, with the same flex
+    // arithmetic the gap-math tests hand-verify (width, then margin
+    // compensation, then one columnGap between adjacent columns, starting
+    // from the stage's own left padding), gives the camera the TRUE final
+    // left/width without ever measuring a mid-transition box. One retarget
+    // per commit, aimed at the truth from the start, instead of a wrong
+    // early measurement corrected later by the zero-crossing re-measure
+    // below (which stays as the verification pass, not the primary aim).
+    const allColumnEls = Array.from(stage.querySelectorAll<HTMLElement>("[data-column]"));
+    const registry = columnRegistryRef.current;
 
-    // Column's natural offset within the stage flex layout. Subtracting
-    // stageRect.left cancels out the current stageLeft offset, giving a stable
-    // value that doesn't change across renders as the stage pans.
-    const focusedNaturalLeft = first.left - stageRect.left;
-    const focusedNaturalRight = last.right - stageRect.left;
-    const focusedWidth = focusedNaturalRight - focusedNaturalLeft;
+    // Pre-pass (delta claim review, 2026-07-31): the index of the LAST
+    // focused column, needed below to tell "an unresolved column that
+    // might still matter" from "one that provably can't." INVARIANT: the
+    // main walk only ever assigns targetLeft/targetRight from a FOCUSED
+    // column's own cursor position — so no column past the last focused
+    // one can change either value, and an unresolved widthTarget there is
+    // safe to ignore rather than forcing a fallback for a rendering detail
+    // the result will never read. One max-index scan; doesn't need
+    // widthTarget to be resolved, only `.focused`.
+    let lastFocusedIndex = -1;
+    for (let i = 0; i < allColumnEls.length; i++) {
+      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      if (registry.get(colName)?.focused) lastFocusedIndex = i;
+    }
+
+    let cursor = padding;
+    let targetLeft: number | undefined;
+    let targetRight: number | undefined;
+    let missingTargetColumn: string | undefined;
+    for (let i = 0; i < allColumnEls.length; i++) {
+      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      const registered = registry.get(colName);
+      if (registered === undefined || registered.widthTarget === undefined) {
+        // Past the last focused column (see the pre-pass's own invariant
+        // above): this column's own resolution status can never affect
+        // targetLeft/targetRight, so stop silently — no fallback needed.
+        // AT OR BEFORE it: this column (or a later one still to come)
+        // could still be the span's own left/right edge, so an unresolved
+        // target here forces the fallback. A prior version of this line
+        // fell back (or didn't) based only on whether targetRight already
+        // happened to be defined, which breaks when a LATER column is
+        // ALSO focused and hasn't been walked yet (delta claim review,
+        // 2026-07-31 — reproduced on a plain 3-column left/middle/right
+        // toggle, unfocus direction: "right" stays focused throughout, but
+        // "middle"'s own widthTarget is transiently unresolved the render
+        // its focus state changes; the old shortcut broke immediately
+        // after "left," computing targetRight=200 instead of the true
+        // 416 — a 108px wrong first aim, self-correcting one render later
+        // once "middle" resolves). A version that fell back UNCONDITIONALLY
+        // on any unresolved target fixed that, but over-triggered the
+        // fallback for an unresolved-but-irrelevant column past the last
+        // focused one (e.g. an unfocused sibling with nothing focused
+        // after it) — reintroducing the gBCR-measurement sub-pixel
+        // discrepancy the already-regenerated visual baselines don't
+        // expect, on fixtures that never needed the fallback for
+        // correctness in the first place. The last-focused-index check is
+        // exact: fall back only when it could possibly matter.
+        if (i > lastFocusedIndex) break;
+        missingTargetColumn = colName;
+        break;
+      }
+      if (registered.focused && targetLeft === undefined) targetLeft = cursor;
+      cursor += registered.widthTarget;
+      // Every focused column keeps extending targetRight — a contiguous
+      // multi-column focused span (or, matching the fallback's own
+      // first-to-last semantics, a non-contiguous one) needs its RIGHTMOST
+      // focused column's cursor, not its first. Fixed 2026-07-31: an
+      // earlier version broke immediately after the FIRST focused column,
+      // silently dropping every subsequent column of a multi-focus span.
+      if (registered.focused) targetRight = cursor;
+      cursor += registered.marginTarget;
+      if (i < allColumnEls.length - 1) cursor += columnGap;
+    }
+
+    const stageRect = stage.getBoundingClientRect();
+    let focusedNaturalLeft: number;
+    let focusedWidth: number;
+    // `missingTargetColumn` must also gate this branch, not just
+    // targetLeft/targetRight's own definedness — a walk that broke early on
+    // an unresolved column can ALREADY have both defined (e.g. a leading
+    // focused column set them before the walk ever reached the hole),
+    // which used to take this branch anyway with an incomplete span. See
+    // the walk's own comment above for the reproduction this fixes.
+    if (missingTargetColumn === undefined && targetLeft !== undefined && targetRight !== undefined) {
+      focusedNaturalLeft = targetLeft;
+      focusedWidth = targetRight - targetLeft;
+    } else {
+      // Fallback to measurement: a column between the stage's start and
+      // the last focused one hasn't had its width target resolved yet
+      // (the one-render "deferred measurement" window a never-focused
+      // deck column's own first commit goes through — see
+      // computeMeasuredWidth's own doc comment in SceneColumn). Self-
+      // correcting (the NEXT render has a real target) — but empirically
+      // this is ROUTINE, not rare: it fires on essentially every scene's
+      // true first commit (geometryStore hasn't measured anything yet),
+      // so it's worth being able to find without being noisy. console.warn
+      // was tried first and reverted (gate-table round, 2026-07-31): it
+      // fired often enough to pollute unrelated tests that spy on
+      // console.warn for their OWN warnings (shadowing the expected
+      // message, inflating unrelated call counts) — console.debug keeps
+      // the same "named here, not silently absorbed" property without
+      // that collision.
+      if (missingTargetColumn !== undefined) {
+        console.debug(
+          `Scene: camera-recentering fell back to DOM measurement — column "${missingTargetColumn}" has no resolved width target yet.`,
+        );
+      }
+      const first = focusedCols[0]!.getBoundingClientRect();
+      const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
+      // Column's natural offset within the stage flex layout. Subtracting
+      // stageRect.left cancels out the current stageLeft offset, giving a
+      // stable value that doesn't change across renders as the stage pans.
+      focusedNaturalLeft = first.left - stageRect.left;
+      focusedWidth = last.right - stageRect.left - focusedNaturalLeft;
+    }
 
     const vpWidth = viewport.clientWidth;
 
@@ -1959,40 +2109,6 @@ function SceneViewport({
     if (stageLeftChanged || panWasClamped) {
       driveCameraX(newStageLeft + panOffsetRef.current);
     }
-  });
-
-  // Measure the rightmost focused column's left edge relative to the stage
-  // after each render so in-between columns can align to it. Runs on every
-  // render so it stays current with focus changes.
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const focusedCols = Array.from(
-      stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
-    );
-    if (focusedCols.length === 0) return;
-
-    const rightmostFocused = focusedCols[focusedCols.length - 1]!;
-    const stageRect = stage.getBoundingClientRect();
-    const colRect = rightmostFocused.getBoundingClientRect();
-
-    // Left edge of the rightmost focused column relative to the stage. This is
-    // the in-stage x-offset used to position in-between (depth deck) columns so
-    // they peek leftward from behind the rightmost focused column.
-    //
-    // colRect/stageRect (getBoundingClientRect) are BORDER-BOX measurements
-    // (including the stage's own padding). But in-between columns are
-    // position:absolute flex items with no explicit `left` — their CSS
-    // static position (the implicit left:auto baseline that animateX's
-    // translateX offset is added on top of) is resolved CONTENT-BOX
-    // relative, i.e. already past the stage's padding. Subtracting padding
-    // here converts the border-box-relative measurement to that same
-    // content-box-relative basis (S6 padding cluster, pinned empirically:
-    // an unpatched measurement left in-between columns ~padding too far
-    // right of the focused column they're meant to anchor flush against).
-    const newTargetLeft = colRect.left - stageRect.left - padding;
-    setStackTargetLeft((prev) => (prev === newTargetLeft ? prev : newTargetLeft));
   });
 
   // Route wheel input: deltaY to a target column's registered command
@@ -2165,12 +2281,12 @@ function SceneViewport({
       // axis (jump(), not stop() — resets Motion's internal velocity
       // tracking too, not just the animation, avoiding a residual-velocity
       // re-fling defect on a quick re-grab).
-      cameraX.jump(cameraX.get());
+      ownedCameraAnimation.jump(cameraX, cameraX.get());
       panDragStartOffset.current = panOffsetRef.current;
       panVelocitySamplesRef.current = [];
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cameraX],
+    [cameraX, ownedCameraAnimation],
   );
 
   const handleViewportPointerMove = useCallback(
@@ -2316,204 +2432,202 @@ function SceneViewport({
     <AnimationCallbackContext.Provider value={animationCallbacks}>
     <ViewportContext.Provider value={viewportSize}>
     <PanControlContext.Provider value={panControl}>
-      <DepthDeckContext.Provider value={stackTargetLeft}>
-        {/* Viewport: the clipping window. position:relative establishes the
-            containing block for the absolutely-positioned stage.
-            ui#19 single-writer horizontal channel: overflow is
-            unconditionally clip on BOTH axes — never auto, never hidden.
-            This is a HARD requirement, not a style preference: CSS Overflow
-            3's degradation rule collapses `clip` back to `hidden` (silently
-            resurrecting the old scroll-container bug) whenever the OTHER
-            axis is anything but `visible` or `clip` itself — probe-verified
-            (ui#19 spike): overflow-x:clip + overflow-y:hidden computed to
-            hidden/hidden, not clip/clip. Both axes must change together, in
-            the same edit, forever. Native scrollLeft/scrollTop are now
-            structurally impossible (probe-confirmed bulletproof: direct
-            writes, scrollIntoView, focus-driven auto-scroll, and mid-
-            gesture corruption attempts all no-op, read-back stays 0, zero
-            visual shift) — the camera (stageLeft + panOffset) is the SOLE
-            horizontal-position writer. See :3594's test for the regression
-            pin on this exact computed-style pair.
+      {/* Viewport: the clipping window. position:relative establishes the
+          containing block for the absolutely-positioned stage.
+          ui#19 single-writer horizontal channel: overflow is
+          unconditionally clip on BOTH axes — never auto, never hidden.
+          This is a HARD requirement, not a style preference: CSS Overflow
+          3's degradation rule collapses `clip` back to `hidden` (silently
+          resurrecting the old scroll-container bug) whenever the OTHER
+          axis is anything but `visible` or `clip` itself — probe-verified
+          (ui#19 spike): overflow-x:clip + overflow-y:hidden computed to
+          hidden/hidden, not clip/clip. Both axes must change together, in
+          the same edit, forever. Native scrollLeft/scrollTop are now
+          structurally impossible (probe-confirmed bulletproof: direct
+          writes, scrollIntoView, focus-driven auto-scroll, and mid-
+          gesture corruption attempts all no-op, read-back stays 0, zero
+          visual shift) — the camera (stageLeft + panOffset) is the SOLE
+          horizontal-position writer. See :3594's test for the regression
+          pin on this exact computed-style pair.
 
-            MOUNTING CONTRACT: this immunity is local to Scene's own
-            viewport element — it says nothing about ancestors. A consumer
-            that mounts Scene inside its own horizontally-scrollable
-            container reopens the identical corruption class one DOM level
-            up (a browser focus-driven auto-scroll that can't move Scene's
-            clipped viewport chains to the next real scroll container
-            instead), just outside Scene's control. See
-            warnAncestorScrollChaining above for the dev-mode mount-time
-            check of this assumption. */}
-        <div
-          ref={viewportRef}
-          data-testid="scene"
-          data-reduced-motion={reducedMotion ? "" : undefined}
-          onPointerDown={handleViewportPointerDown}
-          onPointerMove={handleViewportPointerMove}
-          onPointerUp={handleViewportPointerUp}
-          onPointerCancel={handleViewportPointerUp}
+          MOUNTING CONTRACT: this immunity is local to Scene's own
+          viewport element — it says nothing about ancestors. A consumer
+          that mounts Scene inside its own horizontally-scrollable
+          container reopens the identical corruption class one DOM level
+          up (a browser focus-driven auto-scroll that can't move Scene's
+          clipped viewport chains to the next real scroll container
+          instead), just outside Scene's control. See
+          warnAncestorScrollChaining above for the dev-mode mount-time
+          check of this assumption. */}
+      <div
+        ref={viewportRef}
+        data-testid="scene"
+        data-reduced-motion={reducedMotion ? "" : undefined}
+        onPointerDown={handleViewportPointerDown}
+        onPointerMove={handleViewportPointerMove}
+        onPointerUp={handleViewportPointerUp}
+        onPointerCancel={handleViewportPointerUp}
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          overflowX: "clip",
+          overflowY: "clip",
+          // F8b interior contract: NO touch-action restriction at this
+          // level. touch-action resolves as the INTERSECTION of an
+          // element's own value and every ancestor's up to the nearest
+          // gesture-owning ancestor — a descendant can never LOOSEN a
+          // restriction declared here, so a blanket declaration on this
+          // element (as it used to be: "pan-x pinch-zoom") permanently
+          // blocked vertical touch-pan for every descendant in the whole
+          // scene, including a consumer's own interior overflow-y:auto
+          // scroll island (the F8b bug — the touch-side twin of F8a's
+          // wheel bug). "auto" here means this element imposes nothing;
+          // the vertical-pan exclusion that used to live here now lives
+          // on each column's own content wrapper (SceneColumn.tsx,
+          // [data-column-content]), scoped to that column being
+          // Scene-scrollable — so it restricts only the column that
+          // needs to own vertical drag, never anything else in the tree.
+          // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
+          // "auto" here is not stale — it never needs to change for
+          // horizontal panning. touch-action only governs the browser's
+          // OWN native scroll gesture; ui#19 blocks that gesture the same
+          // way SceneColumn's F13 vertical drag does (not via touch-
+          // action), with a non-passive `touchmove` listener below that
+          // calls preventDefault() once a horizontal drag commits (see
+          // handleNativeTouchMove). The actual panning motion is driven
+          // entirely by this file's own pointer-event triad
+          // (handleViewportPointerDown/Move/Up) writing panOffset — touch-
+          // action plays no role in producing the pan itself, only in
+          // suppressing the browser's competing native one.
+          touchAction: "auto",
+          outline: debug ? "2px solid cyan" : undefined,
+          // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
+          // gutter investigation both REMOVED — both were about styling
+          // and clientHeight-wobble concerns for a horizontal scrollbar
+          // that toggled on/off with the old overflow-x:auto/hidden
+          // scheme. Under unconditional overflow-x:clip, this element can
+          // never have ANY scrollbar under any circumstance (clip never
+          // establishes a scroll container, full stop) — both concerns
+          // are now structurally moot, not just empirically rejected. The
+          // full H10 writeup (the historical record of why
+          // scrollbar-gutter:stable was tried and rejected) lived in this
+          // comment block pre-ui#19; see git history if that
+          // investigation is ever relevant again.
+          // container-type: size lets consumers use cqw/cqh units to size
+          // columns relative to the Camera viewport dimensions.
+          containerType: "size",
+          // Perspective + preserve-3d establish the 3D stacking context for
+          // depth deck columns. Placing this on the viewport (rather than the
+          // stage) means the perspective origin is expressed relative to the
+          // visible window, so depth projection stays stable as the stage pans.
+          // CSS defaults perspective-origin to "50% 50%" (center), which works
+          // well for our use case without dynamic tracking.
+          perspective: `${perspective}px`,
+          transformStyle: "preserve-3d",
+        } as React.CSSProperties}
+      >
+        {/* Stage: absolutely positioned within the viewport. `left` pans the
+            scene so the focused region stays horizontally centered. No CSS
+            transforms are used for panning — direct `left` positioning
+            preserves text rendering quality (no subpixel transform artifacts).
+            3D context lives on the viewport div above, not here. */}
+        <motion.div
+          ref={stageRef}
+          data-stage
+          initial={false}
+          // onTransitionStart/onTransitionComplete (useCamera()
+          // `transitioning`) are wired directly to the cameraX animate()
+          // call in the stageLeft effect above, not to Motion's own
+          // onLayoutAnimationStart/onLayoutAnimationComplete — those only
+          // fire for a `layout`-prop-driven FLIP animation, which this
+          // element doesn't have (S6 reshape; the props were already dead
+          // wiring for the camera pan specifically since S3 moved `left`
+          // off the `animate` prop — see motionSeam.ts).
+          onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
+          onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
           style={{
-            position: "relative",
-            width: "100%",
+            position: "absolute",
+            top: 0,
+            // Instant mode (duration=0): the synchronous plain-number
+            // write, unchanged from before S3 (forecast-gate adjudication
+            // #1) — left is NOT MotionValue-driven here.
+            // Real animation: left is the cameraX MotionValue, driven by
+            // the stageLeft effect above off React's render cycle (no more
+            // `animate` prop on this element — onAnimationStart/Complete
+            // above are now dead wiring for the camera pan specifically;
+            // debug-overlay staleness is accepted, see motionSeam.ts).
+            ...(duration === 0 ? { left: stageLeft } : { left: cameraX }),
             height: "100%",
-            overflowX: "clip",
-            overflowY: "clip",
-            // F8b interior contract: NO touch-action restriction at this
-            // level. touch-action resolves as the INTERSECTION of an
-            // element's own value and every ancestor's up to the nearest
-            // gesture-owning ancestor — a descendant can never LOOSEN a
-            // restriction declared here, so a blanket declaration on this
-            // element (as it used to be: "pan-x pinch-zoom") permanently
-            // blocked vertical touch-pan for every descendant in the whole
-            // scene, including a consumer's own interior overflow-y:auto
-            // scroll island (the F8b bug — the touch-side twin of F8a's
-            // wheel bug). "auto" here means this element imposes nothing;
-            // the vertical-pan exclusion that used to live here now lives
-            // on each column's own content wrapper (SceneColumn.tsx,
-            // [data-column-content]), scoped to that column being
-            // Scene-scrollable — so it restricts only the column that
-            // needs to own vertical drag, never anything else in the tree.
-            // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
-            // "auto" here is not stale — it never needs to change for
-            // horizontal panning. touch-action only governs the browser's
-            // OWN native scroll gesture; ui#19 blocks that gesture the same
-            // way SceneColumn's F13 vertical drag does (not via touch-
-            // action), with a non-passive `touchmove` listener below that
-            // calls preventDefault() once a horizontal drag commits (see
-            // handleNativeTouchMove). The actual panning motion is driven
-            // entirely by this file's own pointer-event triad
-            // (handleViewportPointerDown/Move/Up) writing panOffset — touch-
-            // action plays no role in producing the pan itself, only in
-            // suppressing the browser's competing native one.
-            touchAction: "auto",
-            outline: debug ? "2px solid cyan" : undefined,
-            // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
-            // gutter investigation both REMOVED — both were about styling
-            // and clientHeight-wobble concerns for a horizontal scrollbar
-            // that toggled on/off with the old overflow-x:auto/hidden
-            // scheme. Under unconditional overflow-x:clip, this element can
-            // never have ANY scrollbar under any circumstance (clip never
-            // establishes a scroll container, full stop) — both concerns
-            // are now structurally moot, not just empirically rejected. The
-            // full H10 writeup (the historical record of why
-            // scrollbar-gutter:stable was tried and rejected) lived in this
-            // comment block pre-ui#19; see git history if that
-            // investigation is ever relevant again.
-            // container-type: size lets consumers use cqw/cqh units to size
-            // columns relative to the Camera viewport dimensions.
-            containerType: "size",
-            // Perspective + preserve-3d establish the 3D stacking context for
-            // depth deck columns. Placing this on the viewport (rather than the
-            // stage) means the perspective origin is expressed relative to the
-            // visible window, so depth projection stays stable as the stage pans.
-            // CSS defaults perspective-origin to "50% 50%" (center), which works
-            // well for our use case without dynamic tracking.
-            perspective: `${perspective}px`,
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "stretch",
+            gap: columnGap || undefined,
+            padding: padding || undefined,
+            // preserve-3d propagates the viewport's 3D context through to
+            // column children. Without this, translateZ on columns has no
+            // visible perspective effect — elements render flat.
             transformStyle: "preserve-3d",
-          } as React.CSSProperties}
+            // Debug: magenta outline on the stage to distinguish it from the
+            // cyan viewport outline. Purely cosmetic — no layout effect.
+            outline: debug ? "2px solid magenta" : undefined,
+          }}
         >
-          {/* Stage: absolutely positioned within the viewport. `left` pans the
-              scene so the focused region stays horizontally centered. No CSS
-              transforms are used for panning — direct `left` positioning
-              preserves text rendering quality (no subpixel transform artifacts).
-              3D context lives on the viewport div above, not here. */}
-          <motion.div
-            ref={stageRef}
-            data-stage
-            initial={false}
-            // onTransitionStart/onTransitionComplete (useCamera()
-            // `transitioning`) are wired directly to the cameraX animate()
-            // call in the stageLeft effect above, not to Motion's own
-            // onLayoutAnimationStart/onLayoutAnimationComplete — those only
-            // fire for a `layout`-prop-driven FLIP animation, which this
-            // element doesn't have (S6 reshape; the props were already dead
-            // wiring for the camera pan specifically since S3 moved `left`
-            // off the `animate` prop — see motionSeam.ts).
-            onAnimationStart={debug ? animationCallbacks?.onStart : undefined}
-            onAnimationComplete={debug ? animationCallbacks?.onEnd : undefined}
+          {children}
+        </motion.div>
+        {/* Object outlines: absolutely positioned colored borders for each
+            SceneObject. Rendered outside the stage so positions are relative
+            to the viewport, not the panning stage.
+            Wrapped in a clipping layer pinned exactly to the viewport's own
+            box (F4 purity fix): each outline's name label is a
+            width-unconstrained <span> that can overflow its own outline
+            box when the object's name is long/unbreakable — and since
+            scrollWidth/scrollHeight report the full overflow extent even
+            under overflow:hidden (only the visible scrollbar is
+            suppressed, not the JS-observable metric), an unclipped label
+            widened the viewport's own scroll extent in debug mode only —
+            the "Debug does not affect layout" scenario (spec:
+            scene-debug.feature) is violated by real content, the same
+            CameraDebug-incident class documented on warnStrayChild above,
+            just via a different mechanism (an overflowing debug-only
+            child, not a stray flex-row child). overflow: hidden here
+            clips ANY debug-only overflow (label text, or a future outline
+            rendering change) at the viewport's own edge, so it can never
+            propagate to the viewport's own scrollWidth/scrollHeight —
+            structurally closing the whole class, not just the label case
+            this was caught by. */}
+        {debug && (
+          <div
             style={{
               position: "absolute",
               top: 0,
-              // Instant mode (duration=0): the synchronous plain-number
-              // write, unchanged from before S3 (forecast-gate adjudication
-              // #1) — left is NOT MotionValue-driven here.
-              // Real animation: left is the cameraX MotionValue, driven by
-              // the stageLeft effect above off React's render cycle (no more
-              // `animate` prop on this element — onAnimationStart/Complete
-              // above are now dead wiring for the camera pan specifically;
-              // debug-overlay staleness is accepted, see motionSeam.ts).
-              ...(duration === 0 ? { left: stageLeft } : { left: cameraX }),
+              left: 0,
+              width: "100%",
               height: "100%",
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "stretch",
-              gap: columnGap || undefined,
-              padding: padding || undefined,
-              // preserve-3d propagates the viewport's 3D context through to
-              // column children. Without this, translateZ on columns has no
-              // visible perspective effect — elements render flat.
-              transformStyle: "preserve-3d",
-              // Debug: magenta outline on the stage to distinguish it from the
-              // cyan viewport outline. Purely cosmetic — no layout effect.
-              outline: debug ? "2px solid magenta" : undefined,
+              overflow: "hidden",
+              pointerEvents: "none",
             }}
           >
-            {children}
-          </motion.div>
-          {/* Object outlines: absolutely positioned colored borders for each
-              SceneObject. Rendered outside the stage so positions are relative
-              to the viewport, not the panning stage.
-              Wrapped in a clipping layer pinned exactly to the viewport's own
-              box (F4 purity fix): each outline's name label is a
-              width-unconstrained <span> that can overflow its own outline
-              box when the object's name is long/unbreakable — and since
-              scrollWidth/scrollHeight report the full overflow extent even
-              under overflow:hidden (only the visible scrollbar is
-              suppressed, not the JS-observable metric), an unclipped label
-              widened the viewport's own scroll extent in debug mode only —
-              the "Debug does not affect layout" scenario (spec:
-              scene-debug.feature) is violated by real content, the same
-              CameraDebug-incident class documented on warnStrayChild above,
-              just via a different mechanism (an overflowing debug-only
-              child, not a stray flex-row child). overflow: hidden here
-              clips ANY debug-only overflow (label text, or a future outline
-              rendering change) at the viewport's own edge, so it can never
-              propagate to the viewport's own scrollWidth/scrollHeight —
-              structurally closing the whole class, not just the label case
-              this was caught by. */}
-          {debug && (
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                overflow: "hidden",
-                pointerEvents: "none",
-              }}
-            >
-              <SceneObjectOutlines viewportRef={viewportRef} />
-              <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
-              <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
-              <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />
-            </div>
-          )}
-          {/* Overlay is inside the scene div so tests can find it via
-              scene.querySelector('[data-debug-overlay]'). position:fixed
-              ensures it doesn't participate in flex layout. */}
-          {debug && (
-            <SceneDebugOverlay
-              columnStacks={debugColumnStacks ?? []}
-              viewportRef={viewportRef}
-              stageRef={stageRef}
-              motionRecorder={debugMotionRecorderRef.current}
-              slowMo={slowMo}
-              onToggleSlowMo={onToggleSlowMo}
-            />
-          )}
-        </div>
-      </DepthDeckContext.Provider>
+            <SceneObjectOutlines viewportRef={viewportRef} />
+            <StageBoundsOutline viewportRef={viewportRef} stageRef={stageRef} />
+            <StrayChildFlags viewportRef={viewportRef} stageRef={stageRef} />
+            <PaintOrderBadges viewportRef={viewportRef} stageRef={stageRef} />
+          </div>
+        )}
+        {/* Overlay is inside the scene div so tests can find it via
+            scene.querySelector('[data-debug-overlay]'). position:fixed
+            ensures it doesn't participate in flex layout. */}
+        {debug && (
+          <SceneDebugOverlay
+            columnStacks={debugColumnStacks ?? []}
+            viewportRef={viewportRef}
+            stageRef={stageRef}
+            motionRecorder={debugMotionRecorderRef.current}
+            slowMo={slowMo}
+            onToggleSlowMo={onToggleSlowMo}
+          />
+        )}
+      </div>
     </PanControlContext.Provider>
     </ViewportContext.Provider>
     </AnimationCallbackContext.Provider>
@@ -2580,6 +2694,52 @@ export function Scene({
   // `transitioning`). Set via callbacks wired to the cameraX animate() call
   // in SceneViewport's stageLeft effect.
   const [transitioning, setTransitioning] = useState(false);
+
+  // Aggregate settle-signal counter (see SettleSignalContext's own doc
+  // comment for the full rationale, including why this replaced a
+  // fire-per-settle-event version). activeAnimationCountRef is the number
+  // of owned channels (across every column, AND SceneViewport's own
+  // cameraX — see ownedCameraAnimation there) currently mid-transition;
+  // only the transition INTO zero bumps the render-triggering state below
+  // — a re-render while the count is still positive would re-measure
+  // geometry that hasn't actually reached its final state yet. The count
+  // itself is never rendered (a ref, not state) — bumpSettleSignal's own
+  // value is never read anywhere either; bumping it is the entire
+  // mechanism (React re-renders Scene, which re-renders SceneViewport as
+  // a plain child, which re-runs its own no-deps camera-recentering
+  // effect against the now-truly-settled geometry). useMemo keeps the
+  // context value referentially stable across renders that don't touch
+  // it, avoiding a spurious re-provide on every unrelated Scene render.
+  const activeAnimationCountRef = useRef(0);
+  const [, bumpSettleSignal] = useState(0);
+  const onColumnGeometrySettled = useMemo<SettleSignal>(
+    () => ({
+      animationStarted: () => {
+        activeAnimationCountRef.current++;
+      },
+      animationEnded: () => {
+        // Floored at 0, never negative: an unmatched extra `animationEnded`
+        // call (a bug elsewhere — every real call site is paired 1:1 with
+        // its own `animationStarted`, audited in SceneColumn/SceneObject/
+        // SceneViewport) would otherwise push the count below zero, and
+        // the NEXT genuine start+end pair would then land on -1/0 forever
+        // instead of 1/0 — silently and PERMANENTLY wedging the camera's
+        // own re-measure, the exact failure this counter exists to avoid.
+        // The warning keeps that bug visible without letting it wedge
+        // anything at runtime.
+        if (activeAnimationCountRef.current <= 0) {
+          console.warn("SettleSignalContext: animationEnded called with no matching animationStarted — a channel's start/end pair is unbalanced.");
+          activeAnimationCountRef.current = 0;
+          return;
+        }
+        activeAnimationCountRef.current--;
+        if (activeAnimationCountRef.current === 0) {
+          bumpSettleSignal((c) => c + 1);
+        }
+      },
+    }),
+    [],
+  );
 
   // Track the camera viewport's rect for useCamera() consumers. Updated via
   // callback from SceneViewport whenever the viewport element is measured.
@@ -2719,9 +2879,11 @@ export function Scene({
         <ColumnRegistryContext.Provider value={registerColumn}>
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
+          <SettleSignalContext.Provider value={onColumnGeometrySettled}>
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
+              columnRegistryRef={columnRegistryRef}
               onToggleSlowMo={() => setSlowMoOverride((prev) => !(prev ?? slowMo))}
               onTransitionStart={() => setTransitioning(true)}
               onTransitionComplete={() => setTransitioning(false)}
@@ -2742,6 +2904,7 @@ export function Scene({
             >
               {wrappedChildren}
             </SceneViewport>
+          </SettleSignalContext.Provider>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
         </ColumnRegistryContext.Provider>
