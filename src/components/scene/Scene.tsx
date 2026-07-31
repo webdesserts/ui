@@ -1398,6 +1398,7 @@ function SceneViewport({
   onTransitionComplete,
   onViewportSizeChange,
   onTargetChange,
+  columnRegistryRef,
 }: {
   children: React.ReactNode;
   /** Unfocused column stacking info for the debug overlay. */
@@ -1416,6 +1417,19 @@ function SceneViewport({
   onViewportSizeChange: (size: ViewportDimensions) => void;
   /** Called whenever the focused content's target bounds are (re)measured. */
   onTargetChange: (target: CameraRect) => void;
+  /**
+   * Scene's own column registry (ui#17 target-derived camera aiming) —
+   * the same Map registerColumn writes into, keyed by column name. Read
+   * by the camera-recentering effect below to compute the focused span's
+   * final left/width from each column's own owned-channel width/margin
+   * TARGETS (known synchronously at the focus-change commit) instead of
+   * measuring the DOM (which mid-transition reflects a layout about to
+   * stop existing, not the one the camera needs to aim at). Passed as a
+   * ref, not a snapshot — SceneViewport reads its CURRENT contents at
+   * the moment the effect runs, same "always current, never stale" shape
+   * every other ref-based measurement in this file already uses.
+   */
+  columnRegistryRef: React.RefObject<Map<string, RegisteredColumn>>;
 }) {
   const { debug, columnGap, padding, duration, stiffness, damping, perspective, slowMo, touchPower, touchTimeConstant } = useSceneConfig();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -1836,16 +1850,90 @@ function SceneViewport({
       return;
     }
 
-    const stageRect = stage.getBoundingClientRect();
-    const first = focusedCols[0]!.getBoundingClientRect();
-    const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
+    // Target-derived aiming (ui#17 cascade-fix round, ruled): a focus
+    // commit collapses/grows column footprints by hundreds of px in one
+    // step — geometry measured from the DOM at that exact commit is a
+    // faithful read of a layout that's about to stop existing, not a
+    // stale one (probe-confirmed: the DOM attribute driving this query
+    // was already correct at the same commit; the WIDTH was the thing
+    // mid-transition). Every owned channel already knows its OWN final
+    // target synchronously at this same commit — computeFocusedWidth's
+    // result for a focused column, the permanent zero-footprint target
+    // (with its -columnGap margin compensation) for a decked one — so
+    // walking the row's own targets, in DOM order, with the same flex
+    // arithmetic the gap-math tests hand-verify (width, then margin
+    // compensation, then one columnGap between adjacent columns, starting
+    // from the stage's own left padding), gives the camera the TRUE final
+    // left/width without ever measuring a mid-transition box. One retarget
+    // per commit, aimed at the truth from the start, instead of a wrong
+    // early measurement corrected later by the zero-crossing re-measure
+    // below (which stays as the verification pass, not the primary aim).
+    const allColumnEls = Array.from(stage.querySelectorAll<HTMLElement>("[data-column]"));
+    const registry = columnRegistryRef.current;
+    let cursor = padding;
+    let targetLeft: number | undefined;
+    let targetRight: number | undefined;
+    let missingTargetColumn: string | undefined;
+    for (let i = 0; i < allColumnEls.length; i++) {
+      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      const registered = registry.get(colName);
+      if (registered === undefined || registered.widthTarget === undefined) {
+        // A column past the focused span (targetRight already closed out)
+        // whose own target is unresolved doesn't matter — nothing further
+        // is needed once the span's right edge is known. Only a column
+        // that's STILL part of (or before) the span forces the fallback.
+        if (targetRight !== undefined) break;
+        missingTargetColumn = colName;
+        break;
+      }
+      if (registered.focused && targetLeft === undefined) targetLeft = cursor;
+      cursor += registered.widthTarget;
+      // Every focused column keeps extending targetRight — a contiguous
+      // multi-column focused span (or, matching the fallback's own
+      // first-to-last semantics, a non-contiguous one) needs its RIGHTMOST
+      // focused column's cursor, not its first. Fixed 2026-07-31: an
+      // earlier version broke immediately after the FIRST focused column,
+      // silently dropping every subsequent column of a multi-focus span.
+      if (registered.focused) targetRight = cursor;
+      cursor += registered.marginTarget;
+      if (i < allColumnEls.length - 1) cursor += columnGap;
+    }
 
-    // Column's natural offset within the stage flex layout. Subtracting
-    // stageRect.left cancels out the current stageLeft offset, giving a stable
-    // value that doesn't change across renders as the stage pans.
-    const focusedNaturalLeft = first.left - stageRect.left;
-    const focusedNaturalRight = last.right - stageRect.left;
-    const focusedWidth = focusedNaturalRight - focusedNaturalLeft;
+    const stageRect = stage.getBoundingClientRect();
+    let focusedNaturalLeft: number;
+    let focusedWidth: number;
+    if (targetLeft !== undefined && targetRight !== undefined) {
+      focusedNaturalLeft = targetLeft;
+      focusedWidth = targetRight - targetLeft;
+    } else {
+      // Fallback to measurement: a column between the stage's start and
+      // the last focused one hasn't had its width target resolved yet
+      // (the one-render "deferred measurement" window a never-focused
+      // deck column's own first commit goes through — see
+      // computeMeasuredWidth's own doc comment in SceneColumn). Self-
+      // correcting (the NEXT render has a real target) — but empirically
+      // this is ROUTINE, not rare: it fires on essentially every scene's
+      // true first commit (geometryStore hasn't measured anything yet),
+      // so it's worth being able to find without being noisy. console.warn
+      // was tried first and reverted (gate-table round, 2026-07-31): it
+      // fired often enough to pollute unrelated tests that spy on
+      // console.warn for their OWN warnings (shadowing the expected
+      // message, inflating unrelated call counts) — console.debug keeps
+      // the same "named here, not silently absorbed" property without
+      // that collision.
+      if (missingTargetColumn !== undefined) {
+        console.debug(
+          `Scene: camera-recentering fell back to DOM measurement — column "${missingTargetColumn}" has no resolved width target yet.`,
+        );
+      }
+      const first = focusedCols[0]!.getBoundingClientRect();
+      const last = focusedCols[focusedCols.length - 1]!.getBoundingClientRect();
+      // Column's natural offset within the stage flex layout. Subtracting
+      // stageRect.left cancels out the current stageLeft offset, giving a
+      // stable value that doesn't change across renders as the stage pans.
+      focusedNaturalLeft = first.left - stageRect.left;
+      focusedWidth = last.right - stageRect.left - focusedNaturalLeft;
+    }
 
     const vpWidth = viewport.clientWidth;
 
@@ -2753,6 +2841,7 @@ export function Scene({
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
+              columnRegistryRef={columnRegistryRef}
               onToggleSlowMo={() => setSlowMoOverride((prev) => !(prev ?? slowMo))}
               onTransitionStart={() => setTransitioning(true)}
               onTransitionComplete={() => setTransitioning(false)}

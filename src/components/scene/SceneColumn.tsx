@@ -2367,7 +2367,7 @@ export function SceneColumn({
     const el = colRef.current;
     if (!el || !registerColumnWithScene) return;
     const focused = Array.from(registeredObjectFocusRef.current.values()).some(Boolean);
-    return registerColumnWithScene(name, { focused, element: el });
+    return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget });
   });
 
   // Debug outline tracking: notify the animation counter in SceneViewport when
