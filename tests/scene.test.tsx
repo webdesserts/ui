@@ -2971,8 +2971,8 @@ describe("Scene centering", () => {
     const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement | null;
 
     // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
-    // writes — a geometry read immediately after render()/rerender() can
-    // observe a stale/default value).
+    // writes, e.g. the owned width channel — a geometry read immediately
+    // after render()/rerender() can observe a stale/default value).
     await awaitStyleFlush();
 
     // Initially centered (margin-top > 0)
@@ -3602,6 +3602,67 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
         `${spikes.length} frame-to-frame tx-delta spike(s) exceeded ${MAX_LEGIT_RATE_PER_MS}px/ms, worst: ` +
           `t=${worst.from.t.toFixed(1)}ms tx=${worst.from.tx.toFixed(2)} -> t=${worst.to.t.toFixed(1)}ms tx=${worst.to.tx.toFixed(2)} ` +
           `(${worst.rate.toFixed(2)}px/ms).\nFull trace:\n${txTrace}`,
+      ).toBe(0);
+    }
+
+    // FRAME-TO-FRAME x-DELTA CONTINUITY — the gate's own highest-priority
+    // fix. Once `layout` is removed, `chat` carries no transform channel of
+    // its own at all (animate.x is 0 for a focused, non-in-between column),
+    // so tx above trivially stays 0/identity every frame and the assertion
+    // above is now STRUCTURALLY INCAPABLE of ever failing — it would pass
+    // identically whether the corruption were dead or merely moved to a
+    // channel this test doesn't look at. This assertion measures the REAL,
+    // gBCR-painted position instead, which stays live regardless of which
+    // channel (if any) drives it.
+    //
+    // Threshold derivation, NOT a reuse of MAX_LEGIT_RATE_PER_MS above (that
+    // one is calibrated to tx's transform-spring velocity profile, not real
+    // gBCR position deltas — reusing it would be exactly the self-
+    // referential-bound mistake 885c40d's own commit message warns
+    // against). This fixture has no clean "single uninterrupted toggle"
+    // legit-rate baseline to measure the way tx's did (see the
+    // "Evidence-state carryforward" investigation this session, 2026-07-30:
+    // `chat`'s x-position teleports within a single frame even for ONE
+    // toggle now — the current mechanism is a depth-deck position-mode
+    // snap, disposition 4, not FLIP re-snapshotting — so a legit-rate
+    // calibration would itself measure a snap). Threshold derived
+    // analytically instead, from the same spring physics 885c40d's own
+    // round-3 message used for its argued-not-measured leg (c): for this
+    // fixture's ~571px transient amplitude, v ≈ amplitude·ω·0.6 (ω =
+    // sqrt(stiffness/mass) = sqrt(300) ≈ 17.32 rad/s, 0.6 the same
+    // underdamped-envelope scaling factor measured empirically on this
+    // exact spring config in that investigation) ≈ 5.9px/ms for a
+    // genuinely smooth transit of this distance. MAX_LEGIT_X_RATE_PER_MS
+    // is set to 24 — ~4x over that analytical estimate, comfortably below
+    // the observed disposition-4 snap rate (~57-71px/ms measured this
+    // session on this exact fixture).
+    //
+    // EXPECTED RED right now (2026-07-30): disposition 4 (the depth-deck
+    // flex↔absolute position-mode transition) is not yet fixed — see
+    // plans/ui#17 Node Split Re-implementation Plan and this ticket's own
+    // investigation history. This assertion honestly reflects that;
+    // criteria overshoot-gone/clicks-land close once disposition 4's own
+    // compensating channel lands, not before.
+    const MAX_LEGIT_X_RATE_PER_MS = 24;
+    const xSpikes: { from: (typeof samples)[number]; to: (typeof samples)[number]; rate: number }[] = [];
+    for (let i = 1; i < samples.length; i++) {
+      const prev = samples[i - 1]!;
+      const cur = samples[i]!;
+      const dt = cur.t - prev.t;
+      if (dt <= 0) continue;
+      const rate = Math.abs(cur.x - prev.x) / dt;
+      if (rate > MAX_LEGIT_X_RATE_PER_MS) {
+        xSpikes.push({ from: prev, to: cur, rate });
+      }
+    }
+    if (xSpikes.length > 0) {
+      const worst = xSpikes.reduce((a, b) => (b.rate > a.rate ? b : a));
+      const xTrace = samples.map((s) => `t=${s.t.toFixed(1)} x=${s.x.toFixed(2)} tx=${s.tx.toFixed(2)}`).join("\n");
+      expect(
+        xSpikes.length,
+        `${xSpikes.length} frame-to-frame x-delta spike(s) exceeded ${MAX_LEGIT_X_RATE_PER_MS}px/ms, worst: ` +
+          `t=${worst.from.t.toFixed(1)}ms x=${worst.from.x.toFixed(2)} -> t=${worst.to.t.toFixed(1)}ms x=${worst.to.x.toFixed(2)} ` +
+          `(${worst.rate.toFixed(2)}px/ms).\nFull trace:\n${xTrace}`,
       ).toBe(0);
     }
   });
@@ -10829,6 +10890,9 @@ describe("Scene padding cluster (S6)", () => {
     const { rerender, getByTestId } = await render(build(true));
     await rerender(build(false));
     await waitForAnimationFrame();
+    // ui#17: a single tick measured racy here — escalating to a second per
+    // awaitStyleFlush's own documented double-rAF fallback.
+    await awaitStyleFlush();
 
     const middleCol = getByTestId("middle-content").element().closest("[data-column]") as HTMLElement;
 
@@ -10840,7 +10904,17 @@ describe("Scene padding cluster (S6)", () => {
     // the same rationale applied to the x axis).
     const frozenHeight = parseFloat(middleCol.style.height || "0");
     expect(frozenHeight).toBeGreaterThan(0);
-    const translateY = parseTranslateY(middleCol.style.transform);
+    // ui#17: without `layout`, Motion writes this transform as separate
+    // translateX()/translateZ() functions and OMITS a zero-valued
+    // translateY entirely (with `layout` present, it always used the
+    // translate3d(x, y, z) form, including an explicit 0px for y) —
+    // parseTranslateY doesn't handle the "axis omitted means 0" case
+    // (every other call site relies on it staying strict), so normalize
+    // locally, same precedent as readTx's own "none" → 0 normalization.
+    const transformStr = middleCol.style.transform;
+    const translateY = transformStr.includes("translateY") || transformStr.includes("translate3d")
+      ? parseTranslateY(transformStr)
+      : 0;
 
     // Viewport is 800px tall (fullPage default), padding=60 top+bottom ->
     // effective viewport height = 680. inBetweenY should center the frozen
@@ -11048,6 +11122,17 @@ describe("Scene padding cluster (S6)", () => {
     // itself animated), but the camera's stageLeft recompute (which the
     // left inset depends on) goes through the normal spring transition, not
     // an instant snap.
+    //
+    // ui#17 KNOWN RED, not a stale-read timing issue: probe-confirmed
+    // (2026-07-30, isolated to a bare `layout`-removed config with ZERO
+    // owned channels of any kind involved) that this specific transition
+    // now snaps the camera's own left inset directly from 16 to 32 with no
+    // intermediate samples at all — an awaitStyleFlush() here does not
+    // change the result, since there is no stale-then-correct read to wait
+    // past, the spring itself never runs. This is the plan's own
+    // "camera-recentering interaction" risk (Width channel design section)
+    // materializing — a separate, still-open mechanism from disposition 4,
+    // not something this dispatch's test-infra fix addresses.
     await rerender(build(32));
 
     const readLeftInset = () => col1.getBoundingClientRect().left - vpRect.left;

@@ -145,6 +145,15 @@ interface GeometryEntry {
   offsetTop: number;
   /** This object's rendered height (px). */
   height: number;
+  /**
+   * This object's rendered width (px) — the ui#17 owned width channel's
+   * "after" target. An object's own declared width (e.g. a `cqw` value)
+   * resolves against the STAGE's container-query context (Scene.tsx's
+   * `containerType: "size"`), not this column's own current box, so it's
+   * stable and measurable regardless of whether the column itself is
+   * currently constrained by a frozen or in-flight spring width.
+   */
+  width: number;
 }
 
 /**
@@ -172,6 +181,30 @@ function computeTopOffset(
 
   const focusedName = focusedNames[0]!;
   return geometryStore.get(focusedName)?.offsetTop ?? 0;
+}
+
+/**
+ * ui#17: computes the column's own target width while focused — the widest
+ * currently-focused object's own measured width (multi-focus stacking can
+ * have several focused objects of different widths; the column's
+ * shrink-to-fit box becomes as wide as the widest one, matching ordinary
+ * block layout). Returns undefined when nothing is focused, or when a
+ * focused object hasn't been geometry-measured yet (e.g. its very first
+ * render, before any remeasure pass has run) — the caller's own "no target
+ * yet" handling (no override, natural CSS sizing) already covers this.
+ */
+function computeFocusedWidth(
+  objectStates: ObjectState[],
+  geometryStore: Map<string, GeometryEntry>,
+): number | undefined {
+  let width: number | undefined;
+  for (const { name, focused } of objectStates) {
+    if (!focused) continue;
+    const entry = geometryStore.get(name);
+    if (!entry) continue;
+    width = width === undefined ? entry.width : Math.max(width, entry.width);
+  }
+  return width;
 }
 
 /**
@@ -1292,7 +1325,12 @@ export function SceneColumn({
       const rect = el.getBoundingClientRect();
       const offsetTop = rect.top - wrapperRect.top;
       const height = el.offsetHeight;
-      geometryStore.current.set(objName, { offsetTop, height });
+      // ui#17: offsetWidth, not rect.width — same H11 rationale as height
+      // above (a layout metric, immune to any transform on the element or
+      // its ancestors), now load-bearing for the owned width channel's
+      // target measurement, not just a defensive choice.
+      const width = el.offsetWidth;
+      geometryStore.current.set(objName, { offsetTop, height, width });
       // F4 feature (c) debug-only mirror: exposes this store's per-object
       // entries to the debug overlay's geometry-store inspector without
       // giving it a live React-level handle into this column's internal
@@ -1305,9 +1343,10 @@ export function SceneColumn({
       // attribute write doesn't affect layout either way.
       el.setAttribute("data-geometry-offset-top", String(Math.round(offsetTop)));
       el.setAttribute("data-geometry-height", String(Math.round(height)));
+      el.setAttribute("data-geometry-width", String(Math.round(width)));
     }
     const fingerprint = Array.from(geometryStore.current.entries())
-      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}`)
+      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}:${Math.round(g.width)}`)
       .join(",");
     const changed = fingerprint !== geometryFingerprintRef.current;
     geometryFingerprintRef.current = fingerprint;
@@ -2279,6 +2318,87 @@ export function SceneColumn({
   // depend on undocumented same-frame-ordering internals.
   const composedTop = useTransform<number, number>([topOffsetMV, scrollY], ([t, s]) => -(t + s));
 
+  // ---------------------------------------------------------------------
+  // ui#17: owned WIDTH channel, replacing Motion's `layout` FLIP for this
+  // dimension. `layout` faked width changes via a `transform: scale()`
+  // interpolation — proven (probe round, 2026-07-30) to re-snapshot
+  // incorrectly whenever a second layout-affecting commit interrupts an
+  // in-flight correction, independent of composition with anything else (a
+  // bare, animate-free, sibling-free element reproduced the identical
+  // signature). This channel writes a real `width` px value instead,
+  // springing it the SAME way topOffsetMV springs `top` above — single
+  // writer, idempotent re-issue (no Promise/.then()-tracked "already
+  // animating" guard, matching driveCameraX's own precedent — a NEW
+  // animate() call always safely retargets, using the MotionValue's
+  // current value+velocity as its starting point, not a fresh box
+  // snapshot).
+  //
+  // HEIGHT has no equivalent channel (deliberate, not an oversight): a
+  // focused column's height is externally imposed by Scene's own
+  // `alignItems: "stretch"` on the row, never content-driven the way width
+  // is — `frozenSize.height` (captured while stretched-focused) equals
+  // `effectiveViewportHeight` (the stretch target) by construction in the
+  // common case, so there is nothing to interpolate. An owned height
+  // channel was built, measured, and deliberately deleted (ui#17 gate,
+  // 2026-07-30) once this was confirmed — see outerStyle/inBetweenStyle
+  // below for where the frozen height is applied instead (a static value,
+  // matching the pre-ui#17 mechanism, unchanged for this one dimension).
+  //
+  // Target while FOCUSED: the widest focused object's own measured width
+  // (geometryStore, computeFocusedWidth). Target while UNFOCUSED: the
+  // frozen dims captured on losing focus (frozenSize, unchanged
+  // mechanism) — an unfocused column always wants its frozen size, it
+  // never "releases" to natural sizing.
+  // ---------------------------------------------------------------------
+  const focusedWidthTarget = computeFocusedWidth(objectStates, geometryStore.current);
+  const widthTarget = columnFocused ? focusedWidthTarget : frozenSize?.width;
+
+  const widthMV = useMotionValue(widthTarget ?? 0);
+  useEffect(() => {
+    motionSeam?.registerMotionValue(`width:${name}`, widthMV);
+    return () => motionSeam?.unregisterMotionValue?.(`width:${name}`);
+  }, [motionSeam, widthMV, name]);
+
+  const widthTargetRef = useRef(widthTarget);
+  // Whether this channel has EVER driven a real (defined) target — false
+  // only for a column that mounted unfocused and has never been focused
+  // (frozenSize stays null, per wasEverFocused's own established
+  // semantics: "never-focused columns size to their content naturally").
+  // The FIRST real target such a column gets has no valid "from" value to
+  // spring from (widthMV was seeded at 0, a placeholder never rendered
+  // while the target stayed undefined) — jump straight to it rather than
+  // springing from that placeholder.
+  const widthHasHadTargetRef = useRef(widthTarget !== undefined);
+  // Whether the channel's most recent spring has FULLY settled — gates
+  // releasing the literal width style override back to natural CSS sizing
+  // once a FOCUSED column's transition completes (preserves full
+  // cqw/container-query responsiveness at rest — an UNFOCUSED column never
+  // releases; see the style binding below). Starts true so a column that
+  // never transitions never applies an override to begin with.
+  const [widthSettled, setWidthSettled] = useState(true);
+
+  useLayoutEffect(() => {
+    if (widthTarget === undefined || widthTarget === widthTargetRef.current) return;
+    const isFirstTarget = !widthHasHadTargetRef.current;
+    widthHasHadTargetRef.current = true;
+    widthTargetRef.current = widthTarget;
+    if (duration === 0 || isFirstTarget || firstPaintRef.current || !columnGeometryWasSettled) {
+      widthMV.jump(widthTarget);
+      setWidthSettled(true);
+    } else {
+      setWidthSettled(false);
+      const controls = animate(widthMV, widthTarget, { ...transition, onComplete: () => setWidthSettled(true) });
+      motionSeam?.registerControls(`width:${name}`, controls);
+      motionSeam?.registerTarget?.(`width:${name}`, widthTarget);
+    }
+  });
+
+  // Whether the literal width override is currently active: always while
+  // unfocused (an unfocused column stays pinned to its frozen dims
+  // forever, it never releases), or while focused AND still mid-spring
+  // (released once settled — see above).
+  const widthOverrideActive = !columnFocused ? widthTarget !== undefined : !widthSettled;
+
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
   // flex: 0 1 auto → columns size to their content by default. Consumers can
@@ -2291,20 +2411,28 @@ export function SceneColumn({
   // Unfocused in-between columns exit flex flow and stack as a depth deck,
   // positioned behind the rightmost focused column. top:0 anchors them to the
   // stage top so they align with the focused row; x-translation (via animate)
-  // slides them to the left edge of the rightmost focused column.
+  // slides them to the left edge of the rightmost focused column. Frozen
+  // width is applied by the owned width channel below (ui#17) — single-
+  // writer rule, not written here directly. Frozen height stays a static
+  // value here — no owned height channel (see the channel's own doc
+  // comment for why: an externally-imposed dimension, nothing to
+  // interpolate).
   const inBetweenStyle: React.CSSProperties = {
     position: "absolute",
     top: 0,
     flex: "none",
-    ...(frozenSize ? { width: frozenSize.width, height: frozenSize.height } : {}),
+    ...(frozenSize ? { height: frozenSize.height } : {}),
   };
 
   // Outer unfocused columns stay in the flex row with their frozen size so the
   // Camera can pan past them. No opacity:0 — the viewport clips visibility.
+  // Frozen width is applied by the owned width channel below (ui#17) —
+  // single-writer rule, not written here directly. Frozen height stays a
+  // static value here — see inBetweenStyle's comment above.
   const outerStyle: React.CSSProperties = {
     position: "relative",
     flex: "0 0 auto",
-    ...(frozenSize ? { width: frozenSize.width, height: frozenSize.height } : {}),
+    ...(frozenSize ? { height: frozenSize.height } : {}),
   };
 
   // Select which style applies. Focused columns use focusedStyle; in-between
@@ -2709,10 +2837,14 @@ export function SceneColumn({
           `z` is the deliberate exception: it's bound via `style` as the zMV
           MotionValue (see its declaration above), the same imperative-drive
           pattern the content wrapper's `top` uses below — not a static value
-          that would shadow a spring, but the live output of one. */}
+          that would shadow a spring, but the live output of one. `width` is a
+          SECOND deliberate exception (ui#17): a real CSS layout property,
+          which `animate` cannot touch at all — driven by the owned width
+          channel above (widthMV), the same imperative-drive pattern,
+          replacing Motion's `layout` FLIP prop entirely (removed from this
+          node — see the width channel's own doc comment for why). */}
       <motion.div
         ref={colRef}
-        layout
         {...(mountInitial ? { initial: mountInitial } : firstPaintRef.current ? { initial: false } : {})}
         data-column={name}
         data-column-focused={String(columnFocused)}
@@ -2726,11 +2858,11 @@ export function SceneColumn({
         data-content-height={columnFocused ? String(contentHeight) : undefined}
         animate={{
           opacity: depthOpacity,
-          // Invariant: depth-deck position lives entirely in transform space (x, y,
-          // z). Motion's layout FLIP cannot see it. This is why 'layout' must
-          // compose with these via animate transforms, never by re-measuring layout
-          // boxes. z is NOT here — see zMV's declaration above (z-clearance
-          // coupling) and the style prop below.
+          // Depth-deck position lives entirely in transform space (x, y, z) —
+          // z is NOT here, see zMV's declaration above (z-clearance coupling)
+          // and the style prop below. width is ALSO not here — a real
+          // layout property, owned by the width channel's own style binding
+          // below (ui#17), never faked via a transform.
           x: animateX,
           y: inBetweenY,
           // Always emit a valid filter string — motion cannot interpolate between
@@ -2740,8 +2872,6 @@ export function SceneColumn({
         transition={columnTransition}
         onAnimationStart={animCallbacks?.onStart}
         onAnimationComplete={animCallbacks?.onEnd}
-        onLayoutAnimationStart={animCallbacks?.onStart}
-        onLayoutAnimationComplete={animCallbacks?.onEnd}
         className={className}
         style={{
           ...columnStyle,
@@ -2751,6 +2881,13 @@ export function SceneColumn({
           // for a synchronous instant-mode write would depend on
           // undocumented same-frame-ordering internals.
           z: duration === 0 ? depthZ : zMV,
+          // ui#17 owned width channel — see its own doc comment above
+          // (widthMV declaration) for the full design. Applied only while an
+          // override is active (unfocused, always; or focused and still
+          // mid-spring); released to undefined once a focused column's
+          // transition settles, restoring natural cqw/container-query
+          // sizing.
+          ...(widthOverrideActive ? { width: duration === 0 ? widthTarget : widthMV } : {}),
         }}
       >
         {/* Content wrapper: spring-animated top offset for vertical swap.
