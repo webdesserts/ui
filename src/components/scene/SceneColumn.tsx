@@ -14,6 +14,7 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
+import { SettleSignalContext } from "./SettleSignalContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -403,6 +404,11 @@ export function SceneColumn({
   // rendered outside a Scene (shouldn't happen in practice) — guarded
   // defensively at each call site below rather than assumed non-null.
   const panControl = useContext(PanControlContext);
+  // Fired from every owned-channel settle site below (width, margin, panel
+  // width) — see SettleSignalContext's own doc comment for the full
+  // rationale. Null outside a Scene, same as every other Scene-provided
+  // context here.
+  const onColumnGeometrySettled = useContext(SettleSignalContext);
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing.
@@ -2486,9 +2492,16 @@ export function SceneColumn({
     if (duration === 0 || isFirstTarget || firstPaintRef.current || !columnGeometryWasSettled) {
       widthMV.jump(widthTarget);
       setWidthSettled(true);
+      onColumnGeometrySettled?.();
     } else {
       setWidthSettled(false);
-      const controls = animate(widthMV, widthTarget, { ...transition, onComplete: () => setWidthSettled(true) });
+      const controls = animate(widthMV, widthTarget, {
+        ...transition,
+        onComplete: () => {
+          setWidthSettled(true);
+          onColumnGeometrySettled?.();
+        },
+      });
       motionSeam?.registerControls(`width:${name}`, controls);
       motionSeam?.registerTarget?.(`width:${name}`, widthTarget);
     }

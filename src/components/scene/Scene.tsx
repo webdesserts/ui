@@ -6,6 +6,7 @@ import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
+import { SettleSignalContext } from "./SettleSignalContext";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -2542,6 +2543,21 @@ export function Scene({
   // in SceneViewport's stageLeft effect.
   const [transitioning, setTransitioning] = useState(false);
 
+  // Settle-signal counter (see SettleSignalContext's own doc comment for
+  // the full rationale). A column's owned geometry channels (width,
+  // margin, panel width) are MotionValue-driven and settling doesn't
+  // inherently re-render Scene — this counter exists purely to force one.
+  // Its own value is never read anywhere; bumping it is the entire
+  // mechanism (React re-renders Scene, which re-renders SceneViewport as
+  // a plain child, which re-runs its own no-deps camera-recentering
+  // effect against the now-truly-settled geometry). useCallback keeps the
+  // context value referentially stable across renders that don't touch
+  // it, avoiding a spurious re-provide on every unrelated Scene render.
+  const [, bumpSettleSignal] = useState(0);
+  const onColumnGeometrySettled = useCallback(() => {
+    bumpSettleSignal((c) => c + 1);
+  }, []);
+
   // Track the camera viewport's rect for useCamera() consumers. Updated via
   // callback from SceneViewport whenever the viewport element is measured.
   const [viewportBounds, setViewportBounds] = useState<CameraRect>({ top: 0, left: 0, width: 0, height: 0 });
@@ -2680,6 +2696,7 @@ export function Scene({
         <ColumnRegistryContext.Provider value={registerColumn}>
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
+          <SettleSignalContext.Provider value={onColumnGeometrySettled}>
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
@@ -2703,6 +2720,7 @@ export function Scene({
             >
               {wrappedChildren}
             </SceneViewport>
+          </SettleSignalContext.Provider>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>
         </ColumnRegistryContext.Provider>
