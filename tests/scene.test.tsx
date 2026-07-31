@@ -8339,17 +8339,40 @@ describe("Scene depth deck stacking", () => {
     const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
 
     // ui#17 selector audit: middleCol is decked (in-between) — its own
-    // anchor is a permanent zero-footprint node, so its gBCR reports the
-    // collapsed peek-width position, not the visible panel's. Read the
-    // panel instead for a decked column's own geometry (rightCol stays
-    // focused/position:relative pass-through, unaffected either way).
+    // anchor is a permanent zero-footprint node (width target 0), so its
+    // gBCR reports the collapsed position, not the visible panel's. Read
+    // the panel instead for a decked column's own geometry (rightCol
+    // stays focused/position:relative pass-through, unaffected either
+    // way).
     const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
     const middleRect = middlePanel.getBoundingClientRect();
     const rightRect = rightCol.getBoundingClientRect();
 
-    // In-between column should overlap with the right focused column's area.
-    // Their left edges should be close (within 50px).
-    expect(Math.abs(middleRect.left - rightRect.left)).toBeLessThan(50);
+    // In-between column should overlap with the right focused column's area
+    // — specifically, offset by exactly the default peekOffset (12px)
+    // foreshortened by the panel's own depth-1 perspective factor (ui#17
+    // Slice 3 fold-in: the 50px slop was flagged by the E4 rider as a real
+    // weakness — wide enough to pass even reading the wrong node, see the
+    // measured-factor derivation the "peeks left by exactly peekOffset"
+    // test above establishes for this exact scenario).
+    //
+    // E4-loop-closure finding: deriving the factor from `middleRect`
+    // itself (the thing this assertion verifies) degenerates when
+    // middleRect is mistakenly the anchor instead of the panel — the
+    // anchor's own width target is exactly 0 for a decked column, so
+    // depth1Factor, expectedPeek, AND the anchor's own actual delta
+    // (its -columnGap margin exactly cancels the gap, landing its left
+    // edge exactly at rightCol's own left edge) all collapse to 0
+    // together, passing vacuously regardless of which node is read
+    // (verified directly: pointed at the anchor, this assertion stayed
+    // green under the SAME self-derived-factor form). Fixed by deriving
+    // the factor from an INDEPENDENT panel measurement (middlePanel,
+    // never reassigned) rather than from middleRect — an accidental
+    // anchor-read now has nothing to self-consistently degenerate against.
+    const naturalWidth = 300;
+    const depth1Factor = middlePanel.getBoundingClientRect().width / naturalWidth;
+    const expectedPeek = 12 * depth1Factor;
+    expect(Math.abs(rightRect.left - middleRect.left - expectedPeek)).toBeLessThan(2);
   });
 
   test("in-between column appears smaller than natural size (perspective depth)", async () => {
@@ -8694,12 +8717,19 @@ describe("Scene depth deck stacking", () => {
     // test above (which explicitly doesn't care which node contributes
     // the shrink), so it reads the panel.
     const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
-    const transform = window.getComputedStyle(middlePanel).transform;
+    // ui#17 Slice 3 fold-in: getComputedStyle().transform always resolves
+    // to a matrix/matrix3d string (verified directly — never contains the
+    // literal substring "translateZ", regardless of what functions
+    // produced it), so `toBeTruthy()` against it could never actually
+    // fail on a scale-based fake — the assertion this test's own name
+    // promises. style.transform (the inline value Motion writes) is
+    // functional notation and does contain "translateZ(" literally
+    // (verified directly: "translateX(-12px) translateZ(-100px)").
+    const transform = middlePanel.style.transform;
 
-    // Depth deck columns use perspective + translateZ for the depth visual effect.
-    // The computed transform should include a 3D matrix (matrix3d) reflecting the
-    // translateZ applied to push the column back in the perspective field.
-    expect(transform).toBeTruthy();
+    // Depth deck columns use perspective + translateZ for the depth visual
+    // effect, not CSS scale.
+    expect(transform).toContain("translateZ(");
     // Verify the column appears smaller than its natural 300px width.
     // Perspective projection reduces the apparent size of elements pushed back in Z.
     const rect = middlePanel.getBoundingClientRect();
