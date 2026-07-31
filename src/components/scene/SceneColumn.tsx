@@ -417,11 +417,14 @@ export function SceneColumn({
   // firstPaintRef.current === false, because Scene's passive first-paint-
   // flip effect fires between the two synchronous correction rounds).
   // columnGeometryWasSettled captures the PRE-mutation value (read below,
-  // right after effectiveViewportHeight is computed) so both marginTop and
-  // topOffsetMV's drive gate reflect whether settling had ALREADY happened
-  // as of the PREVIOUS render — the render where it first happens must
-  // still count as "not yet settled" so its own value commits instantly
-  // rather than springing from a placeholder.
+  // right after effectiveViewportHeight is computed) so marginTop, the
+  // topOffsetMV/width-channel/zMV drive gates all reflect whether settling
+  // had ALREADY happened as of the PREVIOUS render — the render where it
+  // first happens must still count as "not yet settled" so its own value
+  // commits instantly rather than springing from a placeholder. ui#17
+  // criterion 5 re-derivation: columnTransition (marginTopTransition's own
+  // sibling site) no longer consumes this — see its own declaration
+  // comment for why (its original reason, Motion's `layout` FLIP, is gone).
   const columnGeometrySettledRef = useRef(false);
   // F7 item 2 fix: "settled" requires effectiveViewportHeight to be
   // UNCHANGED across two consecutive commits, not just nonzero once.
@@ -2236,26 +2239,40 @@ export function SceneColumn({
   const marginTopTransition =
     firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
 
-  // F7 item 2 residual: the outer column's own `transition` (used below for
-  // both its `animate={{...}}` values AND, implicitly, Motion's `layout`
-  // FLIP correction) must respect the SAME settling gate as marginTopTransition
-  // above — same underlying cause, a second site. Motion's `layout` prop
-  // snapshots the column's getBoundingClientRect() on every commit and
-  // FLIP-animates any difference from the previous snapshot. During the
-  // not-yet-settled window, an early commit's box can be measured larger
-  // than its final size (confirmed via probe: getBoundingClientRect().height
-  // read 252.7px on an early commit vs. offsetHeight's already-correct,
-  // constant 243px — a projected/stale rect, not a real layout metric).
-  // Once geometry settles a commit later, `layout` diffs that stale 252.7px
-  // "before" snapshot against the correct 243px "after" and springs a
-  // visible scaleY+translateY correction over ~270ms — this is what made the
-  // content still look like it was "sliding in" even after marginTop's own
-  // spring (fixed above) had already resolved. Forcing duration:0 during the
-  // gate window makes `layout` snap the correction instantly instead of
-  // animating it, matching mountInitial/marginTopTransition's existing
-  // first-paint-suppression philosophy.
-  const columnTransition =
-    firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
+  // ui#17 criterion 5 (re-derived, not copied — Motion's `layout` prop is
+  // gone from this node): F7 item 2's original documented reason for this
+  // gate — Motion's `layout` prop snapshotting a stale, mid-settle
+  // getBoundingClientRect() and FLIP-animating a spurious correction once
+  // geometry settled a commit later — is now structurally impossible; there
+  // is no `layout` prop anywhere on this element for that mechanism to fire
+  // from. Re-checked whether `columnTransition`'s OTHER role (governing
+  // `animate={{opacity, x, y, filter}}`'s spring config below) has its own,
+  // independent reason to need this gate: full scene family run with the
+  // `!columnGeometryWasSettled` clause severed — 448/449 unaffected (this
+  // check is structurally uninformative on its own: computeSceneTransition
+  // already collapses to {duration:0} whenever config.duration===0, which
+  // is every test in this suite, gate or no gate). A targeted real-duration
+  // probe (a column mounting already in-between, sandwiched between two
+  // always-focused siblings, never itself focused — dev/pages/
+  // ScenePage.tsx's own Depth deck stacking demo shape) sampled its
+  // rendered Y position across the settling window: flat throughout, zero
+  // discontinuity with or without the clause. Root cause of the flatness,
+  // traced via a settle-state trace on the same probe: a stable never-
+  // focused in-between column simply never receives another render after
+  // its geometry first settles (nothing else about it changes), so its
+  // `animate` targets never get a chance to differ before vs. after
+  // settling either way — the springing-vs-jumping distinction this gate
+  // draws is moot for that config specifically, gate or no gate. Simplified
+  // accordingly (dropped `!columnGeometryWasSettled` here only —
+  // marginTopTransition above and the topOffsetMV/width-channel/zMV drive
+  // gates below all keep it; their own reasons are independent of `layout`
+  // and unaffected by this). Not exhaustively proven: a column whose
+  // stack-depth/position changes DURING the not-yet-settled window (an
+  // untested, more complex scenario) could in principle still exercise a
+  // real spring-from-wrong-target here — same honest boundary this file's
+  // own zMV z-clearance decision documents for a structurally similar
+  // question (2 probe attempts, no reproducible case found).
+  const columnTransition = firstPaintRef.current ? { duration: 0 } : transition;
 
   // Registration callback provided to child SceneObjects. Also drives the
   // shared ResizeObserver's membership — newly registered elements join the
