@@ -7,7 +7,6 @@ import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { MotionSeamContext } from "../src/components/scene/motionSeam";
 import { ColumnPositionContext, type ColumnPosition } from "../src/components/scene/ColumnPositionContext";
 import { StackDepthContext } from "../src/components/scene/StackDepthContext";
-import { DepthDeckContext } from "../src/components/scene/DepthDeckContext";
 import { ViewportContext } from "../src/components/scene/ViewportContext";
 import { TestWrapper } from "./test-wrapper";
 import {
@@ -3642,12 +3641,13 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
     // the observed disposition-4 snap rate (~57-71px/ms measured this
     // session on this exact fixture).
     //
-    // EXPECTED RED right now (2026-07-30): disposition 4 (the depth-deck
-    // flex↔absolute position-mode transition) is not yet fixed — see
-    // plans/ui#17 Node Split Re-implementation Plan and this ticket's own
-    // investigation history. This assertion honestly reflects that;
-    // criteria overshoot-gone/clicks-land close once disposition 4's own
-    // compensating channel lands, not before.
+    // Passing (ui#17 Slice 1, anchor/panel restructure): disposition 4
+    // (the depth-deck flex<->absolute position-mode transition) is fixed —
+    // the anchor stays a permanent zero-footprint in-flow node (never
+    // leaves flex), and the visible glass PANEL's own position-mode flip
+    // is provably zero-pixel by construction (the shared-origin geometric
+    // argument this file's own zero-pixel-flip tests establish), so
+    // there's no snap for this assertion to catch anymore.
     const MAX_LEGIT_X_RATE_PER_MS = 24;
     const xSpikes: { from: (typeof samples)[number]; to: (typeof samples)[number]; rate: number }[] = [];
     for (let i = 1; i < samples.length; i++) {
@@ -8564,9 +8564,10 @@ describe("Scene depth deck stacking", () => {
   });
 
   test("in-between column stacks under right focused column (positioned near right)", async () => {
-    // Phase 6e: x-animation to stackTargetLeft not yet verified — test is TDD.
     // An in-between unfocused column should appear in roughly the same
-    // horizontal area as the right focused column — stacked behind it.
+    // horizontal area as the right focused column — stacked behind it
+    // (the closed-form anchor-relative offset the anchor/panel restructure
+    // uses, not the retired stackTargetLeft/DepthDeckContext mechanism).
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -9446,17 +9447,15 @@ describe("Scene depth deck stacking", () => {
     const build = (focused: boolean) => (
       <TestWrapper fullPage>
         <ViewportContext.Provider value={{ top: 0, left: 0, width: 1000, height: 800 }}>
-          <DepthDeckContext.Provider value={100}>
-            <ColumnPositionContext.Provider value={position}>
-              <StackDepthContext.Provider value={stackDepths}>
-                <SceneColumn name="middle">
-                  <SceneObject name="middle-obj" focused={focused}>
-                    <div data-testid="content" style={{ width: 240, height: 200 }} />
-                  </SceneObject>
-                </SceneColumn>
-              </StackDepthContext.Provider>
-            </ColumnPositionContext.Provider>
-          </DepthDeckContext.Provider>
+          <ColumnPositionContext.Provider value={position}>
+            <StackDepthContext.Provider value={stackDepths}>
+              <SceneColumn name="middle">
+                <SceneObject name="middle-obj" focused={focused}>
+                  <div data-testid="content" style={{ width: 240, height: 200 }} />
+                </SceneObject>
+              </SceneColumn>
+            </StackDepthContext.Provider>
+          </ColumnPositionContext.Provider>
         </ViewportContext.Provider>
       </TestWrapper>
     );
@@ -12196,7 +12195,7 @@ describe("Scene padding cluster (S6)", () => {
   test("in-between column x-anchor accounts for stage padding (stays flush with the focused column when peekOffset=0)", async () => {
     // Mirrors the existing "peekOffset={0} reproduces the old flush-anchored
     // behavior" test's shape (tests/scene.test.tsx depth-1 peek test) with
-    // padding added — stackTargetLeft was measured border-box
+    // padding added — the original bug measured border-box
     // (getBoundingClientRect) against an absolutely-positioned in-between
     // column's static position, which CSS resolves content-box-relative — a
     // padding-sized origin mismatch distinct from the four
