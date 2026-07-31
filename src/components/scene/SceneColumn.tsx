@@ -2580,8 +2580,20 @@ export function SceneColumn({
   // container-query context, so it tracks viewport resize with zero JS
   // re-measurement, same mechanism the focused side already relies on).
   // Target: computeMeasuredWidth (regardless of focus — a deck panel's
-  // own object is never itself focused).
-  const panelWidthTarget = inBetweenNow ? computeMeasuredWidth(objectStates, geometryStore.current) : undefined;
+  // own object is never itself focused). Also defined during a REFOCUS
+  // transition (columnFocused && !widthSettled, mirroring the anchor's
+  // own widthOverrideActive condition for that side) — see
+  // panelWidthOverrideActive's own comment for why the refocus side needs
+  // this too. computeMeasuredWidth gives the SAME value on both sides of
+  // the flip (the panel's natural width doesn't depend on focus), so this
+  // typically doesn't change the target across the commit at all — the
+  // override just stays continuously active through it, which is the
+  // whole point (a target that never changes needs no animation, only to
+  // not be released prematurely).
+  const panelWidthTarget =
+    inBetweenNow || (columnFocused && !widthSettled)
+      ? computeMeasuredWidth(objectStates, geometryStore.current)
+      : undefined;
   const panelWidthMV = useMotionValue(panelWidthTarget ?? 0);
   useEffect(() => {
     motionSeam?.registerMotionValue(`panelWidth:${name}`, panelWidthMV);
@@ -2615,11 +2627,28 @@ export function SceneColumn({
     }
   });
 
-  // Whether the panel's own pixel width override is active — only while
-  // in-between AND still mid-spring (released once settled, letting the
-  // panel's own cqw sizing take over — symmetric with widthOverrideActive
-  // above, which does the same thing for the focused side).
-  const panelWidthOverrideActive = inBetweenNow && !panelWidthSettled;
+  // Whether the panel's own pixel width override is active. Two windows,
+  // matching the two directions a flip can happen:
+  //   - Unfocus (permanent once decked): while in-between AND still
+  //     mid-spring (released once panelWidthSettled, letting the panel's
+  //     own cqw sizing take over at rest — unchanged from before).
+  //   - Refocus (transient): while focused AND the ANCHOR's OWN width
+  //     channel is still mid-spring (widthOverrideActive's own condition
+  //     for the focused side, !widthSettled) — this is the fix for the
+  //     refocus-direction width-source asymmetry (ui#17 Slice 1 close-
+  //     out): without this, the panel had NO override at all on refocus
+  //     and fell back to filling an anchor still springing from its
+  //     decked 0 footprint, producing a real (measured ~175px) width
+  //     discontinuity at the flip commit — the invariant this design
+  //     depends on (the panel never visually resizes; only the anchor's
+  //     footprint animates) was only actually upheld on the unfocus side.
+  //     Gated on the ANCHOR's widthSettled, not panelWidthSettled — the
+  //     panel isn't itself springing to a new value on this side (see
+  //     panelWidthTarget's own comment: the target typically doesn't even
+  //     change across the commit), it's holding its already-correct value
+  //     for exactly as long as the anchor's footprint is still growing
+  //     back, then releasing.
+  const panelWidthOverrideActive = inBetweenNow ? !panelWidthSettled : columnFocused && !widthSettled;
 
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
@@ -3221,14 +3250,21 @@ export function SceneColumn({
             // internals.
             z: duration === 0 ? depthZ : zMV,
             // Michael's ruling — pixels only mid-spring, live CSS at rest.
-            // Applied only while the panel's own override is active (see
+            // Active while the panel's own override is active (see
             // panelWidthOverrideActive's own comment); released once
             // settled, letting the panel's own object-level cqw sizing
             // take over so it tracks viewport resize with zero JS from
-            // that point on.
-            ...(panelWidthOverrideActive
-              ? { width: duration === 0 ? panelWidthTarget : panelWidthMV }
-              : {}),
+            // that point on. The release is an explicit "auto" write, not
+            // an omitted key — `width` was bound to a live MotionValue
+            // (panelWidthMV) moments earlier, and Motion does not clear a
+            // previously MotionValue-bound style key on its own when that
+            // key stops appearing in the style object; the last pixel
+            // value it wrote stays stuck in the DOM forever (found and
+            // reference-fixed in an earlier ui#17 spike investigation of
+            // this exact width-channel family). Writing "auto" explicitly
+            // is a real style write Motion still applies, so it actually
+            // overwrites the stale pixel rather than silently leaving it.
+            width: panelWidthOverrideActive ? (duration === 0 ? panelWidthTarget : panelWidthMV) : "auto",
           }}
         >
         {/* Content wrapper: spring-animated top offset for vertical swap.
