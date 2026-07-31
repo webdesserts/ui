@@ -34,6 +34,29 @@ export function waitForAnimationFrame(): Promise<void> {
 }
 
 /**
+ * Wait for Motion's rAF-driven MotionValue writes to flush to the DOM
+ * before reading computed geometry (ui#17). Motion's `style`-bound
+ * MotionValue writes (e.g. SceneColumn's owned width channel, matching
+ * topOffsetMV's established pattern) are rAF-batched, not synchronous
+ * within the React commit that changes their target — reading a style
+ * immediately after `render()`/`rerender()` resolves can observe a
+ * stale/default value (probe-confirmed: `getComputedStyle(...).marginTop`
+ * read `0` synchronously, but was already correct by the very first
+ * `requestAnimationFrame` callback, 3/3 runs under real suite contention —
+ * since rAF callbacks run before the browser's next repaint, the stale
+ * value is a pure test-read-timing artifact, never a painted frame).
+ * Named for the BEHAVIOR it waits for (not the mechanism) so a future
+ * settle-signal primitive (ui#20) can replace this function's body with an
+ * explicit signal instead of a blind rAF wait, without touching call
+ * sites. Currently just `waitForAnimationFrame()` — one tick was measured
+ * sufficient, not assumed; escalate to a second tick only if a specific
+ * call site proves racy at one.
+ */
+export function awaitStyleFlush(): Promise<void> {
+  return waitForAnimationFrame();
+}
+
+/**
  * Inject a global style override that stretches all CSS transition durations
  * to 10 seconds, giving `freezeAnimationsAt` time to capture them mid-flight.
  *

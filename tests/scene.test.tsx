@@ -10,7 +10,13 @@ import { StackDepthContext } from "../src/components/scene/StackDepthContext";
 import { DepthDeckContext } from "../src/components/scene/DepthDeckContext";
 import { ViewportContext } from "../src/components/scene/ViewportContext";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame, wait, createMotionSeamRecorder, waitForAnimationsToSettle } from "./utils/animation";
+import {
+  waitForAnimationFrame,
+  wait,
+  createMotionSeamRecorder,
+  waitForAnimationsToSettle,
+  awaitStyleFlush,
+} from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -2905,6 +2911,13 @@ describe("Scene centering", () => {
     const contentWrapper = column?.querySelector("[data-column-content]") as HTMLElement | null;
     expect(contentWrapper).not.toBeNull();
 
+    // ui#17: Motion's `style`-bound MotionValue writes (the owned width
+    // channel, mirroring topOffsetMV) are rAF-batched, not synchronous
+    // within the commit that changes their target — a geometry read
+    // immediately after render() can observe a stale/default value. See
+    // awaitStyleFlush's own doc comment for the probe evidence.
+    await awaitStyleFlush();
+
     // margin-top should be > 0 to center the 100px content in an 800px viewport
     // Expected: (800 - 100) / 2 = 350px
     const marginTop = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
@@ -2957,6 +2970,11 @@ describe("Scene centering", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement | null;
 
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render()/rerender() can
+    // observe a stale/default value).
+    await awaitStyleFlush();
+
     // Initially centered (margin-top > 0)
     const marginTopBefore = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
     expect(marginTopBefore).toBeGreaterThan(0);
@@ -2974,6 +2992,7 @@ describe("Scene centering", () => {
         </Scene>
       </TestWrapper>,
     );
+    await awaitStyleFlush();
 
     // Now overflowing — margin-top should be 0 (top-aligned)
     const marginTopAfter = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
@@ -2997,6 +3016,11 @@ describe("Scene centering", () => {
         </Scene>
       </TestWrapper>,
     );
+
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render() can observe a
+    // stale/default value).
+    await awaitStyleFlush();
 
     const content = getByTestId("content").element() as HTMLElement;
     const rect = content.getBoundingClientRect();
@@ -3118,6 +3142,11 @@ describe("Scene centering", () => {
     const wrapper = viewport.querySelector("[data-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(wrapper.style.marginTop || "0");
 
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render()/rerender() can
+    // observe a stale/default value).
+    await awaitStyleFlush();
+
     const baselineMarginTop = readMarginTop();
     // Sanity: a real resting value to shrink from (not degenerately 0).
     expect(baselineMarginTop).toBeGreaterThan(0);
@@ -3133,6 +3162,7 @@ describe("Scene centering", () => {
     // it has no deps array by design (dynamic resizes must be picked up as
     // fast as possible).
     await rerender(build());
+    await awaitStyleFlush();
 
     // Vertical centering halves the viewport-height delta: marginTop must
     // shrink by ~5.5px (11px / 2), not stay unchanged.
@@ -3179,6 +3209,14 @@ describe("Scene first paint at rest (A4)", () => {
 
     const readStageLeft = () => parseFloat(window.getComputedStyle(stage).left);
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+
+    // ui#17: Motion's rAF-driven MotionValue writes land before the
+    // browser's next repaint (probe-confirmed: a synchronous read right
+    // after render() can see a stale/default value that never actually
+    // paints — awaitStyleFlush's own doc comment has the evidence), so
+    // sampling AFTER one rAF tick still reflects the true first PAINTED
+    // frame this test is about, not a later one.
+    await awaitStyleFlush();
 
     // Sample immediately (the first painted frame) plus several points across
     // the following ~600ms — long enough to catch a slow default-spring climb.
@@ -3296,6 +3334,14 @@ describe("Scene first paint at rest (A4)", () => {
     const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
       ?.querySelector("[data-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
+
+    // ui#17: a single awaitStyleFlush (matching this file's other fixes)
+    // measured racy specifically here — StrictMode's double-invocation plus
+    // a real click-driven mount interleaves the test's own rAF wait with
+    // Motion's scheduled write in a way a single tick doesn't reliably
+    // clear; escalating to a second tick per awaitStyleFlush's own
+    // documented double-rAF fallback.
+    await awaitStyleFlush();
 
     // rAF-sample across ~40 real frames (not fixed-delay polling) — a real
     // spring shows a smooth multi-frame climb across this window; the earlier
@@ -3692,6 +3738,11 @@ describe("Scene alignment & centering (S7 coverage)", () => {
     const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
     const content = getByTestId("content").element() as HTMLElement;
 
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render() can observe a
+    // stale/default value).
+    await awaitStyleFlush();
+
     // Vertical: margin-top centers the 100px content in the 800px viewport.
     const marginTop = parseFloat(window.getComputedStyle(contentWrapper).marginTop);
     expect(marginTop).toBeGreaterThan(0);
@@ -3756,6 +3807,11 @@ describe("Scene alignment & centering (S7 coverage)", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     const stage = scene.querySelector("[data-stage]") as HTMLElement;
+
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render() can observe a
+    // stale/default value).
+    await awaitStyleFlush();
 
     // Horizontal: left-aligned — stage left is 0 (focused region starts at
     // the stage origin, so no leftward pan is needed).
@@ -4502,6 +4558,10 @@ describe("Scene vertical scroll", () => {
       .element()
       .closest("[data-column]") as HTMLElement;
     const shortContent = shortColumn.querySelector("[data-column-content]") as HTMLElement;
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render() can observe a
+    // stale/default value).
+    await awaitStyleFlush();
     const marginTopBefore = parseFloat(window.getComputedStyle(shortContent).marginTop);
     expect(marginTopBefore).toBeGreaterThan(0); // should be centered
 
@@ -4875,6 +4935,12 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
     // the same +200 delta.
     expect(recorder.controls.get(`scrollY:col`)).not.toBe(controlsInFlight);
     expect(targets.get(`scrollY:col`)).toBe(600);
+
+    // ui#17: see awaitStyleFlush's own doc comment — the retargeted
+    // spring's velocity tracking updates on Motion's own rAF-driven tick,
+    // same rAF-batching rationale as the DOM style writes elsewhere in
+    // this file.
+    await awaitStyleFlush();
 
     // Velocity carryover, probed directly (adjudication 1): sampled right
     // after the retarget, scrollY's velocity must still be substantial —
@@ -10721,6 +10787,11 @@ describe("Scene padding cluster (S6)", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     const content = getByTestId("content").element() as HTMLElement;
+
+    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // writes — a geometry read immediately after render() can observe a
+    // stale/default value).
+    await awaitStyleFlush();
 
     const viewportRect = scene.getBoundingClientRect();
     const contentRect = content.getBoundingClientRect();
