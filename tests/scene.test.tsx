@@ -8338,7 +8338,13 @@ describe("Scene depth deck stacking", () => {
     const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
     const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
 
-    const middleRect = middleCol.getBoundingClientRect();
+    // ui#17 selector audit: middleCol is decked (in-between) — its own
+    // anchor is a permanent zero-footprint node, so its gBCR reports the
+    // collapsed peek-width position, not the visible panel's. Read the
+    // panel instead for a decked column's own geometry (rightCol stays
+    // focused/position:relative pass-through, unaffected either way).
+    const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const middleRect = middlePanel.getBoundingClientRect();
     const rightRect = rightCol.getBoundingClientRect();
 
     // In-between column should overlap with the right focused column's area.
@@ -8681,7 +8687,14 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
-    const transform = window.getComputedStyle(middleCol).transform;
+    // ui#17 selector audit: the depth-deck's translateZ lives on the PANEL
+    // node (see zMV's own declaration in SceneColumn.tsx), not the
+    // zero-footprint anchor — this test is specifically about that
+    // transform, unlike the sibling "appears smaller than natural size"
+    // test above (which explicitly doesn't care which node contributes
+    // the shrink), so it reads the panel.
+    const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const transform = window.getComputedStyle(middlePanel).transform;
 
     // Depth deck columns use perspective + translateZ for the depth visual effect.
     // The computed transform should include a 3D matrix (matrix3d) reflecting the
@@ -8689,7 +8702,7 @@ describe("Scene depth deck stacking", () => {
     expect(transform).toBeTruthy();
     // Verify the column appears smaller than its natural 300px width.
     // Perspective projection reduces the apparent size of elements pushed back in Z.
-    const rect = middleCol.getBoundingClientRect();
+    const rect = middlePanel.getBoundingClientRect();
     expect(rect.width).toBeLessThan(300);
   });
 
@@ -8845,17 +8858,27 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     // At peekOffset=0 the deck column renders flush against the focused
-    // column (no visible gap).
+    // column (no visible gap) — a genuine theoretical claim about the
+    // design (zero net offset when panelAnimateX is itself 0), not a
+    // measured-then-hand-waved number, so it stays a flat-tolerance check.
     expect(flushGap).toBeCloseTo(0, -1);
 
-    // Rendered (post-perspective-projection) left edge: the peek is also
-    // visibly observable, attenuated somewhat by perspective foreshortening
-    // at depth-1 (~0.89x scale — see computeDepthTreatment) — toBeCloseTo(-1)
-    // (tolerance <5px) accommodates that attenuation while still clearly
-    // discriminating from the pre-A5 ~1-2px emergent shift.
+    // Rendered (post-perspective-projection) left edge: the NOMINAL
+    // translateX (-peekOffset at depth-1) composes with the SAME
+    // translateZ/perspective transform that also shrinks the panel's
+    // rendered width, so the visible peek is peekOffset foreshortened by
+    // that panel's own projection factor, not a flat 12px (ui#17 selector
+    // audit — re-derived from a flat ±5px placeholder that was itself
+    // flagged as asserted-not-derived; same measured-factor discipline
+    // the "custom peekOffset" test below uses, deriving the factor from
+    // the panel's own rendered width rather than hand-deriving the CSS 3D
+    // projection math).
     const rightRect = rightPanel.getBoundingClientRect();
     const middleRect = middlePanel.getBoundingClientRect();
-    expect(rightRect.left - middleRect.left).toBeCloseTo(12, -1);
+    const naturalWidth = 200; // this fixture's own SceneObject width
+    const depth1Factor = middleRect.width / naturalWidth;
+    const expectedPeek = 12 * depth1Factor;
+    expect(Math.abs(rightRect.left - middleRect.left - expectedPeek)).toBeLessThan(2);
   });
 
   test("multiple in-between columns peek left by an additional peekOffset increment per depth (fanned)", async () => {
@@ -8895,16 +8918,24 @@ describe("Scene depth deck stacking", () => {
 
     // ui#17 anchor/panel split: gBCR of the PANEL node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
-    // comment for why. toBeCloseTo(-1) (±5px) accommodates perspective
-    // foreshortening.
+    // comment for why.
     const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
     const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
     const depth1Rect = panel2.getBoundingClientRect();
     const depth2Rect = panel1.getBoundingClientRect();
 
     // Each successive depth level peeks by one additional peekOffset
-    // increment (12px default).
-    expect(depth1Rect.left - depth2Rect.left).toBeCloseTo(12, -1);
+    // increment (12px default) — but each depth's OWN nominal shift
+    // (-peekOffset * stackDepth) is foreshortened by that same depth's own
+    // perspective projection factor (ui#17 selector audit — re-derived
+    // from a flat ±5px placeholder; same measured-factor discipline the
+    // "custom peekOffset" test below uses).
+    const naturalWidth = 200;
+    const factor1 = depth1Rect.width / naturalWidth;
+    const factor2 = depth2Rect.width / naturalWidth;
+    const expectedDelta = 12 * 2 * factor2 - 12 * 1 * factor1;
+    const actualDelta = depth1Rect.left - depth2Rect.left;
+    expect(Math.abs(actualDelta - expectedDelta)).toBeLessThan(2);
   });
 
   test("custom peekOffset prop changes the column deck peek offsets accordingly", async () => {
@@ -9006,9 +9037,16 @@ describe("Scene depth deck stacking", () => {
     // With no peek offset, every in-between column renders flush at the
     // same left edge regardless of depth — the pre-A5 behavior, where only
     // perspective projection (not a manual x offset) distinguished depths.
-    // ui#17 never-leave-the-flow: gBCR, not raw transform — see the
-    // "depth-1 ... peeks left by exactly peekOffset" test's own comment.
-    expect(middle1.getBoundingClientRect().left).toBeCloseTo(middle2.getBoundingClientRect().left, -1);
+    // ui#17 selector audit: reads the PANEL (panelAnimateX = 0 at
+    // peekOffset=0, so the panel's own static (0,0)-within-anchor position
+    // means this should read identically to the anchor here, but the panel
+    // is the node whose position actually matters for what's visible — see
+    // the "depth-1 ... peeks left by exactly peekOffset" test's own
+    // comment for why this suite reads panels, not anchors, for decked
+    // geometry).
+    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    expect(panel1.getBoundingClientRect().left).toBeCloseTo(panel2.getBoundingClientRect().left, -1);
   });
 
   test("H11: a never-before-focused deck card's marginTop converges monotonically on first focus (no swing)", async () => {
