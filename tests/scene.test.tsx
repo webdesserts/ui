@@ -4082,6 +4082,97 @@ describe("Glass-stack deck: gap-math", () => {
   });
 });
 
+describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", () => {
+  test("both a focused column's and a decked column's live-cqw width track a real viewport resize once settled", async () => {
+    // Representative fixture (constraint 4, binding per team-lead's Slice 3
+    // ruling): explicit cqw width on SceneObject's own style prop, never
+    // the suite's dominant inner-div idiom — mirrors obs-width-family.json's
+    // own "resize tracks at 1.4998 against expected 1.5" finding for the
+    // FOCUSED side (already proven on the committed code under this exact
+    // shape); this test extends that proof to the DECKED side's
+    // panelWidthMV/computeMeasuredWidth channel, which wasn't previously
+    // verified against a real resize.
+    const recorder = createMotionSeamRecorder();
+    function Demo({ viewportWidth }: { viewportWidth: number }) {
+      return (
+        <TestWrapper fullPage width={viewportWidth} height={600}>
+          <MotionSeamContext.Provider value={recorder}>
+            <Scene duration={0}>
+              <SceneColumn name="focused-col">
+                <SceneObject name="focused-obj" focused style={{ width: "40cqw" }}>
+                  <div style={{ height: 300 }}>focused</div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="decked-col">
+                <SceneObject name="decked-obj" focused={false} style={{ width: "30cqw" }}>
+                  <div style={{ height: 300 }}>decked</div>
+                </SceneObject>
+              </SceneColumn>
+              <SceneColumn name="right-col">
+                <SceneObject name="right-obj" focused style={{ width: "40cqw" }}>
+                  <div style={{ height: 300 }}>right</div>
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </MotionSeamContext.Provider>
+        </TestWrapper>
+      );
+    }
+
+    const { rerender } = await render(<Demo viewportWidth={1000} />);
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // Focused side: SceneObject's own outer wrapper (data-scene-id) — at
+    // rest the anchor's own width override is released, so the anchor
+    // sizes naturally to wrap this node, matching obs-width-family.json's
+    // own methodology for the focused-side proof.
+    const focusedEl = document.querySelector('[data-scene-id="focused-obj"]') as HTMLElement;
+
+    // Decked side: panelWidthMV's own live value via the motion seam, NOT
+    // any DOM read. Two dead ends found first (both defeat-check-caught,
+    // 2026-07-31): (1) reading the SceneObject node is vacuous — it
+    // carries its own independent cqw width regardless of the panel's own
+    // JS-driven state, so a permanently-stuck panelWidthOverrideActive
+    // left it green. (2) reading the PANEL's own gBCR/offsetWidth is ALSO
+    // vacuous under duration=0 specifically — the jump branch
+    // (`if (duration === 0 || ...) { ...; setPanelWidthSettled(true); }`)
+    // sets panelWidthSettled back to true SYNCHRONOUSLY within the same
+    // commit that computed the target, so panelWidthOverrideActive
+    // (`inBetweenNow ? !panelWidthSettled : ...`) is already false by the
+    // time any test observes it — the style binding renders "auto" before
+    // a test can ever catch panelWidthTarget applied, so severing
+    // computeMeasuredWidth to a fixed stale value left even the panel
+    // read green too. panelWidthMV itself persists its last-jumped value
+    // regardless of whether the style override is currently applied,
+    // so reading it directly exercises computeMeasuredWidth/geometryStore's
+    // own resize-driven recomputation without depending on that window.
+    const panelWidthMV = recorder.values.get("panelWidth:decked-col");
+    if (!panelWidthMV) {
+      throw new Error("panelWidth:decked-col was never registered — setup bug, not a timing race");
+    }
+    const deckedBeforeTarget = panelWidthMV.get();
+
+    const focusedBefore = focusedEl.offsetWidth;
+
+    await rerender(<Demo viewportWidth={1500} />);
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    const focusedAfter = focusedEl.offsetWidth;
+    const deckedAfterTarget = panelWidthMV.get();
+
+    // 1500/1000 = 1.5x viewport resize — both columns' cqw-driven widths
+    // should track it closely at rest (no JS width override active once
+    // widthSettled/panelWidthSettled are true, which duration=0 makes
+    // immediate — natural CSS container-query sizing is what's actually
+    // rendering for the FOCUSED side; the decked side's channel value is
+    // read directly, per the dead-ends above).
+    expect(focusedAfter / focusedBefore).toBeCloseTo(1.5, 1);
+    expect(deckedAfterTarget / deckedBeforeTarget).toBeCloseTo(1.5, 1);
+  });
+});
+
 describe("Glass-stack deck: margin/width lockstep (forecast edit E2)", () => {
   // Both channels retarget on the identical trigger commit with the
   // identical transition config, so they represent the same [0,1]
