@@ -14368,6 +14368,21 @@ async function measureSettleDurationMs(
  * state so the same fixture builds both directions: "unfocus interrupted
  * by refocus" (mid-a starts focused) and "focus interrupted by unfocus"
  * (mid-a starts sandwiched).
+ *
+ * Coverage note (delta claim review, carried forward from faa3fc5's own
+ * disclosure on the minimal test this fixture shape was ported from):
+ * mid-b never itself toggles focus in this fixture, so it never crosses
+ * the focused/sandwiched boundary — its own gBCR outlier check below
+ * covers depth/peek-offset RETARGETING (its within-column depth shifting
+ * as a side effect of mid-a's transition) and paint-space continuity, but
+ * is structurally vacuous for a HEIGHT-CHANNEL sever specifically: mid-b's
+ * anchor collapses via ordinary CSS auto-height circularity regardless of
+ * whether the height channel itself is working, since it's sandwiched
+ * throughout. Height-channel coverage for this exact
+ * mount-sandwiched/settle class lives elsewhere — the red-first N=10 gBCR
+ * repro and the layout-box flip tests, plus the ui#o29-anchored
+ * (`test.skip`) lockstep test for the specific staleness race that skip
+ * documents.
  */
 function buildDoubleInterruptionFixture(initialMidAFocused: boolean) {
   return function Demo() {
