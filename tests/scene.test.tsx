@@ -13341,27 +13341,47 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
   });
 });
 
-describe("Within-column deck (ui#21): z-/paint-order at the flip commit (forecast E6, board criterion 6)", () => {
-  // Ports ui#17's own E2 pattern (tests/scene.test.tsx's "Glass-stack deck:
-  // z-/paint-order at the flip commit" block) to the vertical axis: a
-  // synchronous z-MotionValue read immediately before/after the click
-  // (verifies the spring path is taken, not a synchronous jump — z should
-  // still read its PRE-click value right after the commit, since animateTo
-  // starts the spring asynchronously) paired with a paint-order sample at a
-  // probe point where the sandwiched panel's own peeked box genuinely
-  // overlaps its lower focused sibling (peekOffset=12 << naturalHeight, so
-  // most of the sandwiched panel's box still overlaps the sibling below it
-  // even after the peek transform — see computeDepthTreatment/peekOffset).
-  // Probe point: 5px inside "stack-bottom"'s own top edge, horizontally
-  // centered — "stack-middle" (once sandwiched) overlaps this point but
-  // must stay BEHIND "stack-bottom" (z=0, focused, closer to viewer) in
-  // paint order, never popping in front.
-  test("unfocus direction: no z discontinuity, and paint order doesn't visibly pop at the flip commit", async () => {
-    const recorder = createMotionSeamRecorder();
+describe("Within-column deck (ui#21): z-index paint order at the flip commit (forecast E6, board criterion 6)", () => {
+  // Ports ui#17's own E2 pattern to the vertical axis. Five rounds of
+  // defeat-checking a translateZ-based channel against a z-sign-inversion
+  // sever each found the prior sample-point choice vacuous (rounds 1-4:
+  // registration/value/threshold-timing gaps; round 5's own overlap-window
+  // redesign STILL stayed green under the sever) — the investigation that
+  // followed (ui#o32, the D-series record) found the underlying mechanism
+  // itself was never real: object-level translateZ never actually reached
+  // the panel (three flat transform-style intermediates from the nearest
+  // preserve-3d ancestor), so no sever on that channel could ever have
+  // produced a genuine red. Replaced with an explicit z-index channel
+  // (SceneObject.tsx) that sidesteps the whole 3D-context question.
+  //
+  // z-index is discrete and flips at different MOMENTS per direction by
+  // design (see the channel's own declaration comments): SINKING
+  // (focused -> sandwiched) flips unconditionally at commit, for the WHOLE
+  // transition; RISING (sandwiched -> focused) stays low until its own
+  // height spring settles. Both directions reduce to the SAME invariant
+  // under a single overlap-window methodology: while the two panels
+  // genuinely, geometrically overlap (fresh gBCRs every frame, never a
+  // stale pre-click snapshot), middle must never win paint order, and its
+  // own zIndex must never read a value that would let it. Design intent —
+  // not any internal signal the sever could also corrupt — anchors the
+  // expectation.
+  function ownerOf(el: Element | null): string | undefined {
+    return el?.closest("[data-scene-id]")?.getAttribute("data-scene-id") ?? undefined;
+  }
+
+  function zIndexOf(panel: HTMLElement): string {
+    return getComputedStyle(panel).zIndex;
+  }
+
+  function isReceded(zIndexValue: string): boolean {
+    return zIndexValue !== "auto" && Number(zIndexValue) < 0;
+  }
+
+  test("sinking (unfocus): zIndex drops behind its neighbor from the first commit, and paint order never pops throughout the transition", async () => {
     function Demo() {
       const [middleFocused, setMiddleFocused] = useState(true);
       return (
-        <MotionSeamContext.Provider value={recorder}>
+        <>
           <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
             toggle
           </button>
@@ -13373,43 +13393,91 @@ describe("Within-column deck (ui#21): z-/paint-order at the flip commit (forecas
             onToggleMiddle={() => setMiddleFocused(true)}
             onToggleBottom={() => {}}
           />
-        </MotionSeamContext.Provider>
+        </>
       );
     }
 
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const zMV = recorder.values.get("z:stack-middle");
-    if (!zMV) throw new Error("z MotionValue was not registered for 'stack-middle' — setup bug, not a timing race");
+    const middlePanel = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const bottomPanel = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
 
-    const bottomAnchor = container.querySelector('[data-scene-id="stack-bottom"]') as HTMLElement;
-    const bottomRect = bottomAnchor.getBoundingClientRect();
-    const probeX = bottomRect.left + bottomRect.width / 2;
-    const probeY = bottomRect.top + 5;
-
-    const zBefore = zMV.get();
-    const stackBefore = document
-      .elementsFromPoint(probeX, probeY)
-      .map((el) => el.tagName + (el.getAttribute("data-scene-id") ? `[data-scene-id=${el.getAttribute("data-scene-id")}]` : ""));
-
+    const zIndexBefore = zIndexOf(middlePanel);
     (getByTestId("toggle").element() as HTMLElement).click();
 
-    const zAfter = zMV.get();
-    const stackAfter = document
-      .elementsFromPoint(probeX, probeY)
-      .map((el) => el.tagName + (el.getAttribute("data-scene-id") ? `[data-scene-id=${el.getAttribute("data-scene-id")}]` : ""));
+    // Precondition: sinking is unconditional on focus state alone — no
+    // spring, no registration to wait for — so a single frame of slack for
+    // React to flush is generous, not a real timing race.
+    await waitForAnimationFrame();
+    const zIndexAfterCommit = zIndexOf(middlePanel);
+    if (zIndexAfterCommit === zIndexBefore) {
+      throw new Error(`zIndex never changed from its pre-click value ("${zIndexBefore}") within one frame of the click — setup bug, not a timing race`);
+    }
+    if (!isReceded(zIndexAfterCommit)) {
+      throw new Error(`zIndex read "${zIndexAfterCommit}" immediately after the sinking commit — expected a negative, depth-scaled value from the very first frame, not a timing race`);
+    }
 
-    expect(Math.abs(zAfter - zBefore)).toBeLessThan(1);
-    expect(stackAfter[0]).toBe(stackBefore[0]);
+    let overlapFrames = 0;
+    let middleWonAnyOverlapFrame = false;
+    let zIndexEverNotRecededWhileUnfocused = false;
+    const start = performance.now();
+    for (let i = 0; i < 150; i++) {
+      await waitForAnimationFrame();
+      if (!isReceded(zIndexOf(middlePanel))) zIndexEverNotRecededWhileUnfocused = true;
+      const mRect = middlePanel.getBoundingClientRect();
+      const bRect = bottomPanel.getBoundingClientRect();
+      const left = Math.max(mRect.left, bRect.left);
+      const right = Math.min(mRect.right, bRect.right);
+      const top = Math.max(mRect.top, bRect.top);
+      const bottom = Math.min(mRect.bottom, bRect.bottom);
+      if (left < right && top < bottom) {
+        overlapFrames++;
+        const centroidX = (left + right) / 2;
+        const centroidY = (top + bottom) / 2;
+        const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
+        if (owner === "stack-middle") middleWonAnyOverlapFrame = true;
+      }
+      if (performance.now() - start > 2500) break;
+    }
+
+    // Non-vacuity precondition: genuine overlap must actually have been
+    // observed. K=10 chosen with the same margin logic as the original
+    // round-5 measurement (well below any real observed window, still
+    // requiring a substantial, non-accidental sample count).
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+
+    expect(zIndexEverNotRecededWhileUnfocused, "zIndex read a non-negative/auto value at least once while sinking — it must stay receded unconditionally, for the WHOLE transition, per the design's own unconditional-sinking rule").toBe(false);
+
+    // Headline, externally anchored (design intent, not any internal
+    // signal — the sever corrupts zIndex's own derivation too, so a
+    // zIndex-consistency check alone would inherit the sever and pass
+    // circularly; this is why the elementsFromPoint check stays primary).
+    expect(middleWonAnyOverlapFrame, `middle won paint order in at least one of ${overlapFrames} overlap-sampled frames`).toBe(false);
+
+    // At-rest check: the permanent end state. Overlap persists forever
+    // once settled for this direction (measured, round 5) — zIndex must
+    // still read receded there, not just transiently during the spring.
+    await wait(1500);
+    const zIndexAtRest = zIndexOf(middlePanel);
+    expect(isReceded(zIndexAtRest), `zIndex at rest was "${zIndexAtRest}", expected a negative, depth-scaled value`).toBe(true);
+    const mRectFinal = middlePanel.getBoundingClientRect();
+    const bRectFinal = bottomPanel.getBoundingClientRect();
+    const stillOverlaps =
+      Math.max(mRectFinal.left, bRectFinal.left) < Math.min(mRectFinal.right, bRectFinal.right) &&
+      Math.max(mRectFinal.top, bRectFinal.top) < Math.min(mRectFinal.bottom, bRectFinal.bottom);
+    expect(stillOverlaps, "middle and bottom panels no longer overlap at rest — setup bug or design changed").toBe(true);
+    const finalCentroidX = (Math.max(mRectFinal.left, bRectFinal.left) + Math.min(mRectFinal.right, bRectFinal.right)) / 2;
+    const finalCentroidY = (Math.max(mRectFinal.top, bRectFinal.top) + Math.min(mRectFinal.bottom, bRectFinal.bottom)) / 2;
+    const ownerAtRest = ownerOf(document.elementsFromPoint(finalCentroidX, finalCentroidY)[0] ?? null);
+    expect(ownerAtRest, `owner at rest was "${ownerAtRest}", expected "stack-bottom"`).toBe("stack-bottom");
   });
 
-  test("focus direction: no z discontinuity, and paint order doesn't visibly pop at the flip commit", async () => {
-    const recorder = createMotionSeamRecorder();
+  test("rising (refocus): zIndex stays behind until settle, and paint order never pops during the transition", async () => {
     function Demo() {
       const [middleFocused, setMiddleFocused] = useState(false);
       return (
-        <MotionSeamContext.Provider value={recorder}>
+        <>
           <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
             toggle
           </button>
@@ -13421,35 +13489,67 @@ describe("Within-column deck (ui#21): z-/paint-order at the flip commit (forecas
             onToggleMiddle={() => setMiddleFocused(true)}
             onToggleBottom={() => {}}
           />
-        </MotionSeamContext.Provider>
+        </>
       );
     }
 
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const zMV = recorder.values.get("z:stack-middle");
-    if (!zMV) throw new Error("z MotionValue was not registered for 'stack-middle' — setup bug, not a timing race");
+    const middlePanel = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const bottomPanel = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
 
-    const bottomAnchor = container.querySelector('[data-scene-id="stack-bottom"]') as HTMLElement;
-    const bottomRect = bottomAnchor.getBoundingClientRect();
-    const probeX = bottomRect.left + bottomRect.width / 2;
-    const probeY = bottomRect.top + 5;
-
-    const zBefore = zMV.get();
-    const stackBefore = document
-      .elementsFromPoint(probeX, probeY)
-      .map((el) => el.tagName + (el.getAttribute("data-scene-id") ? `[data-scene-id=${el.getAttribute("data-scene-id")}]` : ""));
+    const zIndexBefore = zIndexOf(middlePanel);
+    if (!isReceded(zIndexBefore)) {
+      throw new Error(`zIndex before the rise was "${zIndexBefore}" — expected a negative, depth-scaled value for a settled sandwiched mount, not a timing race`);
+    }
 
     (getByTestId("toggle").element() as HTMLElement).click();
 
-    const zAfter = zMV.get();
-    const stackAfter = document
-      .elementsFromPoint(probeX, probeY)
-      .map((el) => el.tagName + (el.getAttribute("data-scene-id") ? `[data-scene-id=${el.getAttribute("data-scene-id")}]` : ""));
+    let overlapFrames = 0;
+    let middleWonAnyOverlapFrame = false;
+    let zIndexEverReleasedDuringOverlap = false;
+    const start = performance.now();
+    for (let i = 0; i < 150; i++) {
+      await waitForAnimationFrame();
+      const mRect = middlePanel.getBoundingClientRect();
+      const bRect = bottomPanel.getBoundingClientRect();
+      const left = Math.max(mRect.left, bRect.left);
+      const right = Math.min(mRect.right, bRect.right);
+      const top = Math.max(mRect.top, bRect.top);
+      const bottom = Math.min(mRect.bottom, bRect.bottom);
+      if (left < right && top < bottom) {
+        overlapFrames++;
+        if (!isReceded(zIndexOf(middlePanel))) zIndexEverReleasedDuringOverlap = true;
+        const centroidX = (left + right) / 2;
+        const centroidY = (top + bottom) / 2;
+        const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
+        if (owner === "stack-middle") middleWonAnyOverlapFrame = true;
+      }
+      if (performance.now() - start > 2500) break;
+    }
 
-    expect(Math.abs(zAfter - zBefore)).toBeLessThan(1);
-    expect(stackAfter[0]).toBe(stackBefore[0]);
+    // Non-vacuity precondition: genuine overlap must actually have been
+    // observed. K=10 chosen from round 5's own measured overlap window
+    // (37 frames, 3/3 runs deterministic) — well below the observed
+    // window, generous margin for run-to-run variance, but still
+    // requiring a substantial, non-accidental sample count.
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+
+    expect(zIndexEverReleasedDuringOverlap, "zIndex released to a non-negative/auto value at least once while middle still genuinely overlapped bottom — it must stay receded until settle").toBe(false);
+
+    // Headline, externally anchored (design intent, not any internal
+    // signal the sever could also corrupt).
+    expect(middleWonAnyOverlapFrame, `middle won paint order in at least one of ${overlapFrames} overlap-sampled frames`).toBe(false);
+
+    // Settle-release check: confirms the flip actually DOES eventually
+    // happen — without this, "stays receded forever" would trivially
+    // satisfy every assertion above without proving the design's other
+    // half (the riser must eventually rejoin normal stacking, not stay
+    // permanently receded).
+    await wait(1500);
+    const zIndexAtRest = zIndexOf(middlePanel);
+    expect(zIndexAtRest, `zIndex never released to "auto" after settling — read "${zIndexAtRest}"`).toBe("auto");
   });
 });
 

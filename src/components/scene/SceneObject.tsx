@@ -354,43 +354,108 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   });
 
   // ---------------------------------------------------------------------
-  // Depth visual treatment (opacity, filter, z) — moves to the PANEL below
-  // (forecast E3+E4 tie-together). z is imperative (zMV, style-bound),
-  // mirroring SceneColumn's own zMV pattern exactly, not the declarative
-  // `animate` prop — opacity/filter stay declarative (WAAPI-friendly,
-  // no z-clearance coupling concern). Gated on `column` (standalone usage
-  // outside a Scene gets no depth treatment at all, matching the pre-split
-  // behavior of `objectDepthAnimate` being entirely omitted).
+  // Depth visual treatment (opacity, filter) — moves to the PANEL below
+  // (forecast E3+E4 tie-together), declarative (WAAPI-friendly). Gated on
+  // `column` (standalone usage outside a Scene gets no depth treatment at
+  // all, matching the pre-split behavior of `objectDepthAnimate` being
+  // entirely omitted). z is NOT part of this — see the z-index channel
+  // below, a separate, discrete (non-animated) mechanism.
   // ---------------------------------------------------------------------
   const depthTreatment = column
     ? focused
-      ? { opacity: 1, z: 0, grayscale: 0 }
+      ? { opacity: 1, grayscale: 0 }
       : withinDepthInfo && withinDepth
-        ? { opacity: withinDepth.opacity, z: withinDepth.translateZ, grayscale: withinDepth.grayscale }
-        : { opacity: 0.8, z: -100, grayscale: 0.25 }
+        ? { opacity: withinDepth.opacity, grayscale: withinDepth.grayscale }
+        : { opacity: 0.8, grayscale: 0.25 }
     : undefined;
-  const depthZ = depthTreatment?.z ?? 0;
 
-  const zMV = useMotionValue(depthZ);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`z:${name}`, zMV);
-    return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
-  }, [motionSeam, zMV, name]);
-  const zTargetRef = useRef(depthZ);
-  const zOwnedAnimation = useOwnedAnimation();
-  useLayoutEffect(() => {
-    if (depthZ === zTargetRef.current) return;
-    zTargetRef.current = depthZ;
-    if (duration === 0) {
-      zMV.set(depthZ);
-    } else if (isFirstPaint) {
-      zOwnedAnimation.jump(zMV, depthZ);
-    } else {
-      const controls = zOwnedAnimation.animateTo(zMV, depthZ, transition);
-      motionSeam?.registerControls(`z:${name}`, controls);
-      motionSeam?.registerTarget?.(`z:${name}`, depthZ);
-    }
-  });
+  // ---------------------------------------------------------------------
+  // z-index channel (replaces the object-level translateZ/zMV channel a
+  // prior iteration of this file used). Object-level 3D depth-sort never
+  // actually reached the panel — a multi-round defeat-check investigation
+  // (ui#o32, the D-series record) found three flat transform-style
+  // intermediates between here and the nearest preserve-3d ancestor, and
+  // even an isolated probe that forced the chain past that didn't restore
+  // genuine cross-sibling z-sort. z-index sidesteps the whole 3D-context
+  // question — ordinary 2D stacking rules, no preserve-3d chain required
+  // anywhere in this component. Discrete, not sprung: there's no
+  // meaningful "in-between" z-index value, so this is a plain conditional
+  // style write, not a MotionValue — the real design question is flip
+  // TIMING, not interpolation (see risingRef below).
+  // ---------------------------------------------------------------------
+
+  // Continuously captures the last known sandwiched depth — withinDepthInfo
+  // disappears the instant this object is no longer sandwiched (recomputed
+  // from the column's registry each render), but a just-risen object still
+  // needs to know where it rose FROM until its own rise settles (see
+  // risingRef below). Mirrors naturalHeight's own "continuously capture
+  // while safe" pattern above.
+  const lastSandwichedDepthRef = useRef<number | undefined>(withinDepthInfo?.depth);
+  if (withinDepthInfo) lastSandwichedDepthRef.current = withinDepthInfo.depth;
+
+  // Edge-detects the EXACT commit a (previously sandwiched) object becomes
+  // focused (a "rise") and stays armed until that SAME rise's own height
+  // spring settles. Keyed on `focused` transitioning, NOT on `sandwichedNow`
+  // transitioning — real regression found and fixed here: `sandwichedNow`
+  // derives from `column.withinColumnDepths`, a registry-derived value
+  // that's one-commit-stale by construction (the same class of staleness
+  // documented elsewhere in this file/SceneColumn.tsx's own `position`).
+  // On the exact render `focused` first flips true, `sandwichedNow` can
+  // still read stale-true — an edge condition keyed on `!sandwichedNow`
+  // never fires on that render, so the derivation below's `focused ?`
+  // branch already returns "auto" before risingRef ever gets armed (caught
+  // via the interruption/settle-release test going red on unsevered code:
+  // zIndex read "auto" from the very first sampled frame, not a timing
+  // race). `focused` itself is a plain prop, not registry-derived, so it
+  // has no such lag. `wasEverSandwichedRef` (declared above) excludes an
+  // object that's never actually been sandwiched — such an object has
+  // nothing to rise FROM, so it should jump straight to "auto", matching
+  // wasEverSandwichedRef's own established exclusion for the height
+  // channel. NOT gated on bare heightSettled alone — heightSettled ALSO
+  // flips false for an unrelated content-resize on an already-settled,
+  // long-focused object (heightTarget tracks naturalHeight even when never
+  // recently sandwiched — see heightTarget's own declaration above), which
+  // would otherwise incorrectly drop zIndex mid-resize. Render-time ref
+  // mutation, same idiom as wasEverSandwichedRef above — re-arms cleanly
+  // on every genuine re-rise, including one that interrupts an earlier
+  // unsettled rise, since it's edge-triggered every render rather than a
+  // one-shot latch.
+  const wasFocusedLastRenderRef = useRef(focused);
+  const risingRef = useRef(false);
+  // Disarm check runs FIRST, against risingRef's value as of the END of
+  // the PRIOR render — real regression found and fixed here: heightSettled
+  // can ALSO still read stale-true on the exact render risingRef arms
+  // (heightTarget's own computation depends on the same stale
+  // sandwichedNow, so the height channel's layout effect hasn't detected a
+  // new target yet either, and heightSettled hasn't flipped false for
+  // THIS rise). Checking disarm before arm (rather than unconditionally
+  // after) means a fresh arm on this render can never be immediately
+  // undone by a heightSettled reading that predates this transition.
+  if (risingRef.current && heightSettled) {
+    risingRef.current = false;
+  }
+  if (!wasFocusedLastRenderRef.current && focused && wasEverSandwichedRef.current) {
+    risingRef.current = true;
+  }
+  wasFocusedLastRenderRef.current = focused;
+
+  // Sinking (focused -> sandwiched) is unconditional on focus state alone
+  // — the object drops behind its neighbor from the very first commit, for
+  // the WHOLE transition (Michael's o26 description: behind throughout,
+  // not just at the end). This is also what makes an interrupted rise safe
+  // with no special-case code: the moment `focused` flips back false, this
+  // branch takes over regardless of risingRef's own state — a riser
+  // interrupted mid-rise is never stranded on top.
+  const zIndex: number | "auto" = focused
+    ? risingRef.current
+      ? -(lastSandwichedDepthRef.current ?? 1)
+      : "auto"
+    : withinDepthInfo && withinDepth
+      ? -withinDepthInfo.depth
+      : // Ordinary in-flow unfocused object with no depth info (no known
+        // neighbor it needs to stay behind) — explicit "auto", a decision,
+        // not an accidental fallthrough.
+        "auto";
 
   // Peek offset (forecast E4 — required fix, not a toss-up): lives ENTIRELY
   // in the panel's own `y` TRANSFORM, never in a layout property (`top`/
@@ -558,28 +623,23 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           anchor's own content box, escaping the anchor's own collapsed box
           entirely so the full-size content paints regardless of the
           anchor's own height (mirrors SceneColumn's own data-column-panel
-          exactly). No transformStyle:preserve-3d here or on the anchor
-          (ui#21 delta claim review E3 rider) — unlike ui#17's column
-          anchor, which needs it because its own `x:0` mount-entrance
-          transform makes it a transformed element (defaulting to flat,
-          flattening the panel's z beneath it), THIS anchor carries no
-          transform of its own under the current design (height/margin are
-          layout-property style bindings, not transforms) — an untransformed
-          element doesn't interrupt a preserve-3d chain, so the panel
-          inherits the viewport/stage's 3D context straight through with
-          nothing extra needed here. Do not add preserve-3d "for parity"
-          with the column anchor without first giving this anchor an
-          equivalent real transform — copying the column pattern here would
-          be defending against a hazard this structure doesn't have. */}
+          exactly). Paint order at the depth-deck flip commit is driven by
+          an explicit z-index channel (see its own declaration above), not
+          3D-transform depth-sort — a multi-round defeat-check
+          investigation (ui#o32, the D-series record) found object-level
+          translateZ never actually reached the panel (three flat
+          transform-style intermediates between here and the nearest
+          preserve-3d ancestor), and even an isolated probe that forced
+          the chain past that didn't restore genuine cross-sibling z-sort.
+          z-index sidesteps the whole question — it works within ordinary
+          2D stacking rules, no preserve-3d chain needed anywhere in this
+          component. */}
       <motion.div
         data-scene-panel={name}
         {...(depthTreatment
           ? {
               animate: {
                 opacity: depthTreatment.opacity,
-                // z is NOT here — see zMV's declaration above (mirrors
-                // SceneColumn's own z-clearance-coupling rationale) and the
-                // style prop below.
                 y: peekY,
                 // Always emit a valid filter string — motion cannot
                 // interpolate between undefined and a filter string, which
@@ -625,9 +685,11 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // settled, letting the panel's own object-level sizing take
           // over" precedent for its width channel.
           height: !heightOverrideActive ? "100%" : naturalHeight || undefined,
-          // Instant mode (duration=0): synchronous plain-number write, same
-          // rationale as the anchor's own height/marginBottom bindings.
-          z: duration === 0 ? depthZ : zMV,
+          // z-index channel — see its own declaration above for the full
+          // flip-timing design. Always written explicitly ("auto" or a
+          // depth-scaled negative integer), never omitted, matching this
+          // file's established explicit-release convention elsewhere.
+          zIndex,
         }}
       >
         {/* Inner wrapper: inert when unfocused to disable all descendant interaction.

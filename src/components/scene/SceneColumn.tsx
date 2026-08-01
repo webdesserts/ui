@@ -2853,8 +2853,20 @@ export function SceneColumn({
   // Reinforces the sense of receding into the background.
   const depthGreyscale = columnDepth.grayscale;
   const depthZ = columnDepth.translateZ;
-  // z-index is NOT used inside preserve-3d — 3D z-ordering is determined
-  // entirely by translateZ values (higher z = closer = rendered in front).
+  // Column level relies on translateZ within its preserve-3d context (see
+  // ui#o32 and the D-series record for its verification status — a
+  // multi-round discriminator investigation confirmed genuine z-sort
+  // paint order at OBJECT level never worked, three flat transform-style
+  // intermediates from the nearest preserve-3d ancestor; column level's
+  // own chain was confirmed intact and individually-transformed panels
+  // don't produce a genuine cross-sibling sort either, but a production-
+  // truth census found DOM order and depth order are structurally
+  // identical for every state this architecture can produce — so whether
+  // translateZ vs. DOM-order fallback is what actually paints the shipped
+  // deck correctly remains unresolved as of this writing). Object level
+  // (SceneObject.tsx) uses an explicit z-index channel instead, precisely
+  // because object panels sit outside this column's own preserve-3d
+  // chain.
 
   // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
   // objects overlapping in 2D screen space must never change relative paint
