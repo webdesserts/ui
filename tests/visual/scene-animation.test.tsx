@@ -989,7 +989,10 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     const { container, rerender } = await render(scene(false, false));
     await waitForAnimationFrame();
 
-    const xEl = () => container.querySelector('[data-scene-id="x"]') as HTMLElement;
+    // ui#21 anchor/panel split: the depth-card opacity treatment lives on
+    // the PANEL now, not the zero-footprint anchor `data-scene-id` used
+    // to carry it.
+    const xEl = () => container.querySelector('[data-scene-panel="x"]') as HTMLElement;
     // Sanity: starts at depth-2 (opacity 0.6, per depth.ts's formula).
     expect(Number(getComputedStyle(xEl()).opacity)).toBeCloseTo(0.6, 2);
 
@@ -1087,10 +1090,15 @@ describe("within-column depth-deck spring regressions (H8)", () => {
 
     await rerender(scene(true, true));
 
-    const xEl = container.querySelector('[data-scene-id="x"]') as HTMLElement;
-    const aEl = container.querySelector('[data-scene-id="a"]') as HTMLElement;
-    const mEl = container.querySelector('[data-scene-id="m"]') as HTMLElement;
-    const yEl = container.querySelector('[data-scene-id="y"]') as HTMLElement;
+    // ui#21 anchor/panel split: overlap geometry and paint order are
+    // driven by the PANEL now (position:absolute, the peek-offset
+    // transform, and the zIndex channel) — the zero-footprint anchor
+    // `data-scene-id` collapses to zero height once sandwiched and no
+    // longer reflects what's actually painted/overlapping on screen.
+    const xEl = container.querySelector('[data-scene-panel="x"]') as HTMLElement;
+    const aEl = container.querySelector('[data-scene-panel="a"]') as HTMLElement;
+    const mEl = container.querySelector('[data-scene-panel="m"]') as HTMLElement;
+    const yEl = container.querySelector('[data-scene-panel="y"]') as HTMLElement;
 
     const [vsA, vsM, vsY] = await Promise.all([
       sampleLivePaintOrder(xEl, aEl, 90),
