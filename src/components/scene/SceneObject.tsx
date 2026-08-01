@@ -632,15 +632,32 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         data-scene-panel={name}
         className={cn(
           // Ring PAINT (the anchor above is the `group` — its own
-          // className has the full design history). 2px (Michael's
-          // directive; was 1px on the anchor-placed original), same
-          // color, outline-offset-0 — a non-"auto" style is spec-
-          // guaranteed to render outward-only, so it still draws entirely
-          // outside THIS element's (the panel's) own border edge, the
-          // same descendant-occlusion immunity the original design
-          // required, now measured against the panel's own box instead
-          // of the anchor's.
-          "outline-none group-focus-visible:outline-solid group-focus-visible:outline-2 group-focus-visible:outline-offset-0 group-focus-visible:outline-[rgb(153,200,255)]",
+          // className has the full design history). outline-offset-0 (see
+          // below) — a non-"auto" style is spec-guaranteed to render
+          // outward-only, so it still draws entirely outside THIS
+          // element's (the panel's) own border edge, the same
+          // descendant-occlusion immunity the original design required,
+          // now measured against the panel's own box instead of the
+          // anchor's.
+          //
+          // CUSTOMIZATION CONTRACT (Michael's ruling): consumers override
+          // the ring by setting these four CSS custom properties on any
+          // ancestor (they inherit) — --scene-focus-ring-color (default
+          // rgb(153,200,255)), --scene-focus-ring-width (default 2px,
+          // Michael's directive — was 1px on the anchor-placed original),
+          // --scene-focus-ring-offset (default 0), and
+          // --scene-focus-ring-radius (default 0 — square; the library
+          // doesn't know a consumer's own card rounding, so it never
+          // guesses one, mirroring ui#o28's overridable-default contract
+          // — see the panel's own borderRadius style declaration below,
+          // not gated on focus since the panel carries no background/
+          // border/overflow of its own in any state, verified at source,
+          // so an always-applied radius shapes ONLY the ring). Arbitrary
+          // PROPERTY syntax (`[prop:value]`), not Tailwind's `outline-*`
+          // scale utilities, since those can't target outline-width/
+          // -offset/-color independently when the value is a var()
+          // reference rather than a literal.
+          "outline-none group-focus-visible:outline-solid group-focus-visible:[outline-width:var(--scene-focus-ring-width,2px)] group-focus-visible:[outline-offset:var(--scene-focus-ring-offset,0px)] group-focus-visible:[outline-color:var(--scene-focus-ring-color,rgb(153,200,255))]",
         )}
         {...(depthTreatment
           ? {
@@ -696,6 +713,16 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // depth-scaled negative integer), never omitted, matching this
           // file's established explicit-release convention elsewhere.
           zIndex,
+          // Ring customization contract, radius half (see the panel's own
+          // className comment above for the full four-var contract) —
+          // shapes the outline (outline follows border-radius per spec),
+          // not gated on focus-visible: the panel carries no background/
+          // border/overflow of its own in any state (verified at source —
+          // this style object and the className above are its ONLY visual
+          // properties), so an always-applied radius has no effect except
+          // shaping whatever outline gets drawn. Default 0 (square) — the
+          // library never guesses a consumer's own card rounding.
+          borderRadius: "var(--scene-focus-ring-radius,0px)",
         }}
       >
         {/* Inner wrapper: inert when unfocused to disable all descendant interaction.

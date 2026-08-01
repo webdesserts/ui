@@ -14754,4 +14754,54 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     expect(panelCs.outlineWidth).toBe("2px");
     expect(panelCs.outlineColor).toBe("rgb(153, 200, 255)");
   });
+
+  test("consumers override the ring's color/width/offset/radius via CSS custom properties on an ancestor", async () => {
+    // Michael's ring customization ruling: consumers add their own ring
+    // colors and radius by overriding the four CSS custom properties the
+    // panel's outline rule (and its own borderRadius) consume as
+    // var(--x,default) — see the panel's own className/style comments for
+    // the full four-var contract. Custom properties inherit down the DOM
+    // tree, so a scoped wrapper ancestor is enough; no component prop.
+    function Demo() {
+      return (
+        <TestWrapper fullPage>
+          <div
+            style={
+              {
+                "--scene-focus-ring-color": "rgb(255, 0, 0)",
+                "--scene-focus-ring-width": "4px",
+                "--scene-focus-ring-offset": "3px",
+                "--scene-focus-ring-radius": "12px",
+              } as React.CSSProperties
+            }
+          >
+            <Scene>
+              <SceneColumn name="stack-col">
+                <SceneObject name="only" focused style={{ width: 300 }}>
+                  <div style={{ height: 150 }}>content</div>
+                </SceneObject>
+              </SceneColumn>
+            </Scene>
+          </div>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await waitForAnimationFrame();
+
+    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
+    anchorEl.focus();
+    await waitForAnimationFrame();
+
+    expect(anchorEl).toBe(document.activeElement);
+
+    const panelCs = window.getComputedStyle(panelEl);
+    expect(panelCs.outlineStyle).toBe("solid");
+    expect(panelCs.outlineWidth).toBe("4px");
+    expect(panelCs.outlineColor).toBe("rgb(255, 0, 0)");
+    expect(panelCs.outlineOffset).toBe("3px");
+    expect(panelCs.borderRadius).toBe("12px");
+  });
 });
