@@ -719,14 +719,24 @@ function parseTranslateZ(transform: string): number {
 
 /**
  * F4 feature (d): a small badge on every deck card (column-level and
- * within-column) showing its current live translateZ — the visual check
- * for the paint-order invariant (do cards nearer the front actually have a
- * higher/less-negative z than cards behind them, at a glance, without
- * pausing a transition and inspecting devtools). Updates continuously via
+ * within-column) showing its current live paint-order value — the visual
+ * check for the paint-order invariant (do cards nearer the front actually
+ * paint in front of cards behind them, at a glance, without pausing a
+ * transition and inspecting devtools). Updates continuously via
  * requestAnimationFrame while mounted (i.e. while `debug` is enabled) —
- * same rationale and pattern as ActiveSpringsSection above: translateZ can
- * change every frame mid-spring, off React's own render cycle, so reading
- * it only at commit time would show it stale throughout a transition.
+ * same rationale and pattern as ActiveSpringsSection above: the underlying
+ * value can change every frame mid-spring, off React's own render cycle, so
+ * reading it only at commit time would show it stale throughout a
+ * transition.
+ *
+ * Two DIFFERENT mechanisms drive paint order depending on card kind (ui#21
+ * z-index paint-order channel amendment) — column-level cards still use
+ * translateZ (SceneColumn.tsx:~2856's own comment: paint-INERT there,
+ * DOM-order actually governs, translateZ is kept for the perspective
+ * foreshortening visual cue only); within-column object cards use a
+ * discrete zIndex write instead (SceneObject's own zIndex comment —
+ * object-level translateZ never actually reached the panel and was removed
+ * entirely). The badge reads whichever channel is real for that card kind.
  */
 function PaintOrderBadges({
   viewportRef,
@@ -757,16 +767,25 @@ function PaintOrderBadges({
       const badge = badgeRefs.current.get(card.key);
       if (!el || !badge) continue;
       const rect = el.getBoundingClientRect();
-      // ui#17 anchor/panel split: the depth translateZ lives on the column's
-      // inner panel node now, not the outer flex anchor `el` itself — read
-      // z from the panel when one exists (every column has one; this falls
-      // back to `el` defensively for non-column cards, which have no panel
-      // child to begin with).
-      const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
-      const z = parseTranslateZ(getComputedStyle(zSource).transform);
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
-      badge.textContent = `z:${Math.round(z)}`;
+      if (card.kind === "column") {
+        // ui#17 anchor/panel split: the depth translateZ lives on the column's
+        // inner panel node now, not the outer flex anchor `el` itself — read
+        // z from the panel when one exists (every column has one; this falls
+        // back to `el` defensively, which has no panel child to begin with).
+        const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
+        const z = parseTranslateZ(getComputedStyle(zSource).transform);
+        badge.textContent = `z:${Math.round(z)}`;
+      } else {
+        // ui#21 z-index paint-order channel amendment: object-level depth
+        // cards no longer carry translateZ at all (removed entirely — see
+        // SceneObject's own zIndex comment) — paint order is a discrete
+        // zIndex write on the panel instead. parseTranslateZ would always
+        // read 0 here now; read the real channel directly.
+        const zSource = el.querySelector<HTMLElement>("[data-scene-panel]") ?? el;
+        badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
+      }
     }
   }, [cards]);
 

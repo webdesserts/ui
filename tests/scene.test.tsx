@@ -1557,7 +1557,11 @@ describe("Scene debug — paint-order badges", () => {
     await waitForAnimationFrame();
     const badge = scene.querySelector("[data-debug-paint-badge='object:obj-b']");
     expect(badge).not.toBeNull();
-    expect(badge?.textContent).toBe("z:-100");
+    // ui#21 z-index paint-order channel amendment: object-level depth cards
+    // no longer carry translateZ at all — the badge now reads the panel's
+    // discrete zIndex write (depth-1 sandwiched -> -1), not a translateZ
+    // pixel value.
+    expect(badge?.textContent).toBe("z:-1");
 
     // Focused objects are not deck cards.
     expect(scene.querySelector("[data-debug-paint-badge='object:obj-a']")).toBeNull();
