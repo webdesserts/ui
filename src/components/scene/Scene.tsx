@@ -135,6 +135,21 @@ export function computeColumnPositions(
  * Computes the depth index for each in-between column. Depth 1 is adjacent to
  * the rightmost focused column, depth 2 is the next one further left, etc.
  * Columns that are not in-between get depth 0 (unused sentinel value).
+ *
+ * Load-bearing invariant (D-series, ui#o32): because depth is assigned by
+ * walking backward through DOM order from the rightmost focused column,
+ * depth is structurally guaranteed to equal reverse DOM order for every
+ * state this function can produce. Column-level paint order (SceneColumn.tsx,
+ * depthZ's own comment) relies on this — translateZ there is paint-INERT
+ * (confirmed: z-sort doesn't work across sibling column anchors even with a
+ * genuinely intact preserve-3d chain, and z-index is separately suppressed
+ * inside preserve-3d entirely), so it's really ordinary DOM-order stacking
+ * that keeps deeper columns visually behind shallower ones — this function's
+ * own definition of "depth" is the ONLY reason that happens to be correct.
+ * If a future change ever computes depth independent of DOM position (or
+ * reorders columns independent of depth), column-level paint order breaks
+ * silently and needs an explicit mechanism, mirroring the z-index channel
+ * SceneObject.tsx already has for exactly this reason.
  */
 export function computeStackDepths(
   columns: Array<{ name: string; focused: boolean }>,

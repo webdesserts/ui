@@ -2853,20 +2853,30 @@ export function SceneColumn({
   // Reinforces the sense of receding into the background.
   const depthGreyscale = columnDepth.grayscale;
   const depthZ = columnDepth.translateZ;
-  // Column level relies on translateZ within its preserve-3d context (see
-  // ui#o32 and the D-series record for its verification status — a
-  // multi-round discriminator investigation confirmed genuine z-sort
-  // paint order at OBJECT level never worked, three flat transform-style
-  // intermediates from the nearest preserve-3d ancestor; column level's
-  // own chain was confirmed intact and individually-transformed panels
-  // don't produce a genuine cross-sibling sort either, but a production-
-  // truth census found DOM order and depth order are structurally
-  // identical for every state this architecture can produce — so whether
-  // translateZ vs. DOM-order fallback is what actually paints the shipped
-  // deck correctly remains unresolved as of this writing). Object level
-  // (SceneObject.tsx) uses an explicit z-index channel instead, precisely
-  // because object panels sit outside this column's own preserve-3d
-  // chain.
+  // Column-level paint order is DOM-order-driven in practice, and that's
+  // design-correct: computeStackDepths (Scene.tsx) assigns depth by
+  // walking backward from the rightmost focused column, so depth is
+  // structurally guaranteed to equal reverse DOM order for every
+  // reachable production state (see that function's own comment — the
+  // invariant is load-bearing). translateZ here is paint-INERT, not
+  // paint-driving — a multi-round discriminator investigation (ui#o32,
+  // the D-series record) forced a genuinely-transformed sibling into an
+  // intact preserve-3d chain and it still lost to DOM order; z-index was
+  // also tried directly (forced positive, confirmed applied via computed
+  // style) and was EQUALLY inert, consistent with the well-documented CSS
+  // behavior that z-index has no effect on children of a
+  // transform-style:preserve-3d element — actual 3D depth governs there,
+  // and that 3D depth-sort is itself the thing the D-series found broken
+  // (isolated per-anchor subtrees don't compare against each other).
+  // translateZ is retained purely for the perspective-projection
+  // foreshortening visual cue (depth-1 → 0.89×, etc.), not for paint
+  // order. If a future feature ever breaks the depth ≡ reverse-DOM-order
+  // invariant (e.g. reordering columns independent of focus/depth),
+  // column-level paint order needs an explicit mechanism — object level
+  // (SceneObject.tsx) already has this via its own z-index channel,
+  // built for exactly this reason (object panels sit outside any
+  // column's preserve-3d chain, so DOM order there does NOT structurally
+  // guarantee correctness the way it does at column level).
 
   // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
   // objects overlapping in 2D screen space must never change relative paint

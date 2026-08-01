@@ -4376,11 +4376,73 @@ describe("Glass-stack deck: camera-recentering commit-aim pins (delta claim revi
 });
 
 describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)", () => {
-  // z doesn't show up in 2D gBCR sampling (the zero-pixel-flip test's own
-  // capture), so this needs its own read. Paired with a paint-order check
-  // at a screen point where the decked panel's own peek should sit behind
-  // its focused neighbor once decked.
-  test("unfocus direction: no z discontinuity, and paint order doesn't visibly pop at the flip commit", async () => {
+  // Repaired (ui#21 arc, shipped-sensor repair): the original synchronous-
+  // read pair (click, then read zMV/elementsFromPoint on the SAME tick, no
+  // polling at all) was defeat-check-confirmed vacuous — a bounded sever
+  // stayed green because no time had passed for the spring to move at all,
+  // so `Math.abs(zAfter - zBefore) < 1` held trivially regardless of sign.
+  // Ports the ui#21 within-column arc's own settle-anchored/overlap-window
+  // designs to this column-level pair, chosen PER DIRECTION from real
+  // measured geometry (not assumed to mirror the vertical case):
+  // "unfocus direction" — middle's decked panel overlaps "right"'s panel
+  // PERMANENTLY once settled (measured: 176/180 sampled frames, identical
+  // rects from frame ~60 on, never drifts further) — settle-anchored, but
+  // with a LIVE-measured overlap centroid at settle (the vertical case's
+  // own frozen-pre-click-point bug doesn't recur here). "refocus
+  // direction" — overlap with "right" is TRANSIENT only (measured: 25/180
+  // frames every run, 3/3 deterministic, gone by settle) — overlap-window,
+  // K=10 (comfortably below the measured 25-frame window).
+  //
+  // Mechanism truth, stated plainly (D-series, ui#o32/o33): BOTH channels
+  // available at this DOM position are structurally non-operative.
+  // translateZ is paint-inert (D1/D2 discriminators: an isolated,
+  // genuinely-transformed sibling still lost to DOM order under an intact
+  // preserve-3d chain, retained purely for the perspective-projection
+  // foreshortening visual cue). z-index is separately suppressed — a
+  // forced `zIndex: 10` on the in-between column's panel was confirmed
+  // genuinely applied (computed style AND inline style both read "10")
+  // and still had zero effect, consistent with the well-documented CSS
+  // behavior that z-index has no effect on children of a
+  // transform-style:preserve-3d element (the column anchor here carries
+  // exactly that). DOM order is therefore the ONLY operative mechanism —
+  // design-correct today via computeStackDepths' own structural invariant
+  // (depth ≡ reverse DOM order for every reachable production state, an
+  // algebraic guarantee from that function's formula — see its own
+  // comment, Scene.tsx), not by coincidence.
+  //
+  // Consequently: no mechanism sever is possible here without a
+  // production change (moving the panel out from under its preserve-3d
+  // ancestor, or an explicit stacking-context escape) — that's a design
+  // decision, not a test-repair task. These sensors guard RENDERED order
+  // (design intent) regardless of mechanism, and their verification is an
+  // ASSERTION-DISCRIMINATION proof, not a mechanism-sever proof: each
+  // direction's expected owner was flipped to the wrong value and
+  // confirmed to fail (5/5 red both directions), proving the sample reads
+  // real ownership data at a real overlap point and the assertion is
+  // sensitive to it — not that some available mechanism can be forced
+  // wrong (nothing here can be, short of restructuring the DOM).
+  function ownerOf(el: Element | null): string | undefined {
+    return el?.closest("[data-column]")?.getAttribute("data-column") ?? undefined;
+  }
+
+  async function pollForColumnZRetarget(recorder: ReturnType<typeof createMotionSeamRecorder>, zMV: { get: () => number }, zBefore: number) {
+    const registerStart = performance.now();
+    while (performance.now() - registerStart < 2000) {
+      if (recorder.controls.has("z:middle")) break;
+      await waitForAnimationFrame();
+    }
+    if (!recorder.controls.has("z:middle")) {
+      throw new Error("z:middle never registered a retarget (controls.has stayed false for 2000ms) — setup bug, not a timing race");
+    }
+    const valueStart = performance.now();
+    while (performance.now() - valueStart < 2000) {
+      if (zMV.get() !== zBefore) return;
+      await waitForAnimationFrame();
+    }
+    throw new Error("z:middle registered a retarget but its value never moved from zBefore within 2000ms — setup bug, not a timing race");
+  }
+
+  test("unfocus direction: paint order doesn't visibly pop at the flip commit", async () => {
     const recorder = createMotionSeamRecorder();
     function Demo() {
       const [midFocused, setMidFocused] = useState(true);
@@ -4412,33 +4474,62 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const rightAnchor = document.querySelector('[data-scene-id="right-panel"]')!.closest("[data-column]") as HTMLElement;
-    // A point just inside "right"'s own left edge — where the decked
-    // panel's own peek (translated left by peekOffset*stackDepth) should
-    // overlap once "middle" decks, per the design's own pull-out-direction
-    // principle.
-    const rightRect = rightAnchor.getBoundingClientRect();
-    const probeX = rightRect.left + 5;
-    const probeY = rightRect.top + rightRect.height / 2;
+    const middlePanel = document.querySelector('[data-column="middle"] [data-column-panel]') as HTMLElement;
+    const rightPanel = document.querySelector('[data-column="right"] [data-column-panel]') as HTMLElement;
 
     const zBefore = zMV.get();
-    const stackBefore = document.elementsFromPoint(probeX, probeY).map((el) => el.tagName + (el.getAttribute("data-column") ? `[data-column=${el.getAttribute("data-column")}]` : ""));
-
+    recorder.controls.clear();
     (getByTestId("toggle").element() as HTMLElement).click();
+    await pollForColumnZRetarget(recorder, zMV, zBefore);
 
-    const zAfter = zMV.get();
-    const stackAfter = document.elementsFromPoint(probeX, probeY).map((el) => el.tagName + (el.getAttribute("data-column") ? `[data-column=${el.getAttribute("data-column")}]` : ""));
+    // Settle-anchored: poll until zMV is stable across 2 consecutive
+    // frames, then measure LIVE (not a frozen pre-click snapshot).
+    let prev = zMV.get();
+    let stableFrames = 0;
+    const settleStart = performance.now();
+    let settled = false;
+    while (performance.now() - settleStart < 2000) {
+      await waitForAnimationFrame();
+      const current = zMV.get();
+      if (Math.abs(current - prev) < 0.5) {
+        stableFrames++;
+        if (stableFrames >= 2) {
+          settled = true;
+          break;
+        }
+      } else {
+        stableFrames = 0;
+      }
+      prev = current;
+    }
+    if (!settled) throw new Error("z:middle never settled (stable across 2 consecutive frames) within 2000ms — setup bug, not a timing race");
 
-    expect(Math.abs(zAfter - zBefore)).toBeLessThan(1);
-    // Paint order doesn't visibly pop: the topmost element at this probe
-    // point (the actually-visible one) is the same before and after the
-    // flip commit — "right" (focused, always on top) should be first in
-    // both stacks, not suddenly replaced by "middle"'s own panel jumping
-    // in front.
-    expect(stackAfter[0]).toBe(stackBefore[0]);
+    const mRect = middlePanel.getBoundingClientRect();
+    const rRect = rightPanel.getBoundingClientRect();
+    const left = Math.max(mRect.left, rRect.left);
+    const right = Math.min(mRect.right, rRect.right);
+    const top = Math.max(mRect.top, rRect.top);
+    const bottom = Math.min(mRect.bottom, rRect.bottom);
+    const overlaps = left < right && top < bottom;
+
+    const centroidX = (left + right) / 2;
+    const centroidY = (top + bottom) / 2;
+    const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
+
+    // Non-vacuity precondition: measured on unsevered code, this overlap
+    // is permanent once settled (a decked column's panel stays full-size,
+    // tucked behind its focused neighbor) — a missing overlap here means
+    // the fixture/geometry changed, not that the check should silently
+    // pass.
+    expect(overlaps, `middle and right panels do not overlap at settle (middle=${JSON.stringify(mRect)} right=${JSON.stringify(rRect)}) — setup bug or design changed`).toBe(true);
+
+    // Headline, externally anchored (not derived from zMV — the sever
+    // corrupts that same signal too): "right" (focused, always in front)
+    // must own the overlap centroid, full stop, by design intent.
+    expect(owner, `owner at the settled overlap centroid was "${owner}", expected "right"`).toBe("right");
   });
 
-  test("refocus direction: no z discontinuity, and paint order doesn't visibly pop at the flip commit", async () => {
+  test("refocus direction: middle never wins paint order while it genuinely overlaps right", async () => {
     const recorder = createMotionSeamRecorder();
     function Demo() {
       const [midFocused, setMidFocused] = useState(false);
@@ -4470,21 +4561,50 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const rightAnchor = document.querySelector('[data-scene-id="right-panel"]')!.closest("[data-column]") as HTMLElement;
-    const rightRect = rightAnchor.getBoundingClientRect();
-    const probeX = rightRect.left + 5;
-    const probeY = rightRect.top + rightRect.height / 2;
+    const middlePanel = document.querySelector('[data-column="middle"] [data-column-panel]') as HTMLElement;
+    const rightPanel = document.querySelector('[data-column="right"] [data-column-panel]') as HTMLElement;
 
     const zBefore = zMV.get();
-    const stackBefore = document.elementsFromPoint(probeX, probeY).map((el) => el.tagName + (el.getAttribute("data-column") ? `[data-column=${el.getAttribute("data-column")}]` : ""));
-
+    recorder.controls.clear();
     (getByTestId("toggle").element() as HTMLElement).click();
+    await pollForColumnZRetarget(recorder, zMV, zBefore);
 
-    const zAfter = zMV.get();
-    const stackAfter = document.elementsFromPoint(probeX, probeY).map((el) => el.tagName + (el.getAttribute("data-column") ? `[data-column=${el.getAttribute("data-column")}]` : ""));
+    // Overlap-windowed sampling (measured: overlap with "right" is
+    // transient only, gone by settle — a settle-anchored probe would find
+    // nothing to interrogate for this direction).
+    let overlapFrames = 0;
+    let middleWonAnyOverlapFrame = false;
+    const start = performance.now();
+    for (let i = 0; i < 150; i++) {
+      await waitForAnimationFrame();
+      const mRect = middlePanel.getBoundingClientRect();
+      const rRect = rightPanel.getBoundingClientRect();
+      const left = Math.max(mRect.left, rRect.left);
+      const right = Math.min(mRect.right, rRect.right);
+      const top = Math.max(mRect.top, rRect.top);
+      const bottom = Math.min(mRect.bottom, rRect.bottom);
+      if (left < right && top < bottom) {
+        overlapFrames++;
+        const centroidX = (left + right) / 2;
+        const centroidY = (top + bottom) / 2;
+        const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
+        if (owner === "middle") middleWonAnyOverlapFrame = true;
+      }
+      if (performance.now() - start > 2500) break;
+    }
 
-    expect(Math.abs(zAfter - zBefore)).toBeLessThan(1);
-    expect(stackAfter[0]).toBe(stackBefore[0]);
+    // Non-vacuity precondition: genuine overlap must actually have been
+    // observed. K=10 chosen from real, deterministic (3/3 runs) measured
+    // overlap windows of 25 frames — well below the observed window, but
+    // still requiring a substantial, non-accidental sample count. A
+    // zero-frame window must FAIL as "never observed overlap," not
+    // silently pass.
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and right's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+
+    // Headline, externally anchored (not derived from zMV): middle is
+    // NEVER the top owner at the live overlap centroid during the overlap
+    // window, full stop, by design intent.
+    expect(middleWonAnyOverlapFrame, `middle won paint order in at least one of ${overlapFrames} overlap-sampled frames`).toBe(false);
   });
 });
 
