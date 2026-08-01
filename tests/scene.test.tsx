@@ -1320,11 +1320,15 @@ describe("Scene debug — active springs panel", () => {
     const { rerender, getByTestId } = await render(build(true));
     const scene = getByTestId("scene").element();
     await waitForAnimationFrame();
-    expect(scene.querySelector("[data-debug-spring='withinColumnTop:second']")).not.toBeNull();
+    // ui#21 anchor/panel split: the object-level spring key registered
+    // unconditionally (every SceneObject, regardless of sandwiched state)
+    // is now `height:${name}` (the height channel), not the retired
+    // `withinColumnTop:${name}` MotionValue.
+    expect(scene.querySelector("[data-debug-spring='height:second']")).not.toBeNull();
 
     await rerender(build(false));
     await waitForAnimationFrame();
-    expect(scene.querySelector("[data-debug-spring='withinColumnTop:second']")).toBeNull();
+    expect(scene.querySelector("[data-debug-spring='height:second']")).toBeNull();
   });
 
   test("no springs section when nothing has registered (debug on, duration=0, no motion in flight)", async () => {
@@ -11384,17 +11388,27 @@ describe("SceneColumn within-column depth deck", () => {
         </Scene>
       </TestWrapper>,
     );
+    // The panel's `animate`-driven opacity can lag the synchronous render
+    // under full-suite concurrent load (probe-confirmed: reliable in
+    // isolation, flaky under load — the same wall-clock race class
+    // documented elsewhere in this file) — a frame lets Motion's own
+    // commit catch up before reading computed style.
+    await waitForAnimationFrame();
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    // ui#21 anchor/panel split: the depth-card visual treatment (opacity,
+    // visibility) lives on the PANEL now, not the zero-footprint anchor —
+    // the anchor only carries the `data-within-column-depth` marker.
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
 
     // B is between two focused objects — it should have depth treatment (data attribute)
-    expect(objB.getAttribute("data-within-column-depth")).toBe("1");
+    expect(anchorB.getAttribute("data-within-column-depth")).toBe("1");
 
-    // B should be visible (not visibility: hidden — it peeks as a depth card)
-    expect(window.getComputedStyle(objB).visibility).not.toBe("hidden");
+    // B's panel should be visible (not visibility: hidden — it peeks as a depth card)
+    expect(window.getComputedStyle(panelB).visibility).not.toBe("hidden");
 
-    // B should have reduced opacity (depth treatment)
-    const opacity = parseFloat(window.getComputedStyle(objB).opacity);
+    // B's panel should have reduced opacity (depth treatment)
+    const opacity = parseFloat(window.getComputedStyle(panelB).opacity);
     expect(opacity).toBeLessThan(1);
   });
 
@@ -11421,17 +11435,23 @@ describe("SceneColumn within-column depth deck", () => {
         </Scene>
       </TestWrapper>,
     );
+    // Same load-dependent settling precondition as the sibling test above.
+    await waitForAnimationFrame();
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const anchorC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+    // ui#21 anchor/panel split: opacity lives on the PANEL now, not the
+    // zero-footprint anchor (see the sibling test above for the same fix).
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
+    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement;
 
     // C is depth-1 (adjacent to lower focused D), B is depth-2
-    expect(objC.getAttribute("data-within-column-depth")).toBe("1");
-    expect(objB.getAttribute("data-within-column-depth")).toBe("2");
+    expect(anchorC.getAttribute("data-within-column-depth")).toBe("1");
+    expect(anchorB.getAttribute("data-within-column-depth")).toBe("2");
 
     // C (depth-1) has higher opacity than B (depth-2) — less treatment = more visible
-    const opacityB = parseFloat(window.getComputedStyle(objB).opacity);
-    const opacityC = parseFloat(window.getComputedStyle(objC).opacity);
+    const opacityB = parseFloat(window.getComputedStyle(panelB).opacity);
+    const opacityC = parseFloat(window.getComputedStyle(panelC).opacity);
     expect(opacityC).toBeGreaterThan(opacityB);
   });
 
@@ -11463,10 +11483,17 @@ describe("SceneColumn within-column depth deck", () => {
     expect(window.getComputedStyle(objB).visibility).not.toBe("hidden");
   });
 
-  test("within-column depth object is anchored at the lower focused sibling with translateZ depth", async () => {
+  test("within-column depth object is anchored at the lower focused sibling via a peek-offset transform and zIndex depth", async () => {
     // A (focused, 200px tall), B (unfocused), C (focused, 200px tall)
-    // B is anchored at C's top position (peeking up by the default
-    // peekOffset — A5) and uses translateZ for 3D depth.
+    // B's zero-footprint anchor sits flush after A in flow (its own local
+    // origin already converges on "flush against the lower focused
+    // sibling" — the plan's anchorTop-vestigial reasoning), and its PANEL
+    // escapes via position:absolute, peeking up past that origin by the
+    // default peekOffset (12px, A5's pull-out-direction principle) as a
+    // y-transform. Depth is expressed via a discrete zIndex channel now —
+    // translateZ was removed entirely for object-level cards (ui#o32, the
+    // z-index paint-order channel amendment), so this test's subject is
+    // the peek-offset transform + zIndex ordering, not translateZ.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -11485,17 +11512,24 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    // The height channel's own layout effect (jump to 0, duration=0) needs
+    // a frame to apply before B's anchor has actually collapsed out of
+    // flow — same precondition the column-level depth-deck tests in this
+    // file already wait a frame for.
+    await waitForAnimationFrame();
 
-    // B uses translateZ for depth — the inline transform should include translateZ.
-    // Depth-1 objects are pushed back 100px in Z space.
-    expect(objB.style.transform).toContain("translateZ(-100px)");
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
 
-    // B is anchored at C's top (anchorTop = height of A = 200px), then peeks
-    // up past it by the default peekOffset (12px) — A5, the pull-out-direction
-    // principle. The `top` style property should be set to anchorTop - peekOffset.
-    expect(objB.style.position).toBe("absolute");
-    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 12, -1);
+    // B's panel escapes its zero-footprint anchor via position:absolute.
+    expect(window.getComputedStyle(panelB).position).toBe("absolute");
+
+    // Depth-1 — a negative, depth-scaled zIndex (not translateZ).
+    expect(window.getComputedStyle(panelB).zIndex).toBe("-1");
+
+    // The peek offset is a raw y-transform (mirrors SceneColumn's own
+    // inBetweenY) — read it directly via parseTranslateY rather than
+    // rendered gBCR, matching this file's established idiom.
+    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-12, 0);
   });
 
   // A5 — the pull-out-direction principle: a within-column deck card peeks
@@ -11525,15 +11559,21 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+    // The height channel's own layout effect needs a frame to collapse
+    // B's/C's anchors out of flow before their panels' peek transforms are
+    // meaningful to read (same precondition as the sibling test above).
+    await waitForAnimationFrame();
 
-    // anchorTop = D's offsetTop = height of A = 200 (A and D are the only
-    // in-flow siblings — B and C are absolutely positioned depth cards, so D
-    // sits directly after A regardless of how many depth cards sit between).
+    // ui#21 anchor/panel split: the peek offset lives in the panel's own
+    // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
+    // parseTranslateY, matching this file's established idiom, not the
+    // retired inline `style.top`.
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
+
     // C (depth-1) peeks up by 12px, B (depth-2) by 24px (default peekOffset).
-    expect(parseInt(objC.style.top)).toBeCloseTo(200 - 12, -1);
-    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 24, -1);
+    expect(parseTranslateY(panelC.style.transform)).toBeCloseTo(-12, 0);
+    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-24, 0);
   });
 
   test("custom peekOffset prop changes the within-column deck peek offsets accordingly", async () => {
@@ -11558,14 +11598,21 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+    // The height channel's own layout effect needs a frame to collapse
+    // B's/C's anchors out of flow (same precondition as the default-offset
+    // sibling test above).
+    await waitForAnimationFrame();
 
-    // anchorTop = 200 (A's height; A and D are the only in-flow siblings).
+    // ui#21 anchor/panel split: peek offset lives in the panel's own
+    // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
+    // parseTranslateY, not the retired `style.top`.
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
+
     // With peekOffset=20, C (depth-1) peeks up by 20px and B (depth-2) by
     // 2*20=40px.
-    expect(parseInt(objC.style.top)).toBeCloseTo(200 - 20, -1);
-    expect(parseInt(objB.style.top)).toBeCloseTo(200 - 40, -1);
+    expect(parseTranslateY(panelC.style.transform)).toBeCloseTo(-20, 0);
+    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-40, 0);
   });
 
   test("peekOffset={0} reproduces the old flush-anchored behavior (no peek)", async () => {
@@ -11590,14 +11637,16 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement; // depth-2
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement; // depth-1
+    // ui#21 anchor/panel split: peek offset lives in the panel's own
+    // y-transform now — read rendered geometry, not the retired `style.top`.
+    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
 
-    // With no peek offset, both depths anchor flush at anchorTop (200) —
-    // the pre-A5 behavior, where only translateZ (not a manual top offset)
-    // distinguished depths.
-    expect(parseInt(objC.style.top)).toBeCloseTo(200, -1);
-    expect(parseInt(objB.style.top)).toBeCloseTo(200, -1);
+    // With no peek offset, both depths anchor flush at their shared local
+    // origin (200) — the pre-A5 behavior, where only zIndex (not a manual
+    // transform offset) distinguishes depths.
+    expect(panelC.getBoundingClientRect().top).toBeCloseTo(200, -1);
+    expect(panelB.getBoundingClientRect().top).toBeCloseTo(200, -1);
   });
 
   test("focusing a sandwiched depth-deck object mid-flight settles into the open slot, not frozen at a stale depth-deck position (F5 item 1)", async () => {
