@@ -13619,3 +13619,102 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
     expect(bottomRect.top - topRect.bottom).toBeCloseTo(8, 0);
   });
 });
+
+describe("Within-column deck (ui#21): double-interruption, minimal (forecast edit E5 — gates entry to Slice 2)", () => {
+  // Ports ui#17's own E1 double-interruption test (tests/scene.test.tsx's
+  // "Glass-stack deck: double-interruption, minimal" block) to the
+  // vertical, per-object axis. 4-object single-column fixture: "top"/
+  // "bottom" always focused, "mid-a" toggles, "mid-b" never toggles but is
+  // the BYSTANDER whose own within-column depth changes as a side effect
+  // of "mid-a"'s transition (mid-a unfocusing pushes mid-b from depth-1
+  // (anchored to mid-a) to depth-2 (anchored to bottom), the exact ui#o26
+  // shape — a sibling's own state change corrupting a bystander that never
+  // itself toggled). "mid-a" starts focused, is toggled off (pushing both
+  // mid-a and mid-b into the deck, mid-b's depth shifting), interrupted
+  // ~150ms in with a second toggle back to focused (mid-a's own transition
+  // reverses AND mid-b's depth reverts in the same commit) — the exact
+  // interruption timing the original layout-FLIP-era defect needed, per
+  // ui#17's own E1 rationale. Single first-frame-discontinuity assertion
+  // on mid-b's own layout-box geometry (transform-free, against its own
+  // anchor) at the second toggle's commit, not the full outlier-detector
+  // methodology (that's Slice 3's extension of this same test, mirroring
+  // exactly how ui#17's own E1 sequenced it).
+  test("a second focus change landing mid-transition does not corrupt a bystander object's panel geometry", async () => {
+    function Demo() {
+      const [midAFocused, setMidAFocused] = useState(true);
+      return (
+        <TestWrapper fullPage>
+          <button data-testid="toggle" onClick={() => setMidAFocused((v) => !v)}>
+            toggle
+          </button>
+          <Scene>
+            <SceneColumn name="stack-col" objectGap={8}>
+              <SceneObject name="top" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>top content</div>
+              </SceneObject>
+              <SceneObject name="mid-b" focused={false} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>mid-b content</div>
+              </SceneObject>
+              <SceneObject name="mid-a" focused={midAFocused} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>mid-a content</div>
+              </SceneObject>
+              <SceneObject name="bottom" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>bottom content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { getByTestId, container } = await render(<Demo />);
+    await wait(500);
+
+    const midBAnchorEl = container.querySelector('[data-scene-id="mid-b"]') as HTMLElement;
+    const midBPanelEl = container.querySelector('[data-scene-panel="mid-b"]') as HTMLElement;
+    const toggleBtn = getByTestId("toggle").element() as HTMLElement;
+
+    // "mid-b" (DOM order: top, mid-b, mid-a, bottom) is anchored to
+    // whichever focused object sits below it — "mid-a" while mid-a is
+    // focused (depth=1), or "bottom" once mid-a also decks (depth shifts,
+    // since mid-a is now the closer decked object). This is the genuine
+    // bystander shape: mid-b's OWN depth changes as a side effect of
+    // mid-a's transition, without mid-b itself ever toggling.
+    toggleBtn.click(); // mid-a starts unfocusing -> mid-b's depth changes too
+    await wait(150); // deliberately mid-spring, matching ui#17's own E1 timing
+
+    const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
+    const midAPanelEl = container.querySelector('[data-scene-panel="mid-a"]') as HTMLElement;
+    const initialMidBDepth = midBAnchorEl.getAttribute("data-within-column-depth");
+
+    toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
+
+    // "mid-a" itself: position flips synchronously-in-intent but not
+    // synchronously-in-commit (same registry-correction lag ui#17's own
+    // horizontal version documented) — poll for its own panel style.position
+    // to actually change. Layout-box geometry against mid-a's own anchor.
+    const midA = await captureFlipCommit(midAPanelEl, 2000, undefined, midAAnchorEl);
+    // "mid-b": never itself toggles, so its own panel style.position never
+    // changes — poll for its within-column-depth retarget instead (the
+    // side-effect signal that its bystander geometry depends on). Layout-box
+    // geometry against mid-b's own anchor.
+    const midB = await captureFlipCommit(
+      midBPanelEl,
+      2000,
+      () => midBAnchorEl.getAttribute("data-within-column-depth") !== initialMidBDepth,
+      midBAnchorEl,
+    );
+
+    expect(Math.abs(midB.after.left - midB.before.left)).toBeLessThan(1);
+    expect(Math.abs(midB.after.top - midB.before.top)).toBeLessThan(1);
+    expect(Math.abs(midB.after.width - midB.before.width)).toBeLessThan(1);
+    expect(Math.abs(midB.after.height - midB.before.height)).toBeLessThan(1);
+
+    // Mirrors ui#17's own asymmetry: mid-a's own footprint (height) is
+    // legitimately still mid-spring at this commit — only left/top (the
+    // axes that should already be resolved, not the axis under active
+    // transition) are asserted for zero-discontinuity.
+    expect(Math.abs(midA.after.left - midA.before.left)).toBeLessThan(1);
+    expect(Math.abs(midA.after.top - midA.before.top)).toBeLessThan(1);
+  });
+});
