@@ -566,36 +566,28 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           }
         : {})}
       className={cn(
-        // Author-drawn :focus-visible ring (ui#21 delta claim review) —
-        // replaces the browser's native outline:auto, which this arc's own
-        // anchor/panel split broke (Michael's occlusion read, confirmed by
-        // direct measurement: the native "auto" ring straddles the border
-        // edge rather than drawing purely outside it, so any opaque
-        // descendant painting inside the anchor's own border-box — the
-        // panel, always present post-split — covers roughly half of it).
-        // outline-none suppresses the native ring outright so it can never
-        // reappear underneath this one. Geometry drawn ENTIRELY outside the
-        // border edge (outline-offset-0 with a standard, non-"auto" style
-        // is spec-guaranteed to render outward-only, unlike "auto") so no
-        // descendant can ever occlude it, matching the design constraint
-        // this fix exists to satisfy. Color and width measured directly
-        // from a fresh master (pre-split) capture, not guessed: computed
-        // outline is `rgb(153,200,255) auto 1px` there — width-1 here
-        // matches that computed value exactly (the "auto" style's own
-        // visual glow exceeds its computed width, and since the native
-        // ring straddled the border edge while this one is constrained to
-        // draw purely outward, an exact pixel-for-pixel match against the
-        // old rendering isn't structurally achievable — outline-2 was
-        // tried and measured strictly worse against the stored reference,
-        // 5147 vs outline-1's 4611 differing pixels; visually-equivalent
-        // is the bar per the design decision, not exact). Deliberately NOT
-        // using the library's own `interactiveRing`/`highlight:` pattern
-        // (shared.ts): that variant also matches :active, and its accent
-        // color is the design system's magenta, not this ring's job of
-        // matching the OLD native ring's own blue — this is a faithful
-        // reproduction of a pre-existing browser affordance, not a themed
-        // control.
-        "outline-none focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-[rgb(153,200,255)]",
+        // Author-drawn :focus-visible ring (ui#21 delta claim review,
+        // panel-placement ruling — Michael: "on the card makes sense").
+        // FOCUS SEMANTICS live here (this is the tabIndex/actual DOM focus
+        // target) — the ring itself now PAINTS on the panel below, via
+        // Tailwind's `group`/`group-focus-visible:` pattern (this element
+        // is the group; see the panel's own className for the paint side).
+        // Originally drawn on the anchor itself (replacing the browser's
+        // native outline:auto, which the anchor/panel split broke —
+        // Michael's occlusion read, confirmed by direct measurement: the
+        // native "auto" ring straddles the border edge rather than
+        // drawing purely outside it, so any opaque descendant painting
+        // inside the anchor's own border-box occludes roughly half of
+        // it). Moving the PAINT to the panel fixes a second, related
+        // problem the anchor-placed ring never solved: a SANDWICHED
+        // object's anchor is a zero-footprint, invisible wrapper — a ring
+        // drawn there was never visible on the actual (tucked) card a
+        // keyboard user sees. `outline-none` still lives here — this
+        // element is the real DOM focus target, so it's the one that
+        // would otherwise show the browser's native outline:auto; `group`
+        // has no visual effect of its own, it only makes this element a
+        // valid `group-*:` target for the panel below.
+        "outline-none group",
         className,
       )}
       style={{
@@ -636,6 +628,18 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           component. */}
       <motion.div
         data-scene-panel={name}
+        className={cn(
+          // Ring PAINT (the anchor above is the `group` — its own
+          // className has the full design history). 2px (Michael's
+          // directive; was 1px on the anchor-placed original), same
+          // color, outline-offset-0 — a non-"auto" style is spec-
+          // guaranteed to render outward-only, so it still draws entirely
+          // outside THIS element's (the panel's) own border edge, the
+          // same descendant-occlusion immunity the original design
+          // required, now measured against the panel's own box instead
+          // of the anchor's.
+          "outline-none group-focus-visible:outline-solid group-focus-visible:outline-2 group-focus-visible:outline-offset-0 group-focus-visible:outline-[rgb(153,200,255)]",
+        )}
         {...(depthTreatment
           ? {
               animate: {

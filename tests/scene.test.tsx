@@ -14244,12 +14244,21 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
   // Replaces the browser's native outline:auto (broken by this arc's own
   // anchor/panel split — the panel, an opaque descendant always present
   // post-split, occludes roughly half of a straddling native ring; see the
-  // worker report's occlusion-vs-shrink discriminator). Drawn entirely
-  // outside the anchor's own border edge (outline-offset:0 with a
-  // non-"auto" style is spec-guaranteed outward-only) so no descendant can
-  // ever cover it. Color/width measured from a fresh master (pre-split)
-  // capture's own computed outline, not guessed.
-  test("a keyboard-focused object shows the custom ring, not the native outline", async () => {
+  // worker report's occlusion-vs-shrink discriminator). Panel-placement
+  // ruling (Michael: "on the card makes sense") moved the PAINT from the
+  // anchor to the panel — focus semantics (tabIndex, the real DOM focus
+  // target) stay on the anchor, via Tailwind's `group`/`group-focus-
+  // visible:` pattern (anchor is the group, panel paints when the group
+  // is :focus-visible). Fixes a real gap the anchor-placed ring never
+  // solved: a SANDWICHED object's anchor is a zero-footprint, invisible
+  // wrapper — a ring drawn there was never visible on the actual card a
+  // keyboard user sees (see this block's own third test). Drawn entirely
+  // outside the PANEL's own border edge (outline-offset:0 with a non-
+  // "auto" style is spec-guaranteed outward-only) so no further
+  // descendant can ever cover it. 2px (Michael's directive, was 1px on
+  // the anchor-placed original); color unchanged, measured from a fresh
+  // master (pre-split) capture's own computed outline, not guessed.
+  test("a keyboard-focused object's panel shows the custom ring, not the native outline", async () => {
     function Demo() {
       return (
         <TestWrapper fullPage>
@@ -14268,18 +14277,29 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 
-    const cs = window.getComputedStyle(anchorEl);
+    // Focus semantics stay on the anchor — this is the real DOM focus
+    // target, unchanged by the panel-placement move.
     expect(anchorEl).toBe(document.activeElement);
-    expect(cs.outlineStyle).toBe("solid");
-    expect(cs.outlineWidth).toBe("1px");
-    expect(cs.outlineColor).toBe("rgb(153, 200, 255)");
-    expect(cs.outlineOffset).toBe("0px");
+
+    // The anchor itself shows no outline — its own native outline:auto
+    // is suppressed, and it never had the custom ring classes to begin
+    // with post-move.
+    const anchorCs = window.getComputedStyle(anchorEl);
+    expect(anchorCs.outlineStyle).toBe("none");
+
+    // The panel is where the ring now paints.
+    const panelCs = window.getComputedStyle(panelEl);
+    expect(panelCs.outlineStyle).toBe("solid");
+    expect(panelCs.outlineWidth).toBe("2px");
+    expect(panelCs.outlineColor).toBe("rgb(153, 200, 255)");
+    expect(panelCs.outlineOffset).toBe("0px");
   });
 
-  test("an unfocused object shows no outline", async () => {
+  test("an unfocused object's panel shows no outline", async () => {
     function Demo() {
       return (
         <TestWrapper fullPage>
@@ -14298,8 +14318,63 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const cs = window.getComputedStyle(anchorEl);
+    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
     expect(anchorEl).not.toBe(document.activeElement);
-    expect(cs.outlineStyle).toBe("none");
+    expect(window.getComputedStyle(panelEl).outlineStyle).toBe("none");
+  });
+
+  test("a sandwiched object's VISIBLE card rings when focused, not its invisible zero-footprint anchor", async () => {
+    // The whole point of the panel-placement move: the anchor-placed
+    // original could never show a ring on a sandwiched object at all —
+    // its anchor is a permanently zero-footprint wrapper (settled), so a
+    // ring drawn there paints on a box with no visible area. A cheap
+    // assertion on the tucked state alone (e.g. "the anchor has no
+    // outline") would have locked in exactly that gap without ever
+    // proving the ring reaches the card a keyboard user actually sees —
+    // this test asserts the panel's own outline directly instead.
+    function Demo() {
+      return (
+        <TestWrapper fullPage>
+          <Scene>
+            <SceneColumn name="stack-col" objectGap={8}>
+              <SceneObject name="top" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>top content</div>
+              </SceneObject>
+              <SceneObject name="middle" focused={false} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>middle content</div>
+              </SceneObject>
+              <SceneObject name="bottom" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>bottom content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await wait(600);
+
+    const anchorEl = container.querySelector('[data-scene-id="middle"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-panel="middle"]') as HTMLElement;
+
+    anchorEl.focus();
+    await waitForAnimationFrame();
+
+    expect(anchorEl).toBe(document.activeElement);
+
+    // Non-vacuity precondition: the anchor really is zero-footprint (the
+    // settled-sandwiched state this test exists to cover), and the panel
+    // really is a full-size, visible box — otherwise this test wouldn't
+    // be exercising the gap it claims to.
+    const anchorRect = anchorEl.getBoundingClientRect();
+    const panelRect = panelEl.getBoundingClientRect();
+    expect(anchorRect.height, `anchor height was ${anchorRect.height}, expected 0 (settled sandwiched, zero-footprint) — setup bug or design changed`).toBe(0);
+    expect(panelRect.height, `panel height was ${panelRect.height}, expected > 0 (a real, visible card) — setup bug or design changed`).toBeGreaterThan(0);
+
+    const panelCs = window.getComputedStyle(panelEl);
+    expect(panelCs.outlineStyle).toBe("solid");
+    expect(panelCs.outlineWidth).toBe("2px");
+    expect(panelCs.outlineColor).toBe("rgb(153, 200, 255)");
   });
 });
