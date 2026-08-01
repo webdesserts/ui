@@ -58,11 +58,6 @@ import {
 export interface WithinColumnDepthInfo {
   /** Depth index: 1 = adjacent to the lower focused sibling, increasing outward. */
   depth: number;
-  /**
-   * Content-wrapper-relative top position (px) of the lower focused sibling.
-   * The SceneObject uses this to position itself peeking above that sibling.
-   */
-  anchorTop: number;
 }
 
 interface ColumnRegistration {
@@ -293,13 +288,41 @@ function computeMeasuredWidth(
  * object immediately above the lower focused object is depth-1, the next one
  * is depth-2, and so on.
  *
- * Returns a Map from object name → `{ depth, anchorTop }` for every between-
- * unfocused object. Objects that are not sandwiched are absent from the map.
+ * INVARIANT (load-bearing for the object-level z-index paint-order channel —
+ * mirrors computeStackDepths' own DOM-order invariant at the column level,
+ * SceneColumn.tsx's own comment near columnDepth/depthZ above, but serves a
+ * DIFFERENT purpose): within a single sandwiched cluster (a contiguous run
+ * of unfocused objects bounded by the same two focused siblings), `depth =
+ * lowerFocusedIndex - i` is structurally guaranteed to produce depth order
+ * ≡ reverse DOM order — the object further from the lower focused sibling
+ * (earlier in DOM within the cluster) always gets the higher depth value.
+ * SceneObject's own zIndex channel writes `-depth` directly, so THIS
+ * ordering is what makes shallower siblings paint in front of deeper ones
+ * (the "multi-sandwiched" z-index test's own subject). UNLIKE column-level
+ * paint order, object-level DOM order alone does NOT structurally guarantee
+ * correct stacking on its own (object panels sit outside any column's
+ * preserve-3d chain — ui#o32, the D-series record), so this invariant is
+ * what the explicit z-index channel is built ON TOP OF, not a substitute
+ * for it.
+ *
+ * `anchorTop` (a cross-object, live geometryStore read of the lower focused
+ * sibling's own measured offsetTop) was DELETED from this function's return
+ * shape (ui#21 Slice 4 hygiene) — verified zero consumers at tip
+ * (SceneObject's peekY computation only ever reads `.depth`) and verified
+ * vestigial by the same geometric argument the plan's own Design port
+ * section made before implementation: every sandwiched object's own
+ * zero-height anchor converges on the SAME local origin (flush against the
+ * lower focused sibling) once settled, since each collapsed object
+ * contributes exactly zero net flow height — the panel's peek-offset
+ * transform only needs its OWN local depth (`-peekOffset * depth`), never a
+ * cross-object measured position. Same shape as ui#17's own stackTargetLeft
+ * deletion (a cross-sibling measured value the flow-collapse architecture
+ * made unnecessary).
+ *
+ * Returns a Map from object name → `{ depth }` for every between-unfocused
+ * object. Objects that are not sandwiched are absent from the map.
  */
-function computeWithinColumnDepths(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-): Map<string, WithinColumnDepthInfo> {
+function computeWithinColumnDepths(objectStates: ObjectState[]): Map<string, WithinColumnDepthInfo> {
   const result = new Map<string, WithinColumnDepthInfo>();
   const n = objectStates.length;
 
@@ -320,13 +343,7 @@ function computeWithinColumnDepths(
     // The object immediately above lowerFocused is depth-1, further away is higher.
     const depth = lowerFocusedIndex - i;
 
-    // anchorTop = the lower focused sibling's own measured offsetTop — it is
-    // always in flow (focused objects are never depth cards), so its
-    // registered geometry already reflects the real cumulative height of
-    // everything before it.
-    const anchorTop = geometryStore.get(objectStates[lowerFocusedIndex]!.name)?.offsetTop ?? 0;
-
-    result.set(objectStates[i]!.name, { depth, anchorTop });
+    result.set(objectStates[i]!.name, { depth });
   }
 
   return result;
@@ -878,8 +895,10 @@ export function SceneColumn({
   const geometryFingerprintRef = useRef("");
   // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
   // remeasure finds a real change — forces a re-render so topOffset/
-  // anchorTop/contentHeight recompute from the fresh geometry. The value
-  // itself is never read; only the state update matters.
+  // contentHeight recompute from the fresh geometry. The value itself is
+  // never read; only the state update matters. (ui#21 Slice 4: dropped the
+  // stale `anchorTop` mention from this list — computeWithinColumnDepths no
+  // longer reads geometryStore at all, see its own doc comment.)
   const [, setGeometryVersion] = useState(0);
   // The ResizeObserver instance shared by every registered object element
   // plus colRef itself. Created once on mount; register/unregister manage
@@ -1844,7 +1863,7 @@ export function SceneColumn({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
-  const withinColumnDepths = computeWithinColumnDepths(objectStates, geometryStore.current);
+  const withinColumnDepths = computeWithinColumnDepths(objectStates);
 
   // Joined focused-object-name key for this render (see computeFocusedObjectKey).
   // Drives the swap-reset scroll model (A2) below.
@@ -2067,9 +2086,11 @@ export function SceneColumn({
       const changed = remeasureGeometryWithAnchorCompensation();
 
       // Only unfocused columns' geometry (colHeight, marginTop) — none of
-      // it depends on the geometry store (computeTopOffset/anchorTop/
-      // computeFocusedContentHeight all early-return with zero focused
-      // objects), so forcing a re-render here would be pure overhead. Worse,
+      // it depends on the geometry store (computeTopOffset/
+      // computeFocusedContentHeight both early-return with zero focused
+      // objects, and computeWithinColumnDepths no longer reads the geometry
+      // store at all — ui#21 Slice 4 hygiene, see its own doc comment), so
+      // forcing a re-render here would be pure overhead. Worse,
       // an unfocused in-between column sits under CSS perspective/translateZ
       // depth treatment — a rect read after that transform has visually
       // settled reports a foreshortened size, and forcing an otherwise-
