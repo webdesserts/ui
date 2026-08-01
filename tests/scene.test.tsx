@@ -13065,3 +13065,277 @@ describe("Scene consumer scroll override", () => {
     expect(parseFloat(colBContent.style.top || "0")).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ui#21: Within-column deck rework — instant flow snap / teleport when an
+// object enters or leaves the within-column deck (board observation ui#o26).
+// The vertical, per-object port of ui#17's anchor/panel pattern — see
+// `plans/ui#21 Within-Column Deck Rework Plan (2026-07-31)` (vault) for the
+// full design. RED-FIRST per the plan's own TDD ordering: this repro and the
+// zero-pixel flip tests land BEFORE the anchor/panel split, confirmed red
+// against the CURRENT (pre-split, single-node) code.
+// ---------------------------------------------------------------------------
+
+// Panel copied verbatim from dev/pages/ScenePage.tsx (unexported there) —
+// representative-fixture discipline (constraint carried from ui#17): width
+// declared directly on SceneObject's own style prop, never a child div, and
+// this is the SAME component the real within-column deck consumer
+// (MultiFocusDemo) renders.
+function UI21Panel({
+  title,
+  subtitle,
+  color,
+  focused,
+  onClick,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  color: string;
+  focused: boolean;
+  onClick?: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        opacity: focused ? 1 : 0.4,
+        filter: focused ? "none" : "grayscale(1)",
+        cursor: focused ? "default" : "pointer",
+        width: "100%",
+        height: "100%",
+      }}
+      className={`${color} rounded-sm p-6 flex flex-col gap-2 transition-[filter,opacity] duration-300`}
+      onClick={onClick}
+    >
+      <h3 className="text-base font-light text-white/90">{title}</h3>
+      {subtitle && <p className="text-xs text-white/50">{subtitle}</p>}
+      {children && <div className="mt-2">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Mirrors dev/pages/ScenePage.tsx's MultiFocusDemo verbatim (JSX shape, prop
+ * values — one SceneColumn, objectGap=8, three SceneObjects width:480
+ * top/middle/bottom, no explicit height per forecast E1/E2's corrected
+ * ground truth). No duration=0 override: real springs, matching what a user
+ * actually sees and what the ui#o26 defect (a timing/interpolation bug) can
+ * only manifest under.
+ */
+function UI21MultiFocusFixture({
+  topFocused,
+  middleFocused,
+  bottomFocused,
+  onToggleTop,
+  onToggleMiddle,
+  onToggleBottom,
+}: {
+  topFocused: boolean;
+  middleFocused: boolean;
+  bottomFocused: boolean;
+  onToggleTop: () => void;
+  onToggleMiddle: () => void;
+  onToggleBottom: () => void;
+}) {
+  return (
+    <TestWrapper fullPage>
+      <Scene>
+        <SceneColumn name="stack-col" objectGap={8}>
+          <SceneObject name="stack-top" focused={topFocused} style={{ width: 480 }} onActivate={onToggleTop}>
+            <UI21Panel title="Top" subtitle="Object 1" color="bg-[lch(30_10_280)]" focused={topFocused} />
+          </SceneObject>
+          <SceneObject name="stack-middle" focused={middleFocused} style={{ width: 480 }} onActivate={onToggleMiddle}>
+            <UI21Panel title="Middle" subtitle="Sandwiched when unfocused" color="bg-[lch(30_10_200)]" focused={middleFocused} />
+          </SceneObject>
+          <SceneObject name="stack-bottom" focused={bottomFocused} style={{ width: 480 }} onActivate={onToggleBottom}>
+            <UI21Panel title="Bottom" subtitle="Object 3" color="bg-[lch(30_10_120)]" focused={bottomFocused} />
+          </SceneObject>
+        </SceneColumn>
+      </Scene>
+    </TestWrapper>
+  );
+}
+
+/**
+ * Drives ONE middle-object toggle (direction: "unfocus" = focused->sandwiched,
+ * i.e. the object ENTERS the deck; "focus" = sandwiched->focused, the object
+ * LEAVES the deck) from an already-settled Scene (top/bottom always
+ * focused), sampling raw gBCR for all three objects across the whole
+ * settling window — same methodology as tests/scene.test.tsx's
+ * runDoubleInterruptionGbcrSample (ui#17 Slice 3), ported to the vertical
+ * axis: a few pre-toggle frames included so the outlier loop's own
+ * `i starts at 1` bound has a real neighbor for the commit-frame delta.
+ */
+async function runUI21DeckTrigger(direction: "unfocus" | "focus"): Promise<{
+  topDeltas: number[];
+  middleDeltas: number[];
+  bottomDeltas: number[];
+}> {
+  function Demo() {
+    const [middleFocused, setMiddleFocused] = useState(direction === "unfocus");
+    return (
+      <>
+        <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
+          toggle
+        </button>
+        <UI21MultiFocusFixture
+          topFocused
+          middleFocused={middleFocused}
+          bottomFocused
+          onToggleTop={() => {}}
+          onToggleMiddle={() => setMiddleFocused(true)}
+          onToggleBottom={() => {}}
+        />
+      </>
+    );
+  }
+
+  const { getByTestId, container } = await render(<Demo />);
+  await wait(600); // full initial settle, before the toggle under test
+
+  const top = container.querySelector('[data-scene-id="stack-top"]') as HTMLElement;
+  const middle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+  const bottom = container.querySelector('[data-scene-id="stack-bottom"]') as HTMLElement;
+
+  const sample = (el: HTMLElement): GBCRBox => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
+
+  const topSamples: GBCRBox[] = [sample(top)];
+  const middleSamples: GBCRBox[] = [sample(middle)];
+  const bottomSamples: GBCRBox[] = [sample(bottom)];
+  for (let i = 0; i < 3; i++) {
+    await waitForAnimationFrame();
+    topSamples.push(sample(top));
+    middleSamples.push(sample(middle));
+    bottomSamples.push(sample(bottom));
+  }
+
+  (getByTestId("toggle").element() as HTMLElement).click();
+
+  const start = performance.now();
+  while (performance.now() - start < 1000) {
+    await waitForAnimationFrame();
+    topSamples.push(sample(top));
+    middleSamples.push(sample(middle));
+    bottomSamples.push(sample(bottom));
+  }
+
+  return {
+    topDeltas: gbcrDeltasOf(topSamples),
+    middleDeltas: gbcrDeltasOf(middleSamples),
+    bottomDeltas: gbcrDeltasOf(bottomSamples),
+  };
+}
+
+describe("Within-column deck (ui#21): instant flow snap / teleport repro, N=10 (RED-FIRST, pre-split)", () => {
+  for (let run = 0; run < 10; run++) {
+    test(`run ${run}: unfocus direction (object enters the deck) — no frame-to-frame gBCR outlier, any object`, async () => {
+      const { topDeltas, middleDeltas, bottomDeltas } = await runUI21DeckTrigger("unfocus");
+      const topOutliers = findGbcrOutliers(topDeltas);
+      const middleOutliers = findGbcrOutliers(middleDeltas);
+      const bottomOutliers = findGbcrOutliers(bottomDeltas);
+      expect(
+        { topOutliers, middleOutliers, bottomOutliers },
+        `unfocus direction outlier(s) found — top: ${JSON.stringify(topOutliers)}, middle: ${JSON.stringify(middleOutliers)}, bottom: ${JSON.stringify(bottomOutliers)} ` +
+          `(middleDeltas: ${JSON.stringify(middleDeltas.map((d) => Math.round(d * 100) / 100))}, ` +
+          `bottomDeltas: ${JSON.stringify(bottomDeltas.map((d) => Math.round(d * 100) / 100))})`,
+      ).toEqual({ topOutliers: [], middleOutliers: [], bottomOutliers: [] });
+    });
+  }
+
+  for (let run = 0; run < 10; run++) {
+    test(`run ${run}: focus direction (object leaves the deck) — no frame-to-frame gBCR outlier, any object`, async () => {
+      const { topDeltas, middleDeltas, bottomDeltas } = await runUI21DeckTrigger("focus");
+      const topOutliers = findGbcrOutliers(topDeltas);
+      const middleOutliers = findGbcrOutliers(middleDeltas);
+      const bottomOutliers = findGbcrOutliers(bottomDeltas);
+      expect(
+        { topOutliers, middleOutliers, bottomOutliers },
+        `focus direction outlier(s) found — top: ${JSON.stringify(topOutliers)}, middle: ${JSON.stringify(middleOutliers)}, bottom: ${JSON.stringify(bottomOutliers)} ` +
+          `(middleDeltas: ${JSON.stringify(middleDeltas.map((d) => Math.round(d * 100) / 100))}, ` +
+          `bottomDeltas: ${JSON.stringify(bottomDeltas.map((d) => Math.round(d * 100) / 100))})`,
+      ).toEqual({ topOutliers: [], middleOutliers: [], bottomOutliers: [] });
+    });
+  }
+});
+
+describe("Within-column deck (ui#21): layout-box zero-pixel flip (RED-FIRST, pre-split)", () => {
+  // Pre-split: the OBJECT itself (single node) flips position mode
+  // (focused: relative <-> sandwiched: absolute) — this is the actual
+  // ui#o26 defect surface today. Post-split, the flip moves to the new
+  // PANEL node (the anchor never flips position mode again — permanent
+  // zero-footprint in flow, mirroring ui#17's column anchor exactly); this
+  // test's own target selector will need updating to the panel once the
+  // split lands, same evolution ui#17's own zero-pixel-flip tests went
+  // through when its column-level split landed.
+  test("unfocus direction: object-local layout-box geometry has no discontinuity at the flip commit", async () => {
+    function Demo() {
+      const [middleFocused, setMiddleFocused] = useState(true);
+      return (
+        <>
+          <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
+            toggle
+          </button>
+          <UI21MultiFocusFixture
+            topFocused
+            middleFocused={middleFocused}
+            bottomFocused
+            onToggleTop={() => {}}
+            onToggleMiddle={() => setMiddleFocused(true)}
+            onToggleBottom={() => {}}
+          />
+        </>
+      );
+    }
+
+    const { getByTestId, container } = await render(<Demo />);
+    await wait(600);
+
+    const middleEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+
+    (getByTestId("toggle").element() as HTMLElement).click();
+    const { before, after } = await captureFlipCommit(middleEl, 2000);
+
+    expect(Math.abs(after.left - before.left)).toBeLessThan(1);
+    expect(Math.abs(after.top - before.top)).toBeLessThan(1);
+    expect(Math.abs(after.width - before.width)).toBeLessThan(1);
+    expect(Math.abs(after.height - before.height)).toBeLessThan(1);
+  });
+
+  test("focus direction: object-local layout-box geometry has no discontinuity at the flip commit", async () => {
+    function Demo() {
+      const [middleFocused, setMiddleFocused] = useState(false);
+      return (
+        <>
+          <button data-testid="toggle" onClick={() => setMiddleFocused((v) => !v)}>
+            toggle
+          </button>
+          <UI21MultiFocusFixture
+            topFocused
+            middleFocused={middleFocused}
+            bottomFocused
+            onToggleTop={() => {}}
+            onToggleMiddle={() => setMiddleFocused(true)}
+            onToggleBottom={() => {}}
+          />
+        </>
+      );
+    }
+
+    const { getByTestId, container } = await render(<Demo />);
+    await wait(600);
+
+    const middleEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+
+    (getByTestId("toggle").element() as HTMLElement).click();
+    const { before, after } = await captureFlipCommit(middleEl, 2000);
+
+    expect(Math.abs(after.left - before.left)).toBeLessThan(1);
+    expect(Math.abs(after.top - before.top)).toBeLessThan(1);
+    expect(Math.abs(after.width - before.width)).toBeLessThan(1);
+    expect(Math.abs(after.height - before.height)).toBeLessThan(1);
+  });
+});
