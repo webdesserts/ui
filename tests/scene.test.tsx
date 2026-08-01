@@ -14293,6 +14293,303 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
   });
 });
 
+// ---------------------------------------------------------------------------
+// Double-interruption, FULL methodology (forecast edit E5's own extension,
+// Slice 3 — mirrors ui#17's own E1 full-methodology extension of its E1
+// minimal test). Extends the minimal test above along three axes: (a) BOTH
+// directions (mid-a unfocus-interrupted-by-refocus AND focus-interrupted-
+// by-unfocus, not just the former), (b) interrupt timing derived from a
+// MEASURED settle duration rather than a hardcoded magic delay, varied
+// across early/mid/late fractions of it, and (c) the gBCR outlier detector
+// covers ALL FOUR objects (top/bottom included, not just mid-a/mid-b) —
+// layout-box continuity stays scoped to the interrupted object itself
+// (mid-a), matching the minimal test's own asymmetry.
+// ---------------------------------------------------------------------------
+
+/**
+ * Measures how long a real (uninterrupted) transition takes to visually
+ * settle by polling every given element's raw gBCR every real frame until
+ * NONE of them have moved (within a small epsilon) for `stableFrames`
+ * consecutive frames. Used to derive interrupt timings from the spring's
+ * own measured duration rather than a hardcoded magic delay.
+ */
+async function measureSettleDurationMs(
+  els: HTMLElement[],
+  options: { stableFrames?: number; maxFrames?: number; epsilon?: number } = {},
+): Promise<number> {
+  const { stableFrames = 5, maxFrames = 180, epsilon = 0.5 } = options;
+  const sample = (): GBCRBox[] =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    });
+  const start = performance.now();
+  let last = sample();
+  let stableStreak = 0;
+  for (let i = 0; i < maxFrames; i++) {
+    await waitForAnimationFrame();
+    const current = sample();
+    const moved = current.some((box, idx) => {
+      const prev = last[idx]!;
+      return (
+        Math.abs(box.left - prev.left) > epsilon ||
+        Math.abs(box.top - prev.top) > epsilon ||
+        Math.abs(box.width - prev.width) > epsilon ||
+        Math.abs(box.height - prev.height) > epsilon
+      );
+    });
+    if (moved) {
+      stableStreak = 0;
+    } else {
+      stableStreak++;
+      if (stableStreak >= stableFrames) return performance.now() - start;
+    }
+    last = current;
+  }
+  throw new Error(`measureSettleDurationMs: never stabilized within ${maxFrames} frames`);
+}
+
+/**
+ * 4-object single-column bystander fixture, matching the minimal
+ * double-interruption test's own shape exactly (top/mid-b/mid-a/bottom,
+ * objectGap=8, mid-a toggles). Parameterized by mid-a's INITIAL focus
+ * state so the same fixture builds both directions: "unfocus interrupted
+ * by refocus" (mid-a starts focused) and "focus interrupted by unfocus"
+ * (mid-a starts sandwiched).
+ */
+function buildDoubleInterruptionFixture(initialMidAFocused: boolean) {
+  return function Demo() {
+    const [midAFocused, setMidAFocused] = useState(initialMidAFocused);
+    return (
+      <TestWrapper fullPage>
+        <button data-testid="toggle" onClick={() => setMidAFocused((v) => !v)}>
+          toggle
+        </button>
+        <Scene>
+          <SceneColumn name="stack-col" objectGap={8}>
+            <SceneObject name="top" focused style={{ width: 480 }}>
+              <div style={{ height: 150 }}>top content</div>
+            </SceneObject>
+            <SceneObject name="mid-b" focused={false} style={{ width: 480 }}>
+              <div style={{ height: 150 }}>mid-b content</div>
+            </SceneObject>
+            <SceneObject name="mid-a" focused={midAFocused} style={{ width: 480 }}>
+              <div style={{ height: 150 }}>mid-a content</div>
+            </SceneObject>
+            <SceneObject name="bottom" focused style={{ width: 480 }}>
+              <div style={{ height: 150 }}>bottom content</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+  };
+}
+
+/**
+ * Mounts the double-interruption fixture, triggers mid-a's FIRST toggle
+ * ONLY (no interrupt), and measures how long the transition takes to
+ * settle across all 4 panels — the basis for this describe block's derived
+ * early/mid/late interrupt timings (25%/50%/75% of this measured
+ * duration).
+ */
+async function measureDeckSettleDurationMs(initialMidAFocused: boolean): Promise<number> {
+  const Demo = buildDoubleInterruptionFixture(initialMidAFocused);
+  const { getByTestId, container } = await render(<Demo />);
+  await wait(500);
+
+  const panels = ["top", "mid-b", "mid-a", "bottom"].map(
+    (name) => container.querySelector(`[data-scene-panel="${name}"]`) as HTMLElement,
+  );
+  (getByTestId("toggle").element() as HTMLElement).click();
+  const durationMs = await measureSettleDurationMs(panels);
+  await cleanup();
+  return durationMs;
+}
+
+/**
+ * Runs ONE full double-interruption trial: mounts the fixture, triggers
+ * mid-a's first toggle, waits `interruptDelayMs` (derived from the
+ * calibrated settle duration — see measureDeckSettleDurationMs) with NO
+ * sampling in between (mirrors ui#17's own runDoubleInterruptionGbcrSample
+ * precedent exactly: wait the FULL delay first, THEN start sampling — a
+ * first draft of this helper sampled a few warmup frames BEFORE the delay
+ * instead, leaving a genuine wall-clock gap between the last pre-delay
+ * sample and the first post-interrupt sample; that gap's delta legitimately
+ * spans far more elapsed time than its neighbors and trips the outlier
+ * detector on pure sampling density, not a real discontinuity — caught via
+ * this test's own pilot run, not assumed away), then interrupts with a
+ * second toggle. Samples raw gBCR for ALL FOUR objects across the whole
+ * pre- and post-interrupt window IN THE SAME frame loop that also captures
+ * mid-a's own layout-box flip commit — a separate captureFlipCommit call
+ * would run its own polling loop and leave a gBCR sampling blind spot
+ * exactly at the interrupt commit, the single moment most likely to show a
+ * discontinuity.
+ */
+async function runFullInterruptionTrial(
+  initialMidAFocused: boolean,
+  interruptDelayMs: number,
+): Promise<{
+  outlierDeltas: { top: number[]; midB: number[]; midA: number[]; bottom: number[] };
+  midAFlip: { before: DOMRect; after: DOMRect };
+}> {
+  const Demo = buildDoubleInterruptionFixture(initialMidAFocused);
+  const { getByTestId, container } = await render(<Demo />);
+  await wait(500);
+
+  const topPanel = container.querySelector('[data-scene-panel="top"]') as HTMLElement;
+  const midBPanel = container.querySelector('[data-scene-panel="mid-b"]') as HTMLElement;
+  const midAPanel = container.querySelector('[data-scene-panel="mid-a"]') as HTMLElement;
+  const bottomPanel = container.querySelector('[data-scene-panel="bottom"]') as HTMLElement;
+  const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
+  const toggleBtn = getByTestId("toggle").element() as HTMLElement;
+
+  const sample = (el: HTMLElement): GBCRBox => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
+
+  toggleBtn.click(); // first toggle: starts the transition under test
+  await wait(interruptDelayMs); // no sampling yet — see this function's own doc comment
+
+  const topSamples: GBCRBox[] = [sample(topPanel)];
+  const midBSamples: GBCRBox[] = [sample(midBPanel)];
+  const midASamples: GBCRBox[] = [sample(midAPanel)];
+  const bottomSamples: GBCRBox[] = [sample(bottomPanel)];
+  for (let i = 0; i < 3; i++) {
+    await waitForAnimationFrame();
+    topSamples.push(sample(topPanel));
+    midBSamples.push(sample(midBPanel));
+    midASamples.push(sample(midAPanel));
+    bottomSamples.push(sample(bottomPanel));
+  }
+
+  const initialMidAPosition = midAPanel.style.position;
+  toggleBtn.click(); // interrupt: mid-a's second toggle, mid-transition
+
+  let midABefore = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+  let midAAfter: DOMRect | undefined;
+  const start = performance.now();
+  while (performance.now() - start < 1000) {
+    await waitForAnimationFrame();
+    topSamples.push(sample(topPanel));
+    midBSamples.push(sample(midBPanel));
+    midASamples.push(sample(midAPanel));
+    bottomSamples.push(sample(bottomPanel));
+    if (!midAAfter && midAPanel.style.position !== initialMidAPosition) {
+      if (midAPanel.offsetParent !== midAAnchorEl) {
+        throw new Error(
+          `runFullInterruptionTrial: expected mid-a panel's offsetParent to be its anchor but it was ${midAPanel.offsetParent ? `<${midAPanel.offsetParent.tagName}>` : "null"}`,
+        );
+      }
+      midAAfter = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+    } else if (!midAAfter) {
+      midABefore = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+    }
+  }
+  if (!midAAfter) {
+    throw new Error("runFullInterruptionTrial: mid-a's panel position never flipped within the 1000ms post-interrupt sampling window");
+  }
+
+  await cleanup();
+
+  return {
+    outlierDeltas: {
+      top: gbcrDeltasOf(topSamples),
+      midB: gbcrDeltasOf(midBSamples),
+      midA: gbcrDeltasOf(midASamples),
+      bottom: gbcrDeltasOf(bottomSamples),
+    },
+    midAFlip: { before: midABefore, after: midAAfter },
+  };
+}
+
+describe("Within-column deck (ui#21): double-interruption, full methodology (forecast edit E5's own extension, Slice 3)", () => {
+  // Interrupt timing buckets as fractions of the CALIBRATED, measured
+  // settle duration for each direction (not a hardcoded magic delay) —
+  // mirrors this file's own measurement-over-assumption discipline.
+  // Cycled across the N=10 runs (run % 3) rather than a full 3x
+  // multiplication of the run count, so every bucket gets multiple runs
+  // without ballooning total test count.
+  const TIMING_FRACTIONS = [0.25, 0.5, 0.75] as const;
+  const TIMING_LABELS = ["early", "mid", "late"] as const;
+
+  let unfocusSettleMs = 0;
+  let focusSettleMs = 0;
+
+  // Calibration runs as its own dedicated test() per direction (relying on
+  // this file's guaranteed in-declaration-order execution), NOT inside a
+  // single beforeAll that calls render() twice in a row — this file's own
+  // established caveat (see runDoubleInterruptionGbcrSample's doc comment)
+  // is that vitest-browser's render/cleanup cycle doesn't reliably tear
+  // down a component fast enough for a same-body re-render, even with an
+  // explicit await cleanup() in between (confirmed the hard way: passed
+  // reliably when this describe block ran in isolation via -t, then hit a
+  // real "2 elements" strict-mode DOM collision inside beforeAll when run
+  // as part of the full file — exactly the documented hazard, only
+  // reproducing under the full file's timing). Each test() body gets its
+  // own proper cleanup boundary, the same mechanism every other render()
+  // call in this file already relies on.
+  test("calibrate: measure the unfocus-direction settle duration (basis for this direction's interrupt timings)", async () => {
+    unfocusSettleMs = await measureDeckSettleDurationMs(true); // mid-a starts focused, unfocuses
+    expect(unfocusSettleMs).toBeGreaterThan(0);
+  });
+
+  for (let run = 0; run < 10; run++) {
+    const bucket = run % 3;
+    test(`unfocus interrupted by refocus, run ${run} (${TIMING_LABELS[bucket]} interrupt): no frame-to-frame gBCR outlier across all 4 objects, mid-a's own layout-box continuous at the flip`, async () => {
+      const interruptDelayMs = unfocusSettleMs * TIMING_FRACTIONS[bucket];
+      const { outlierDeltas, midAFlip } = await runFullInterruptionTrial(true, interruptDelayMs);
+
+      const topOutliers = findGbcrOutliers(outlierDeltas.top);
+      const midBOutliers = findGbcrOutliers(outlierDeltas.midB);
+      const midAOutliers = findGbcrOutliers(outlierDeltas.midA);
+      const bottomOutliers = findGbcrOutliers(outlierDeltas.bottom);
+
+      expect(
+        { topOutliers, midBOutliers, midAOutliers, bottomOutliers },
+        `interrupt at ${interruptDelayMs.toFixed(0)}ms (${TIMING_LABELS[bucket]}, measured settle ${unfocusSettleMs.toFixed(0)}ms) — ` +
+          `outlier(s): top ${JSON.stringify(topOutliers)}, mid-b ${JSON.stringify(midBOutliers)}, mid-a ${JSON.stringify(midAOutliers)}, bottom ${JSON.stringify(bottomOutliers)}`,
+      ).toEqual({ topOutliers: [], midBOutliers: [], midAOutliers: [], bottomOutliers: [] });
+
+      // Interrupted object's own layout-box continuity (mirrors the
+      // minimal test's own asymmetry: only left/top, the axes that
+      // should already be resolved, not the axis under active
+      // transition — mid-a's own height is legitimately mid-spring at
+      // this exact commit).
+      expect(Math.abs(midAFlip.after.left - midAFlip.before.left)).toBeLessThan(1);
+      expect(Math.abs(midAFlip.after.top - midAFlip.before.top)).toBeLessThan(1);
+    });
+  }
+
+  test("calibrate: measure the focus-direction settle duration (basis for this direction's interrupt timings)", async () => {
+    focusSettleMs = await measureDeckSettleDurationMs(false); // mid-a starts sandwiched, focuses
+    expect(focusSettleMs).toBeGreaterThan(0);
+  });
+
+  for (let run = 0; run < 10; run++) {
+    const bucket = run % 3;
+    test(`focus interrupted by unfocus, run ${run} (${TIMING_LABELS[bucket]} interrupt): no frame-to-frame gBCR outlier across all 4 objects, mid-a's own layout-box continuous at the flip`, async () => {
+      const interruptDelayMs = focusSettleMs * TIMING_FRACTIONS[bucket];
+      const { outlierDeltas, midAFlip } = await runFullInterruptionTrial(false, interruptDelayMs);
+
+      const topOutliers = findGbcrOutliers(outlierDeltas.top);
+      const midBOutliers = findGbcrOutliers(outlierDeltas.midB);
+      const midAOutliers = findGbcrOutliers(outlierDeltas.midA);
+      const bottomOutliers = findGbcrOutliers(outlierDeltas.bottom);
+
+      expect(
+        { topOutliers, midBOutliers, midAOutliers, bottomOutliers },
+        `interrupt at ${interruptDelayMs.toFixed(0)}ms (${TIMING_LABELS[bucket]}, measured settle ${focusSettleMs.toFixed(0)}ms) — ` +
+          `outlier(s): top ${JSON.stringify(topOutliers)}, mid-b ${JSON.stringify(midBOutliers)}, mid-a ${JSON.stringify(midAOutliers)}, bottom ${JSON.stringify(bottomOutliers)}`,
+      ).toEqual({ topOutliers: [], midBOutliers: [], midAOutliers: [], bottomOutliers: [] });
+
+      expect(Math.abs(midAFlip.after.left - midAFlip.before.left)).toBeLessThan(1);
+      expect(Math.abs(midAFlip.after.top - midAFlip.before.top)).toBeLessThan(1);
+    });
+  }
+});
+
 describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
   // Replaces the browser's native outline:auto (broken by this arc's own
   // anchor/panel split — the panel, an opaque descendant always present
