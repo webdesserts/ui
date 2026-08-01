@@ -719,7 +719,11 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
   it("within-column-deck-at-rest", async () => {
     // Three objects in one focused column: top and bottom focused, middle in
     // the within-column depth deck at depth-1. Snapshots the resting state.
-    // Locks in anchorTop, translateZ, opacity, and grayscale for the middle object.
+    // Locks in the peek-offset position, zIndex, opacity, and grayscale for
+    // the middle object's panel (ui#21 — translateZ was removed entirely
+    // for object-level depth cards, see the z-index paint-order channel
+    // amendment; this baseline predates that split and needs a designer's
+    // eyes before regenerating, not touched here).
     document.documentElement.style.colorScheme = "dark";
     const { container } = await render(
       <TestWrapper fullPage>
@@ -951,10 +955,10 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     // nearer focused sibling is Y (2 objects away: X, M both between A and
     // Y) — X sits at depth-2. Focusing M makes M the new nearer anchor (only
     // X is between A and M) — X's depth drops to depth-1 (opacity
-    // 0.6→0.8, grayscale 0.5→0.25, translateZ -200→-100, and a new,
-    // shallower anchorTop). A real (slowMo) spring should show OPACITY
-    // pass through intermediate values on the way — a plain-div snap would
-    // jump straight to 0.8 on the very first sampled frame.
+    // 0.6→0.8, grayscale 0.5→0.25, zIndex -2→-1, and a shallower peek
+    // offset). A real (slowMo) spring should show OPACITY pass through
+    // intermediate values on the way — a plain-div snap would jump straight
+    // to 0.8 on the very first sampled frame.
     document.documentElement.style.colorScheme = "dark";
     const panelStyle: React.CSSProperties = {
       width: 300,
@@ -1043,13 +1047,19 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   //
   // Like C1's H5 test, this is a GREEN regression guard, not a
   // red-before/green-after pin for the objectDepthAnimate fix specifically
-  // — defeat-checked (objectDepthAnimate forced to undefined) and it
-  // stayed green: with no z differentiation at all, every object sits at
-  // z:0 (browser default), so DOM order alone already keeps paint order
-  // consistent (X's `top` position still springs via topMV regardless of
-  // objectDepthAnimate, so X still moves through the same overlap
-  // geometry — it just isn't visually dimmed/receded while doing so).
-  // depth-reshape-mid-spring above IS the decisive defeat-check for that
+  // — defeat-checked (objectDepthAnimate forced to undefined, back when
+  // that was the object-level depth-treatment mechanism, before the
+  // height/margin channel + panel peek-transform rework) and it stayed
+  // green: with no z differentiation at all, every object sits at z:0
+  // (browser default), so DOM order alone already keeps paint order
+  // consistent (X's own height/margin channels and its panel's
+  // depth-scaled peek-offset transform still spring independently of any
+  // depth-treatment mechanism, so X still moves through the same overlap
+  // geometry — it just isn't visually dimmed/receded while doing so; the
+  // ui#21 z-index channel's own sign-inversion sever reaches the SAME
+  // conclusion for the SAME structural reason, see this file's own commit
+  // history). depth-reshape-mid-spring above IS the decisive defeat-check
+  // for that
   // fix (confirmed red on the same sever). This test's job is Michael's
   // invariant as a standing structural guarantee, independent of whether
   // it happens to be provably load-bearing against today's specific bug.

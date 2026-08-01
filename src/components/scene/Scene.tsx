@@ -850,8 +850,11 @@ function PaintOrderBadges({
  *    callback actually wired up (SceneColumn's opacity/x/y/filter + layout
  *    FLIP + marginTop), never for the S3+ imperative motion pipeline
  *    (topOffsetMV, zMV, scrollY, cameraX, SceneObject's within-column
- *    topMV) or for SceneObject's own declarative opacity/z/filter animate
- *    (which was never wired to any onAnimationStart callback at all).
+ *    heightMV/marginBottomMV, replacing the retired topMV) or for
+ *    SceneObject's own declarative opacity/filter animate (z moved to a
+ *    discrete, non-animated zIndex channel — ui#21's z-index paint-order
+ *    channel amendment) — none of these were ever wired to any
+ *    onAnimationStart callback at all.
  *    Probe-confirmed on the dev app's Debug mode demo: an object's outline
  *    froze at its pre-transition position for an entire ~330ms swap and
  *    never caught up even after the real object settled, because nothing
@@ -982,7 +985,9 @@ function SceneObjectOutlines({
 /**
  * Debug overlay section listing every currently-registered MotionValue on
  * Scene's motion seam (cameraX, scrollY/topOffset/z per column,
- * withinColumnTop per within-column depth-deck object) with its live
+ * height/marginBottom per within-column depth-deck object — ui#21's
+ * height/margin channels, replacing the retired withinColumnTop key) with
+ * its live
  * value, target (when the driving animate() call reported one — an
  * inertia/fling deceleration has no fixed target and reads "—"), and
  * velocity. Registered keys are corrected via a useLayoutEffect (same

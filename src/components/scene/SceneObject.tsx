@@ -465,8 +465,10 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // measured anchor position: once every sandwiched object gets its own
   // zero-footprint in-flow anchor, its own local origin already converges
   // on "flush against the lower focused sibling" for free (the plan's own
-  // anchorTop vestigial-candidate reasoning) — the transform only needs to
-  // apply the peek itself.
+  // reasoning that predicted `WithinColumnDepthInfo.anchorTop` — the
+  // cross-object geometryStore read this component never consumed — was
+  // vestigial; deleted at its own definition, ui#21 Slice 4 hygiene) — the
+  // transform only needs to apply the peek itself.
   const peekY = sandwichedNow ? -peekOffset * withinDepthInfo!.depth : 0;
 
   // Register this object's DOM element, focus state, and height-channel

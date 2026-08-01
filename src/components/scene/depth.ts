@@ -13,8 +13,18 @@ export interface DepthTreatment {
 }
 
 /**
- * Computes the visual treatment for a given depth level in the Scene depth deck.
- * Used by both SceneColumn (column-level depth) and SceneObject (within-column depth).
+ * Computes the visual treatment for a given depth level in the Scene depth
+ * deck. Used by both SceneColumn (column-level depth) and SceneObject
+ * (within-column depth) — but NOT for the same fields: SceneColumn reads
+ * `opacity`/`grayscale`/`translateZ` (translateZ is still genuinely
+ * paint-relevant there, the perspective-projection foreshortening cue —
+ * SceneColumn.tsx's own comment near columnDepth/depthZ). SceneObject
+ * reads only `opacity`/`grayscale` (both still animate-driven, this file's
+ * own invariant below) — its `translateZ` is computed here but never
+ * consumed; object-level paint order is a SEPARATE, discrete zIndex write
+ * (`-depth`, not derived from this function at all — ui#21's z-index
+ * paint-order channel amendment, object-level translateZ never actually
+ * reached the panel, ui#o32).
  *
  * depth=1 → opacity 0.8, grayscale 0.25, translateZ -100px
  * depth=2 → opacity 0.6, grayscale 0.50, translateZ -200px

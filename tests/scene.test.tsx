@@ -11663,17 +11663,26 @@ describe("SceneColumn within-column depth deck", () => {
     // than a clean "already at rest" transition, which a duration=0 initial
     // mount + isolated `rerender()` doesn't naturally leave mid-flight.
     //
-    // Root cause reproduced here: `topMV` (bound imperatively via
-    // `style.top`, not React's declarative `animate` prop — see H8's own
-    // comment on this file for why) had an ACTIVE animate() call in flight
-    // when `withinDepthInfo` became falsy. The driving effect early-returned
-    // (not sandwiched — nothing redirects topMV toward 0) and the `top` key
-    // disappeared from `style` entirely (the binding was previously gated on
-    // `withinDepthInfo && withinDepth`). Motion's in-flight WAAPI/JS
-    // animation for that DOM property keeps writing until it completes,
-    // ignoring that the style prop stopped referencing it — so `top` froze
-    // at whatever value it held the instant the binding vanished, which can
-    // land anywhere (including well past Bottom's own position, as below).
+    // Root cause reproduced here, HISTORICAL (ui#21 Slice 4 doc sweep note:
+    // `topMV`/imperative `style.top` describe the PRE-height/margin-channel
+    // mechanism and no longer exist in current code — SceneObject's peek
+    // positioning now runs through the height/marginBottom channels plus
+    // the panel's own y-transform, see SceneObject.tsx's own comments. This
+    // test's own SUBJECT — an interrupted mid-flight settle landing in the
+    // open slot, not frozen at a stale depth-deck position — remains the
+    // current regression guard for that class of bug; verified still
+    // passing under the current architecture, not touched this round):
+    // `topMV` (bound imperatively via `style.top`, not React's declarative
+    // `animate` prop — see H8's own comment on this file for why) had an
+    // ACTIVE animate() call in flight when `withinDepthInfo` became falsy.
+    // The driving effect early-returned (not sandwiched — nothing redirects
+    // topMV toward 0) and the `top` key disappeared from `style` entirely
+    // (the binding was previously gated on `withinDepthInfo && withinDepth`).
+    // Motion's in-flight WAAPI/JS animation for that DOM property keeps
+    // writing until it completes, ignoring that the style prop stopped
+    // referencing it — so `top` froze at whatever value it held the instant
+    // the binding vanished, which can land anywhere (including well past
+    // Bottom's own position, as below).
     const { rerender, getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene duration={0}>
@@ -11693,12 +11702,13 @@ describe("SceneColumn within-column depth deck", () => {
     );
 
     const middle = getByTestId("content-middle").element().closest("[data-scene-id]") as HTMLElement;
-    // Sanity: Middle starts in the depth deck with a nonzero stale-prone `top`.
+    // Sanity: Middle starts sandwiched in the depth deck.
     expect(middle.getAttribute("data-within-column-depth")).not.toBeNull();
 
     // Grow Top with a REAL spring (no duration override) — Middle's anchor
     // (Bottom's offsetTop) shifts a lot, starting a genuine in-flight
-    // animate() on topMV.
+    // height/marginBottom channel spring (the current mechanism — see the
+    // historical note above).
     await rerender(
       <TestWrapper fullPage>
         <Scene>
@@ -14117,7 +14127,9 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
 
   // SKIPPED (real bug found via this test, out of ui#21 Slice 1's scope —
   // see the Noticed section of the worker's report for the full diagnostic
-  // trace): an object that MOUNTS already sandwiched (settled via the
+  // trace; tracked on the board as ui#o29, disposition "parked unless
+  // Michael cards it" — this skip is o29's code anchor, keep the two in
+  // sync): an object that MOUNTS already sandwiched (settled via the
   // isFirstTarget JUMP path, so heightSettled never flips false while
   // sandwiched) and is then refocused before ever being in-flow hits a
   // race between heightTarget's own retarget effect and the "keep synced
