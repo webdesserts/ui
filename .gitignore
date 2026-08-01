@@ -3,3 +3,4 @@ node_modules
 dist
 .vitest-attachments
 .claude/worktrees
+scratchpad

@@ -58,27 +58,35 @@ import {
 export interface WithinColumnDepthInfo {
   /** Depth index: 1 = adjacent to the lower focused sibling, increasing outward. */
   depth: number;
-  /**
-   * Content-wrapper-relative top position (px) of the lower focused sibling.
-   * The SceneObject uses this to position itself peeking above that sibling.
-   */
-  anchorTop: number;
 }
 
 interface ColumnRegistration {
   /**
-   * Register a SceneObject's outer element and focus state. Returns an
-   * unregister function. `focused` feeds the column's OWN registration with
-   * Scene (S6 registration architecture) — it's tracked separately from this
-   * column's internal deriveObjectStates prop walk (scope pin: column-level
-   * classification only, see SceneColumn's own registration effect below).
+   * Register a SceneObject's outer element, focus state, and its own
+   * height-channel target (ui#21 — see GeometryEntry's own `heightTarget`
+   * doc comment for why this must be REPORTED, not DOM-measured, here).
+   * Returns an unregister function. `focused` feeds the column's OWN
+   * registration with Scene (S6 registration architecture) — it's tracked
+   * separately from this column's internal deriveObjectStates prop walk
+   * (scope pin: column-level classification only, see SceneColumn's own
+   * registration effect below). `heightTarget` is called unconditionally
+   * every render (mirrors `focused`'s own unconditional-per-render
+   * rationale — a same-commit reflection requirement, not just a mount-time
+   * one), so remeasureGeometry always reads this render's own value.
    */
-  register: (name: string, el: HTMLElement, focused: boolean) => () => void;
+  register: (name: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => () => void;
   /**
    * Depth info for unfocused SceneObjects sandwiched between two focused
    * siblings. Objects not in this map receive normal (hidden) treatment.
    */
   withinColumnDepths: Map<string, WithinColumnDepthInfo>;
+  /**
+   * This column's own objectGap (px) — exposed so SceneObject's own
+   * margin-bottom gap-compensation channel (ui#21, mirrors SceneColumn's
+   * own marginMV/-columnGap channel vertically) can read it without a
+   * separate prop-drilling path.
+   */
+  objectGap: number;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
@@ -143,8 +151,40 @@ function computeFocusedObjectKey(objectStates: ObjectState[]): string {
 interface GeometryEntry {
   /** Distance (px) from the content wrapper's top edge to this object's top edge. */
   offsetTop: number;
-  /** This object's rendered height (px). */
+  /**
+   * This object's LIVE rendered height (px), via offsetHeight — a raw DOM
+   * measurement of the object's own outer anchor node. HAZARD (ui#21 delta
+   * claim review Slice 0 spike, source-verified): unlike `width` below,
+   * this is NOT safe to read for a currently-focused object once ui#21's
+   * own height-override channel lands (SceneObject.tsx) — that channel
+   * applies a pixel override DIRECTLY to this SAME anchor node, so
+   * `offsetHeight` read here would capture the spring's own in-flight
+   * value mid-transition, not a settled target (the exact "camera chases
+   * width" bug class, on the vertical scroll model this time). Consumers
+   * summing focused-object height (computeFocusedContentHeight,
+   * inputController.ts's selectAnchorObject) MUST read `heightTarget`
+   * below instead. This raw field survives only for the Slice 0
+   * disposition list's OWN "harmless" sites (debug overlays, one-shot
+   * command reads, column-level frozen-size snapshots) — see the plan's
+   * own disposition list before adding a new consumer here.
+   */
   height: number;
+  /**
+   * This object's height-channel TARGET (px) — synchronously known,
+   * mirroring `width`'s own precedent below exactly: 0 while sandwiched
+   * (permanent), the object's own natural in-flow height while focused or
+   * otherwise in-flow (a snapshot taken at rest, when nothing is
+   * overriding it — see SceneObject.tsx's naturalHeightRef). Reported by
+   * SceneObject via the extended `register` call (ui#21) — NOT derived
+   * from a DOM read here, since the same node this measures is the one
+   * the height channel writes to (see `height`'s own hazard note above).
+   * Undefined only during the one-render deferred-measurement window for
+   * an object that mounts already sandwiched, never having been in-flow
+   * (mirrors `neverFocusedNaturalWidth`'s own bootstrap case) — a
+   * currently-focused object never has this undefined in practice, since
+   * an object must be in-flow to become focused in the first place.
+   */
+  heightTarget: number | undefined;
   /**
    * This object's rendered width (px) — the ui#17 owned width channel's
    * "after" target. An object's own declared width (e.g. a `cqw` value)
@@ -248,13 +288,41 @@ function computeMeasuredWidth(
  * object immediately above the lower focused object is depth-1, the next one
  * is depth-2, and so on.
  *
- * Returns a Map from object name → `{ depth, anchorTop }` for every between-
- * unfocused object. Objects that are not sandwiched are absent from the map.
+ * INVARIANT (load-bearing for the object-level z-index paint-order channel —
+ * mirrors computeStackDepths' own DOM-order invariant at the column level,
+ * SceneColumn.tsx's own comment near columnDepth/depthZ above, but serves a
+ * DIFFERENT purpose): within a single sandwiched cluster (a contiguous run
+ * of unfocused objects bounded by the same two focused siblings), `depth =
+ * lowerFocusedIndex - i` is structurally guaranteed to produce depth order
+ * ≡ reverse DOM order — the object further from the lower focused sibling
+ * (earlier in DOM within the cluster) always gets the higher depth value.
+ * SceneObject's own zIndex channel writes `-depth` directly, so THIS
+ * ordering is what makes shallower siblings paint in front of deeper ones
+ * (the "multi-sandwiched" z-index test's own subject). UNLIKE column-level
+ * paint order, object-level DOM order alone does NOT structurally guarantee
+ * correct stacking on its own (object panels sit outside any column's
+ * preserve-3d chain — ui#o32, the D-series record), so this invariant is
+ * what the explicit z-index channel is built ON TOP OF, not a substitute
+ * for it.
+ *
+ * `anchorTop` (a cross-object, live geometryStore read of the lower focused
+ * sibling's own measured offsetTop) was DELETED from this function's return
+ * shape (ui#21 Slice 4 hygiene) — verified zero consumers at tip
+ * (SceneObject's peekY computation only ever reads `.depth`) and verified
+ * vestigial by the same geometric argument the plan's own Design port
+ * section made before implementation: every sandwiched object's own
+ * zero-height anchor converges on the SAME local origin (flush against the
+ * lower focused sibling) once settled, since each collapsed object
+ * contributes exactly zero net flow height — the panel's peek-offset
+ * transform only needs its OWN local depth (`-peekOffset * depth`), never a
+ * cross-object measured position. Same shape as ui#17's own stackTargetLeft
+ * deletion (a cross-sibling measured value the flow-collapse architecture
+ * made unnecessary).
+ *
+ * Returns a Map from object name → `{ depth }` for every between-unfocused
+ * object. Objects that are not sandwiched are absent from the map.
  */
-function computeWithinColumnDepths(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-): Map<string, WithinColumnDepthInfo> {
+function computeWithinColumnDepths(objectStates: ObjectState[]): Map<string, WithinColumnDepthInfo> {
   const result = new Map<string, WithinColumnDepthInfo>();
   const n = objectStates.length;
 
@@ -275,23 +343,31 @@ function computeWithinColumnDepths(
     // The object immediately above lowerFocused is depth-1, further away is higher.
     const depth = lowerFocusedIndex - i;
 
-    // anchorTop = the lower focused sibling's own measured offsetTop — it is
-    // always in flow (focused objects are never depth cards), so its
-    // registered geometry already reflects the real cumulative height of
-    // everything before it.
-    const anchorTop = geometryStore.get(objectStates[lowerFocusedIndex]!.name)?.offsetTop ?? 0;
-
-    result.set(objectStates[i]!.name, { depth, anchorTop });
+    result.set(objectStates[i]!.name, { depth });
   }
 
   return result;
 }
 
 /**
- * Sums the rendered heights of every currently-focused object (from the
- * geometry store) plus the gaps between them. This is the focused-content
+ * Sums the height-channel TARGETS of every currently-focused object (from
+ * the geometry store) plus the gaps between them. This is the focused-content
  * scroll range — a distinct concept from topOffset (strip position): it
  * only ever includes focused content, never unfocused in-flow siblings.
+ *
+ * Reads `heightTarget`, NOT `height` (ui#21 delta claim review Slice 0 spike
+ * finding, ruled): `height` is a live offsetHeight read on the same node
+ * ui#21's own height-override channel writes to — summing it here would
+ * chase the channel's own in-flight spring value mid-transition, the exact
+ * "camera chases width" bug class ui#17 already had to fix once (see
+ * GeometryEntry's own `heightTarget` doc comment for the full mechanism).
+ * `heightTarget` is a synchronously-known spring destination instead, safe
+ * to sum at any point in a transition. Falls back to `height` only for a
+ * legacy/defensive path (an object that hasn't yet reported a height
+ * target via the extended register() call — should not occur for a
+ * currently-focused object in practice, since an object must be in-flow to
+ * become focused, but kept as a non-throwing fallback rather than `?? 0`,
+ * which would silently zero out a real object's contribution).
  */
 function computeFocusedContentHeight(
   objectStates: ObjectState[],
@@ -303,7 +379,8 @@ function computeFocusedContentHeight(
   for (const { name, focused } of objectStates) {
     if (!focused) continue;
     focusedCount++;
-    focusedHeight += geometryStore.get(name)?.height ?? 0;
+    const entry = geometryStore.get(name);
+    focusedHeight += entry?.heightTarget ?? entry?.height ?? 0;
   }
   if (focusedCount > 1 && objectGap) {
     focusedHeight += (focusedCount - 1) * objectGap;
@@ -798,6 +875,12 @@ export function SceneColumn({
   // registration with Scene below; the existing geometry/freeze pipeline
   // (deriveColumnFocused/deriveObjectStates prop walk) is untouched.
   const registeredObjectFocusRef = useRef<Map<string, boolean>>(new Map());
+  // Registered SceneObjects' own height-channel targets (ui#21) — parallel
+  // to registeredEls, REPORTED by each SceneObject (not DOM-measured here —
+  // see GeometryEntry's own `heightTarget` doc comment for why remeasureGeometry
+  // must consume this rather than reading offsetHeight on the same node the
+  // height channel writes to).
+  const registeredHeightTargetsRef = useRef<Map<string, number | undefined>>(new Map());
   // Single measurement layer: every registered object's offsetTop/height,
   // relative to the content wrapper. Bulk-remeasured (a) synchronously after
   // every render via useLayoutEffect and (b) asynchronously by a shared
@@ -812,8 +895,10 @@ export function SceneColumn({
   const geometryFingerprintRef = useRef("");
   // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
   // remeasure finds a real change — forces a re-render so topOffset/
-  // anchorTop/contentHeight recompute from the fresh geometry. The value
-  // itself is never read; only the state update matters.
+  // contentHeight recompute from the fresh geometry. The value itself is
+  // never read; only the state update matters. (ui#21 Slice 4: dropped the
+  // stale `anchorTop` mention from this list — computeWithinColumnDepths no
+  // longer reads geometryStore at all, see its own doc comment.)
   const [, setGeometryVersion] = useState(0);
   // The ResizeObserver instance shared by every registered object element
   // plus colRef itself. Created once on mount; register/unregister manage
@@ -1396,12 +1481,15 @@ export function SceneColumn({
       const rect = el.getBoundingClientRect();
       const offsetTop = rect.top - wrapperRect.top;
       const height = el.offsetHeight;
+      // ui#21: reported by SceneObject via register(), not DOM-measured —
+      // see GeometryEntry's own `heightTarget` doc comment for why.
+      const heightTarget = registeredHeightTargetsRef.current.get(objName);
       // ui#17: offsetWidth, not rect.width — same H11 rationale as height
       // above (a layout metric, immune to any transform on the element or
       // its ancestors), now load-bearing for the owned width channel's
       // target measurement, not just a defensive choice.
       const width = el.offsetWidth;
-      geometryStore.current.set(objName, { offsetTop, height, width });
+      geometryStore.current.set(objName, { offsetTop, height, heightTarget, width });
       // F4 feature (c) debug-only mirror: exposes this store's per-object
       // entries to the debug overlay's geometry-store inspector without
       // giving it a live React-level handle into this column's internal
@@ -1417,7 +1505,7 @@ export function SceneColumn({
       el.setAttribute("data-geometry-width", String(Math.round(width)));
     }
     const fingerprint = Array.from(geometryStore.current.entries())
-      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}:${Math.round(g.width)}`)
+      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.heightTarget ?? g.height)}:${Math.round(g.width)}`)
       .join(",");
     const changed = fingerprint !== geometryFingerprintRef.current;
     geometryFingerprintRef.current = fingerprint;
@@ -1775,7 +1863,7 @@ export function SceneColumn({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
-  const withinColumnDepths = computeWithinColumnDepths(objectStates, geometryStore.current);
+  const withinColumnDepths = computeWithinColumnDepths(objectStates);
 
   // Joined focused-object-name key for this render (see computeFocusedObjectKey).
   // Drives the swap-reset scroll model (A2) below.
@@ -1998,9 +2086,11 @@ export function SceneColumn({
       const changed = remeasureGeometryWithAnchorCompensation();
 
       // Only unfocused columns' geometry (colHeight, marginTop) — none of
-      // it depends on the geometry store (computeTopOffset/anchorTop/
-      // computeFocusedContentHeight all early-return with zero focused
-      // objects), so forcing a re-render here would be pure overhead. Worse,
+      // it depends on the geometry store (computeTopOffset/
+      // computeFocusedContentHeight both early-return with zero focused
+      // objects, and computeWithinColumnDepths no longer reads the geometry
+      // store at all — ui#21 Slice 4 hygiene, see its own doc comment), so
+      // forcing a re-render here would be pure overhead. Worse,
       // an unfocused in-between column sits under CSS perspective/translateZ
       // depth treatment — a rect read after that transform has visually
       // settled reports a foreshortened size, and forcing an otherwise-
@@ -2341,14 +2431,16 @@ export function SceneColumn({
   // shared ResizeObserver's membership — newly registered elements join the
   // single measurement layer immediately (or are picked up by the mount
   // effect's initial sweep if the observer hasn't been created yet).
-  const register = useCallback((objName: string, el: HTMLElement, focused: boolean) => {
+  const register = useCallback((objName: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => {
     registeredEls.current.set(objName, el);
     registeredObjectFocusRef.current.set(objName, focused);
+    registeredHeightTargetsRef.current.set(objName, heightTarget);
     resizeObserverRef.current?.observe(el);
     return () => {
       resizeObserverRef.current?.unobserve(el);
       registeredEls.current.delete(objName);
       registeredObjectFocusRef.current.delete(objName);
+      registeredHeightTargetsRef.current.delete(objName);
       geometryStore.current.delete(objName);
     };
   }, []);
@@ -2782,8 +2874,30 @@ export function SceneColumn({
   // Reinforces the sense of receding into the background.
   const depthGreyscale = columnDepth.grayscale;
   const depthZ = columnDepth.translateZ;
-  // z-index is NOT used inside preserve-3d — 3D z-ordering is determined
-  // entirely by translateZ values (higher z = closer = rendered in front).
+  // Column-level paint order is DOM-order-driven in practice, and that's
+  // design-correct: computeStackDepths (Scene.tsx) assigns depth by
+  // walking backward from the rightmost focused column, so depth is
+  // structurally guaranteed to equal reverse DOM order for every
+  // reachable production state (see that function's own comment — the
+  // invariant is load-bearing). translateZ here is paint-INERT, not
+  // paint-driving — a multi-round discriminator investigation (ui#o32,
+  // the D-series record) forced a genuinely-transformed sibling into an
+  // intact preserve-3d chain and it still lost to DOM order; z-index was
+  // also tried directly (forced positive, confirmed applied via computed
+  // style) and was EQUALLY inert, consistent with the well-documented CSS
+  // behavior that z-index has no effect on children of a
+  // transform-style:preserve-3d element — actual 3D depth governs there,
+  // and that 3D depth-sort is itself the thing the D-series found broken
+  // (isolated per-anchor subtrees don't compare against each other).
+  // translateZ is retained purely for the perspective-projection
+  // foreshortening visual cue (depth-1 → 0.89×, etc.), not for paint
+  // order. If a future feature ever breaks the depth ≡ reverse-DOM-order
+  // invariant (e.g. reordering columns independent of focus/depth),
+  // column-level paint order needs an explicit mechanism — object level
+  // (SceneObject.tsx) already has this via its own z-index channel,
+  // built for exactly this reason (object panels sit outside any
+  // column's preserve-3d chain, so DOM order there does NOT structurally
+  // guarantee correctness the way it does at column level).
 
   // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
   // objects overlapping in 2D screen space must never change relative paint
@@ -3126,7 +3240,7 @@ export function SceneColumn({
   }, [columnFocused, isScrollable]);
 
   return (
-    <ColumnContext.Provider value={{ register, withinColumnDepths }}>
+    <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
           time and silently shadows the spring. See depth.ts for the no-shadow rule.
@@ -3360,6 +3474,22 @@ export function SceneColumn({
             // touch-action, the island's interior vertical touch-pan is
             // no longer blocked by any Scene-owned ancestor.
             touchAction: columnFocused && isScrollable ? "pan-x pinch-zoom" : "auto",
+            // CLICK-TARGETING FIX (ui#21 rider 5 escalation, real
+            // regression): makes this element ITS OWN stacking-context
+            // root instead of an ordinary positioned participant in
+            // whatever context sits above it. A root's own background
+            // paints FIRST, before its negative z-index descendants — so
+            // a sandwiched object's panel (negative z-index, a
+            // descendant of this element) now paints ABOVE this
+            // element's own box at any point neither covers, restoring
+            // the panel as the real hit-test target for its own
+            // exclusive peek sliver. Deliberately `isolation: isolate`,
+            // not an explicit z-index or a transform — isolation has no
+            // grouping/3D side effects and sits BELOW the column panel's
+            // own preserve-3d participation (SceneColumn's own anchor,
+            // above this element), so column-level 3D/paint-order
+            // behavior is untouched by construction.
+            isolation: "isolate",
           }}
         >
           {children}
