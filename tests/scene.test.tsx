@@ -13369,6 +13369,59 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     return el?.closest("[data-scene-id]")?.getAttribute("data-scene-id") ?? undefined;
   }
 
+  // Scans a Y range for a point covered by the target pair's own boxes but
+  // NEITHER of the excluded panels — needed because, in a fanned multi-
+  // sandwiched stack, most of any adjacent pair's shared region is ALSO
+  // covered by something else shallower still (measured: even the always-
+  // visible focused neighbors extend a few px into the sandwiched
+  // cluster's own range, a real consequence of peek-offset/gap spacing,
+  // not a bug) — a naive overlap centroid would trivially reflect whatever
+  // ELSE is present there, not the pair actually under test. Robust to
+  // exact pixel geometry rather than assuming a fixed offset is clean.
+  function findCleanSampleY(shallower: HTMLElement, deeper: HTMLElement, excluding: HTMLElement[]): number | undefined {
+    const sRect = shallower.getBoundingClientRect();
+    const dRect = deeper.getBoundingClientRect();
+    const bandStart = Math.max(sRect.top, dRect.top);
+    const bandEnd = Math.min(sRect.bottom, dRect.bottom);
+    for (let y = bandStart + 1; y < bandEnd; y++) {
+      const coveredByOther = excluding.some((el) => {
+        const r = el.getBoundingClientRect();
+        return y >= r.top && y < r.bottom;
+      });
+      if (!coveredByOther) return y;
+    }
+    return undefined;
+  }
+
+  // Searches the FULL elementsFromPoint stack for the first element that
+  // belongs to some SceneObject's own subtree, rather than trusting index
+  // 0 alone. Real finding (rider 5's own probe, confirmed with an
+  // isolated minimal repro too — see this describe block's own dedicated
+  // test): a negative z-index panel paints BEHIND every intermediate
+  // ancestor's own box, including plain, non-stacking-context-
+  // establishing wrappers like data-column-content — not just "the
+  // stacking-context root" as originally assumed. Where NOTHING else (no
+  // other real object's own content) is ALSO geometrically present at a
+  // sample point, such a wrapper's own (currently invisible — no
+  // background set anywhere in this tree today) box wins the raw hit-test
+  // ahead of the actual panel, purely a structural CSS consequence, not a
+  // visual regression: nothing opaque is actually painted over the panel,
+  // so nothing is visibly wrong today, but it means the FIRST intermediate
+  // wrapper that ever gains a background would silently occlude every
+  // sandwiched card behind it. Skipping past such non-object wrappers to
+  // find the first genuine object is what a viewer actually sees; index-0
+  // alone tests hit-test priority, a stricter and currently-divergent
+  // standard.
+  function ownerAt(sampleY: number, referenceEl: HTMLElement): string | undefined {
+    const rRect = referenceEl.getBoundingClientRect();
+    const sampleX = (rRect.left + rRect.right) / 2;
+    for (const el of document.elementsFromPoint(sampleX, sampleY)) {
+      const owner = ownerOf(el);
+      if (owner) return owner;
+    }
+    return undefined;
+  }
+
   function zIndexOf(panel: HTMLElement): string {
     return getComputedStyle(panel).zIndex;
   }
@@ -13550,6 +13603,157 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     await wait(1500);
     const zIndexAtRest = zIndexOf(middlePanel);
     expect(zIndexAtRest, `zIndex never released to "auto" after settling — read "${zIndexAtRest}"`).toBe("auto");
+  });
+
+  test("multi-sandwiched: shallower siblings win paint order over deeper ones, depth-scaled not just sign-scaled", async () => {
+    // Static, already-settled configuration — no toggle needed. 3
+    // simultaneously sandwiched siblings between the same pair of focused
+    // neighbors (computeWithinColumnDepths, SceneColumn.tsx:299-333: depth
+    // = distance to the LOWER focused sibling, so obj-a/obj-b/obj-c — all
+    // sharing the same lowerFocusedIndex, "bottom" — get depth 3/2/1
+    // respectively, the design's own fan shape). The two tests above only
+    // exercise sign (sandwiched vs. focused); this is the only guard on
+    // the depth-SCALED half of the derivation (-d vs. a flat -1 would
+    // pass both of those, but not this one).
+    function MultiDemo() {
+      return (
+        <TestWrapper fullPage>
+          {/* Large peekOffset + objectGap (defaults are 12px / 8px, both
+              tiny relative to a 150px panel height) — with the defaults,
+              every sandwiched sibling's panel overlaps every other one
+              (and the focused neighbors on both sides) almost entirely,
+              leaving no region where only an adjacent pair is present to
+              sample; a large peekOffset alone still lets the DEEPEST
+              sandwiched object's own peek collide with "stack-top" (the
+              gap between them is only objectGap, unrelated to
+              peekOffset), swallowing its own clean region the other way.
+              Both spread the fan enough for each adjacent pair to have a
+              genuinely exclusive sliver, without changing what's under
+              test (relative z-index order still derives the same way
+              regardless of either value's magnitude). */}
+          <Scene peekOffset={60}>
+            <SceneColumn name="stack-col" objectGap={150}>
+              <SceneObject name="stack-top" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>top content</div>
+              </SceneObject>
+              <SceneObject name="obj-a" focused={false} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>a content</div>
+              </SceneObject>
+              <SceneObject name="obj-b" focused={false} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>b content</div>
+              </SceneObject>
+              <SceneObject name="obj-c" focused={false} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>c content</div>
+              </SceneObject>
+              <SceneObject name="stack-bottom" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>bottom content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<MultiDemo />);
+    await wait(600);
+
+    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
+    const panelA = container.querySelector('[data-scene-panel="obj-a"]') as HTMLElement;
+    const panelB = container.querySelector('[data-scene-panel="obj-b"]') as HTMLElement;
+    const panelC = container.querySelector('[data-scene-panel="obj-c"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+
+    const depthA = container.querySelector('[data-scene-id="obj-a"]')?.getAttribute("data-within-column-depth");
+    const depthB = container.querySelector('[data-scene-id="obj-b"]')?.getAttribute("data-within-column-depth");
+    const depthC = container.querySelector('[data-scene-id="obj-c"]')?.getAttribute("data-within-column-depth");
+    // Non-vacuity precondition: confirms the fixture genuinely produced 3
+    // distinct depths before trusting any paint-order conclusion drawn
+    // from them.
+    expect([depthA, depthB, depthC], `depths were a=${depthA} b=${depthB} c=${depthC} — expected three distinct depths (3, 2, 1)`).toEqual(["3", "2", "1"]);
+
+    const cOverBY = findCleanSampleY(panelC, panelB, [panelTop, panelA, panelBottom]);
+    const bOverAY = findCleanSampleY(panelB, panelA, [panelTop, panelC, panelBottom]);
+
+    expect(cOverBY, "no clean sample point found within obj-c/obj-b's shared range, excluding stack-top/obj-a/stack-bottom — setup bug or design changed").not.toBeUndefined();
+    expect(bOverAY, "no clean sample point found within obj-b/obj-a's shared range, excluding stack-top/obj-c/stack-bottom — setup bug or design changed").not.toBeUndefined();
+
+    const cOverBOwner = ownerAt(cOverBY!, panelC);
+    const bOverAOwner = ownerAt(bOverAY!, panelB);
+
+    expect(cOverBOwner, `owner at a clean obj-c/obj-b sample point (y=${cOverBY}) was "${cOverBOwner}", expected "obj-c" (shallower, depth 1, over obj-b, depth 2)`).toBe("obj-c");
+    expect(bOverAOwner, `owner at a clean obj-b/obj-a sample point (y=${bOverAY}) was "${bOverAOwner}", expected "obj-b" (shallower, depth 2, over obj-a, depth 3)`).toBe("obj-b");
+  });
+
+  test("at a sandwiched panel's exclusive peek sliver, elementsFromPoint's raw topmost hit can be a non-object ancestor — verified, not assumed", async () => {
+    // Rider 5's own probe (z-index channel adjudication): "verify, not
+    // assume" that negative z-index paints behind only the stacking-
+    // context ROOT's own background (expected harmless there, since the
+    // glass background lives on that root and paints first regardless).
+    // VERIFIED FALSE as stated: isolated minimal repro (single sandwiched
+    // object, large peekOffset/objectGap so its own exclusive sliver
+    // exists — a point covered by NEITHER focused neighbor) shows
+    // elementsFromPoint's raw index-0 hit is "data-column-content", an
+    // ORDINARY, non-stacking-context-establishing intermediate wrapper —
+    // not the stacking-context root, and not the panel itself. Mechanism:
+    // negative z-index makes an element paint behind its own ANCESTOR's
+    // box (the classic, well-documented use of negative z-index), and
+    // this holds for EVERY intermediate ancestor up to wherever a real
+    // stacking context boundary stops it, not just the outermost one.
+    // Currently harmless — data-column-content has no background
+    // anywhere in this tree today, so nothing is actually painted over
+    // the panel, only the raw HIT-TEST priority is affected — but the
+    // FIRST intermediate wrapper that ever gains one (a themed column
+    // background, debug styling, etc.) would silently occlude every
+    // sandwiched card behind it. `ownerAt`'s own search-past-wrappers
+    // adaptation (used throughout this describe block) is the correct,
+    // defensible way to query "what does a viewer actually see" given
+    // this — this test names the raw-index-0 divergence explicitly so it
+    // isn't rediscovered by surprise later.
+    function Demo() {
+      const [middleFocused] = useState(false);
+      return (
+        <TestWrapper fullPage>
+          <Scene peekOffset={80}>
+            <SceneColumn name="stack-col" objectGap={200}>
+              <SceneObject name="stack-top" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>top content</div>
+              </SceneObject>
+              <SceneObject name="stack-middle" focused={middleFocused} style={{ width: 480 }}>
+                <div style={{ height: 150 }}>middle content</div>
+              </SceneObject>
+              <SceneObject name="stack-bottom" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>bottom content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await wait(600);
+
+    const panelMiddle = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+
+    const sliverY = findCleanSampleY(panelMiddle, panelMiddle, [panelTop, panelBottom]);
+    expect(sliverY, "no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed").not.toBeUndefined();
+
+    const mRect = panelMiddle.getBoundingClientRect();
+    const sampleX = (mRect.left + mRect.right) / 2;
+    const rawTopmost = document.elementsFromPoint(sampleX, sliverY!)[0];
+
+    // The verified-false half: raw index-0 is NOT the panel itself.
+    expect(
+      rawTopmost?.getAttribute("data-scene-panel"),
+      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was unexpectedly the panel itself (tag=${rawTopmost?.tagName}) — the CSS hazard this test documents may have been fixed; if so, update this test's expectation and comment rather than leaving it stale`,
+    ).not.toBe("stack-middle");
+
+    // The still-correct half: searching past non-object wrappers finds
+    // the real owner, matching what a viewer actually sees.
+    const robustOwner = ownerAt(sliverY!, panelMiddle);
+    expect(robustOwner, `owner at stack-middle's own exclusive sliver (searched past non-object wrappers) was "${robustOwner}", expected "stack-middle"`).toBe("stack-middle");
   });
 });
 
