@@ -3453,6 +3453,22 @@ export function SceneColumn({
             // touch-action, the island's interior vertical touch-pan is
             // no longer blocked by any Scene-owned ancestor.
             touchAction: columnFocused && isScrollable ? "pan-x pinch-zoom" : "auto",
+            // CLICK-TARGETING FIX (ui#21 rider 5 escalation, real
+            // regression): makes this element ITS OWN stacking-context
+            // root instead of an ordinary positioned participant in
+            // whatever context sits above it. A root's own background
+            // paints FIRST, before its negative z-index descendants — so
+            // a sandwiched object's panel (negative z-index, a
+            // descendant of this element) now paints ABOVE this
+            // element's own box at any point neither covers, restoring
+            // the panel as the real hit-test target for its own
+            // exclusive peek sliver. Deliberately `isolation: isolate`,
+            // not an explicit z-index or a transform — isolation has no
+            // grouping/3D side effects and sits BELOW the column panel's
+            // own preserve-3d participation (SceneColumn's own anchor,
+            // above this element), so column-level 3D/paint-order
+            // behavior is untouched by construction.
+            isolation: "isolate",
           }}
         >
           {children}

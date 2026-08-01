@@ -13804,31 +13804,26 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     expect(bOverAOwner, `owner at a clean obj-b/obj-a sample point (y=${bOverAY}) was "${bOverAOwner}", expected "obj-b" (shallower, depth 2, over obj-a, depth 3)`).toBe("obj-b");
   });
 
-  test("at a sandwiched panel's exclusive peek sliver, elementsFromPoint's raw topmost hit can be a non-object ancestor — verified, not assumed", async () => {
+  test("at a sandwiched panel's exclusive peek sliver, elementsFromPoint's raw topmost hit is the panel itself — CSS hazard fixed, kept as a regression guard", async () => {
     // Rider 5's own probe (z-index channel adjudication): "verify, not
     // assume" that negative z-index paints behind only the stacking-
-    // context ROOT's own background (expected harmless there, since the
-    // glass background lives on that root and paints first regardless).
-    // VERIFIED FALSE as stated: isolated minimal repro (single sandwiched
-    // object, large peekOffset/objectGap so its own exclusive sliver
-    // exists — a point covered by NEITHER focused neighbor) shows
-    // elementsFromPoint's raw index-0 hit is "data-column-content", an
-    // ORDINARY, non-stacking-context-establishing intermediate wrapper —
-    // not the stacking-context root, and not the panel itself. Mechanism:
-    // negative z-index makes an element paint behind its own ANCESTOR's
-    // box (the classic, well-documented use of negative z-index), and
-    // this holds for EVERY intermediate ancestor up to wherever a real
-    // stacking context boundary stops it, not just the outermost one.
-    // Currently harmless — data-column-content has no background
-    // anywhere in this tree today, so nothing is actually painted over
-    // the panel, only the raw HIT-TEST priority is affected — but the
-    // FIRST intermediate wrapper that ever gains one (a themed column
-    // background, debug styling, etc.) would silently occlude every
-    // sandwiched card behind it. `ownerAt`'s own search-past-wrappers
-    // adaptation (used throughout this describe block) is the correct,
-    // defensible way to query "what does a viewer actually see" given
-    // this — this test names the raw-index-0 divergence explicitly so it
-    // isn't rediscovered by surprise later.
+    // context ROOT's own background found this FALSE as originally
+    // stated — an isolated minimal repro showed elementsFromPoint's raw
+    // index-0 hit was "data-column-content", an ORDINARY, non-stacking-
+    // context-establishing intermediate wrapper, not the stacking-context
+    // root and not the panel itself. That was also a real, user-facing
+    // click-targeting regression (a genuine hit-tested click at this same
+    // sliver missed the card's own onActivate handler entirely — see the
+    // "sandwiched card click-targeting" describe block below), fixed by
+    // giving data-column-content `isolation: isolate` (its own comment,
+    // SceneColumn.tsx): a stacking-context ROOT's own background paints
+    // FIRST, before its negative z-index descendants, so the panel now
+    // correctly wins the raw hit-test too — this test's own original
+    // assertion flipped from red-if-fixed to green-if-fixed when that
+    // landed (its own failure message said as much, verbatim, when this
+    // fix first made it fire). Kept here, assertion inverted, as a
+    // regression guard: if the isolation fix is ever removed or
+    // weakened, this goes red again.
     function Demo() {
       const [middleFocused] = useState(false);
       return (
@@ -13864,16 +13859,118 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const sampleX = (mRect.left + mRect.right) / 2;
     const rawTopmost = document.elementsFromPoint(sampleX, sliverY!)[0];
 
-    // The verified-false half: raw index-0 is NOT the panel itself.
+    // Regression guard: raw index-0 IS the panel itself, post-fix.
     expect(
       rawTopmost?.getAttribute("data-scene-panel"),
-      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was unexpectedly the panel itself (tag=${rawTopmost?.tagName}) — the CSS hazard this test documents may have been fixed; if so, update this test's expectation and comment rather than leaving it stale`,
-    ).not.toBe("stack-middle");
+      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-panel=${rawTopmost?.getAttribute("data-scene-panel")}", expected the panel itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
+    ).toBe("stack-middle");
 
-    // The still-correct half: searching past non-object wrappers finds
-    // the real owner, matching what a viewer actually sees.
+    // ownerAt's search-past-wrappers approach still works too (belt and
+    // suspenders — it doesn't depend on this specific fix and stays
+    // correct even if some OTHER, not-yet-isolated wrapper elsewhere
+    // reintroduces the same class of hazard).
     const robustOwner = ownerAt(sliverY!, panelMiddle);
     expect(robustOwner, `owner at stack-middle's own exclusive sliver (searched past non-object wrappers) was "${robustOwner}", expected "stack-middle"`).toBe("stack-middle");
+  });
+});
+
+describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 escalation, real regression)", () => {
+  // The z-index channel's own negative z-index values (SceneObject.tsx)
+  // place a sandwiched panel in the CSS "negative z-index" paint bucket,
+  // which paints BEHIND its own ancestor's box (the well-documented use
+  // of negative z-index) — unlike the OLD translateZ-only approach, which
+  // never carried an explicit z-index and so stayed in the "auto,
+  // positioned" bucket alongside its own ancestor, where ordinary
+  // child-paints-after-parent DOM nesting kept it correctly on top.
+  // Verified via a probe dispatched at BOTH 5a96f71 (pre-channel) and tip
+  // with the SAME unmodified fixture: pre-channel, a real hit-tested
+  // click at a sandwiched card's own exclusive peek sliver (a point
+  // covered by NEITHER focused neighbor) lands on the card itself and
+  // fires its onActivate handler; at tip, it lands on data-column-content
+  // (an intermediate structural wrapper) instead, and onActivate never
+  // fires — a real, user-facing regression the channel introduced,
+  // invisible to every paint-order-only test in the criterion-6 block
+  // above (those sample geometric ownership via elementsFromPoint's own
+  // stack search, which correctly looks PAST this exact wrapper — see
+  // ownerAt's own comment — so they never exercised raw pointer-event
+  // targeting at all). RED at tip until fixed.
+  test("a real hit-tested click at a sandwiched card's own exclusive peek sliver reaches the card, not an intermediate wrapper", async () => {
+    let activated = false;
+
+    function Demo() {
+      const [middleFocused, setMiddleFocused] = useState(false);
+      return (
+        <TestWrapper fullPage>
+          <Scene peekOffset={80}>
+            <SceneColumn name="stack-col" objectGap={200}>
+              <SceneObject name="stack-top" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>top content</div>
+              </SceneObject>
+              <SceneObject
+                name="stack-middle"
+                focused={middleFocused}
+                style={{ width: 480 }}
+                onActivate={() => {
+                  activated = true;
+                  setMiddleFocused(true);
+                }}
+              >
+                <div style={{ height: 150 }}>middle content</div>
+              </SceneObject>
+              <SceneObject name="stack-bottom" focused style={{ width: 480 }}>
+                <div style={{ height: 150 }}>bottom content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await wait(600);
+
+    const panelMiddle = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const anchorMiddle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+
+    const mRect = panelMiddle.getBoundingClientRect();
+    const tRect = panelTop.getBoundingClientRect();
+    const bRect = panelBottom.getBoundingClientRect();
+
+    let sliverY: number | undefined;
+    for (let y = mRect.top + 1; y < mRect.bottom; y++) {
+      const inTop = y >= tRect.top && y < tRect.bottom;
+      const inBottom = y >= bRect.top && y < bRect.bottom;
+      if (!inTop && !inBottom) {
+        sliverY = y;
+        break;
+      }
+    }
+    // Non-vacuity precondition: a genuine exclusive sliver must exist —
+    // a fixture with no sliver at all can't test what a click there does.
+    expect(sliverY, `no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed (panelTop=${JSON.stringify(tRect)} panelMiddle=${JSON.stringify(mRect)} panelBottom=${JSON.stringify(bRect)})`).not.toBeUndefined();
+
+    const clickX = (mRect.left + mRect.right) / 2;
+    const clickY = sliverY!;
+
+    // Real hit-tested click — the existing ui#17 "clicks-land" pattern
+    // (elementFromPoint + dispatchEvent, capture-phase listener records
+    // where event.target actually lands).
+    let landedOn = "none";
+    const listener = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      landedOn = t ? `${t.tagName} data-scene-panel=${t.getAttribute("data-scene-panel")} data-column-content=${t.getAttribute("data-column-content")}` : "null";
+    };
+    document.addEventListener("click", listener, true);
+
+    const hitEl = document.elementFromPoint(clickX, clickY);
+    hitEl?.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: clickX, clientY: clickY }));
+
+    document.removeEventListener("click", listener, true);
+
+    expect(anchorMiddle.contains(hitEl), `raw hit-test element at the sliver was outside stack-middle's own subtree (landed on: ${landedOn}) — the click never reached the card`).toBe(true);
+    expect(activated, `onActivate never fired for a click at stack-middle's own exclusive peek sliver (landed on: ${landedOn})`).toBe(true);
   });
 });
 
