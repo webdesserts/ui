@@ -6,6 +6,7 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { cn } from "../../utils/cn";
 
 export interface SceneObjectProps {
   /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
@@ -499,7 +500,39 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
             },
           }
         : {})}
-      className={className}
+      className={cn(
+        // Author-drawn :focus-visible ring (ui#21 delta claim review) —
+        // replaces the browser's native outline:auto, which this arc's own
+        // anchor/panel split broke (Michael's occlusion read, confirmed by
+        // direct measurement: the native "auto" ring straddles the border
+        // edge rather than drawing purely outside it, so any opaque
+        // descendant painting inside the anchor's own border-box — the
+        // panel, always present post-split — covers roughly half of it).
+        // outline-none suppresses the native ring outright so it can never
+        // reappear underneath this one. Geometry drawn ENTIRELY outside the
+        // border edge (outline-offset-0 with a standard, non-"auto" style
+        // is spec-guaranteed to render outward-only, unlike "auto") so no
+        // descendant can ever occlude it, matching the design constraint
+        // this fix exists to satisfy. Color and width measured directly
+        // from a fresh master (pre-split) capture, not guessed: computed
+        // outline is `rgb(153,200,255) auto 1px` there — width-1 here
+        // matches that computed value exactly (the "auto" style's own
+        // visual glow exceeds its computed width, and since the native
+        // ring straddled the border edge while this one is constrained to
+        // draw purely outward, an exact pixel-for-pixel match against the
+        // old rendering isn't structurally achievable — outline-2 was
+        // tried and measured strictly worse against the stored reference,
+        // 5147 vs outline-1's 4611 differing pixels; visually-equivalent
+        // is the bar per the design decision, not exact). Deliberately NOT
+        // using the library's own `interactiveRing`/`highlight:` pattern
+        // (shared.ts): that variant also matches :active, and its accent
+        // color is the design system's magenta, not this ring's job of
+        // matching the OLD native ring's own blue — this is a faithful
+        // reproduction of a pre-existing browser affordance, not a themed
+        // control.
+        "outline-none focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-[rgb(153,200,255)]",
+        className,
+      )}
       style={{
         ...inColumnStyle,
         // Owned height channel — see its own doc comment above (heightMV

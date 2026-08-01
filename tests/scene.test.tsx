@@ -13718,3 +13718,67 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     expect(Math.abs(midA.after.top - midA.before.top)).toBeLessThan(1);
   });
 });
+
+describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
+  // Replaces the browser's native outline:auto (broken by this arc's own
+  // anchor/panel split — the panel, an opaque descendant always present
+  // post-split, occludes roughly half of a straddling native ring; see the
+  // worker report's occlusion-vs-shrink discriminator). Drawn entirely
+  // outside the anchor's own border edge (outline-offset:0 with a
+  // non-"auto" style is spec-guaranteed outward-only) so no descendant can
+  // ever cover it. Color/width measured from a fresh master (pre-split)
+  // capture's own computed outline, not guessed.
+  test("a keyboard-focused object shows the custom ring, not the native outline", async () => {
+    function Demo() {
+      return (
+        <TestWrapper fullPage>
+          <Scene>
+            <SceneColumn name="stack-col">
+              <SceneObject name="only" focused style={{ width: 300 }}>
+                <div style={{ height: 150 }}>content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await waitForAnimationFrame();
+
+    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
+    anchorEl.focus();
+    await waitForAnimationFrame();
+
+    const cs = window.getComputedStyle(anchorEl);
+    expect(anchorEl).toBe(document.activeElement);
+    expect(cs.outlineStyle).toBe("solid");
+    expect(cs.outlineWidth).toBe("1px");
+    expect(cs.outlineColor).toBe("rgb(153, 200, 255)");
+    expect(cs.outlineOffset).toBe("0px");
+  });
+
+  test("an unfocused object shows no outline", async () => {
+    function Demo() {
+      return (
+        <TestWrapper fullPage>
+          <Scene>
+            <SceneColumn name="stack-col">
+              <SceneObject name="only" focused style={{ width: 300 }}>
+                <div style={{ height: 150 }}>content</div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </TestWrapper>
+      );
+    }
+
+    const { container } = await render(<Demo />);
+    await waitForAnimationFrame();
+
+    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
+    const cs = window.getComputedStyle(anchorEl);
+    expect(anchorEl).not.toBe(document.activeElement);
+    expect(cs.outlineStyle).toBe("none");
+  });
+});
