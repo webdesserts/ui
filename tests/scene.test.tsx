@@ -13262,14 +13262,13 @@ describe("Within-column deck (ui#21): instant flow snap / teleport repro, N=10 (
   }
 });
 
-describe("Within-column deck (ui#21): layout-box zero-pixel flip (RED-FIRST, pre-split)", () => {
-  // Pre-split: the OBJECT itself (single node) flips position mode
-  // (focused: relative <-> sandwiched: absolute) — this is the actual
-  // ui#o26 defect surface today. Post-split, the flip moves to the new
-  // PANEL node (the anchor never flips position mode again — permanent
-  // zero-footprint in flow, mirroring ui#17's column anchor exactly); this
-  // test's own target selector will need updating to the panel once the
-  // split lands, same evolution ui#17's own zero-pixel-flip tests went
+describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
+  // Targets the PANEL (data-scene-panel) — the node that flips position
+  // mode post-split (the anchor never flips again — permanent
+  // zero-footprint in flow). Originally targeted the object's own single
+  // node pre-split (that WAS what flipped position mode before the anchor/
+  // panel split landed); updated once the split introduced the panel,
+  // matching the exact evolution ui#17's own zero-pixel-flip tests went
   // through when its column-level split landed.
   test("unfocus direction: object-local layout-box geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
@@ -13294,10 +13293,11 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip (RED-FIRST, pre
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+    const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+    const middlePanelEl = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(middleEl, 2000);
+    const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -13328,10 +13328,11 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip (RED-FIRST, pre
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+    const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
+    const middlePanelEl = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(middleEl, 2000);
+    const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);

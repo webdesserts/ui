@@ -67,18 +67,31 @@ export interface WithinColumnDepthInfo {
 
 interface ColumnRegistration {
   /**
-   * Register a SceneObject's outer element and focus state. Returns an
-   * unregister function. `focused` feeds the column's OWN registration with
-   * Scene (S6 registration architecture) — it's tracked separately from this
-   * column's internal deriveObjectStates prop walk (scope pin: column-level
-   * classification only, see SceneColumn's own registration effect below).
+   * Register a SceneObject's outer element, focus state, and its own
+   * height-channel target (ui#21 — see GeometryEntry's own `heightTarget`
+   * doc comment for why this must be REPORTED, not DOM-measured, here).
+   * Returns an unregister function. `focused` feeds the column's OWN
+   * registration with Scene (S6 registration architecture) — it's tracked
+   * separately from this column's internal deriveObjectStates prop walk
+   * (scope pin: column-level classification only, see SceneColumn's own
+   * registration effect below). `heightTarget` is called unconditionally
+   * every render (mirrors `focused`'s own unconditional-per-render
+   * rationale — a same-commit reflection requirement, not just a mount-time
+   * one), so remeasureGeometry always reads this render's own value.
    */
-  register: (name: string, el: HTMLElement, focused: boolean) => () => void;
+  register: (name: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => () => void;
   /**
    * Depth info for unfocused SceneObjects sandwiched between two focused
    * siblings. Objects not in this map receive normal (hidden) treatment.
    */
   withinColumnDepths: Map<string, WithinColumnDepthInfo>;
+  /**
+   * This column's own objectGap (px) — exposed so SceneObject's own
+   * margin-bottom gap-compensation channel (ui#21, mirrors SceneColumn's
+   * own marginMV/-columnGap channel vertically) can read it without a
+   * separate prop-drilling path.
+   */
+  objectGap: number;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
@@ -143,8 +156,40 @@ function computeFocusedObjectKey(objectStates: ObjectState[]): string {
 interface GeometryEntry {
   /** Distance (px) from the content wrapper's top edge to this object's top edge. */
   offsetTop: number;
-  /** This object's rendered height (px). */
+  /**
+   * This object's LIVE rendered height (px), via offsetHeight — a raw DOM
+   * measurement of the object's own outer anchor node. HAZARD (ui#21 delta
+   * claim review Slice 0 spike, source-verified): unlike `width` below,
+   * this is NOT safe to read for a currently-focused object once ui#21's
+   * own height-override channel lands (SceneObject.tsx) — that channel
+   * applies a pixel override DIRECTLY to this SAME anchor node, so
+   * `offsetHeight` read here would capture the spring's own in-flight
+   * value mid-transition, not a settled target (the exact "camera chases
+   * width" bug class, on the vertical scroll model this time). Consumers
+   * summing focused-object height (computeFocusedContentHeight,
+   * inputController.ts's selectAnchorObject) MUST read `heightTarget`
+   * below instead. This raw field survives only for the Slice 0
+   * disposition list's OWN "harmless" sites (debug overlays, one-shot
+   * command reads, column-level frozen-size snapshots) — see the plan's
+   * own disposition list before adding a new consumer here.
+   */
   height: number;
+  /**
+   * This object's height-channel TARGET (px) — synchronously known,
+   * mirroring `width`'s own precedent below exactly: 0 while sandwiched
+   * (permanent), the object's own natural in-flow height while focused or
+   * otherwise in-flow (a snapshot taken at rest, when nothing is
+   * overriding it — see SceneObject.tsx's naturalHeightRef). Reported by
+   * SceneObject via the extended `register` call (ui#21) — NOT derived
+   * from a DOM read here, since the same node this measures is the one
+   * the height channel writes to (see `height`'s own hazard note above).
+   * Undefined only during the one-render deferred-measurement window for
+   * an object that mounts already sandwiched, never having been in-flow
+   * (mirrors `neverFocusedNaturalWidth`'s own bootstrap case) — a
+   * currently-focused object never has this undefined in practice, since
+   * an object must be in-flow to become focused in the first place.
+   */
+  heightTarget: number | undefined;
   /**
    * This object's rendered width (px) — the ui#17 owned width channel's
    * "after" target. An object's own declared width (e.g. a `cqw` value)
@@ -288,10 +333,24 @@ function computeWithinColumnDepths(
 }
 
 /**
- * Sums the rendered heights of every currently-focused object (from the
- * geometry store) plus the gaps between them. This is the focused-content
+ * Sums the height-channel TARGETS of every currently-focused object (from
+ * the geometry store) plus the gaps between them. This is the focused-content
  * scroll range — a distinct concept from topOffset (strip position): it
  * only ever includes focused content, never unfocused in-flow siblings.
+ *
+ * Reads `heightTarget`, NOT `height` (ui#21 delta claim review Slice 0 spike
+ * finding, ruled): `height` is a live offsetHeight read on the same node
+ * ui#21's own height-override channel writes to — summing it here would
+ * chase the channel's own in-flight spring value mid-transition, the exact
+ * "camera chases width" bug class ui#17 already had to fix once (see
+ * GeometryEntry's own `heightTarget` doc comment for the full mechanism).
+ * `heightTarget` is a synchronously-known spring destination instead, safe
+ * to sum at any point in a transition. Falls back to `height` only for a
+ * legacy/defensive path (an object that hasn't yet reported a height
+ * target via the extended register() call — should not occur for a
+ * currently-focused object in practice, since an object must be in-flow to
+ * become focused, but kept as a non-throwing fallback rather than `?? 0`,
+ * which would silently zero out a real object's contribution).
  */
 function computeFocusedContentHeight(
   objectStates: ObjectState[],
@@ -303,7 +362,8 @@ function computeFocusedContentHeight(
   for (const { name, focused } of objectStates) {
     if (!focused) continue;
     focusedCount++;
-    focusedHeight += geometryStore.get(name)?.height ?? 0;
+    const entry = geometryStore.get(name);
+    focusedHeight += entry?.heightTarget ?? entry?.height ?? 0;
   }
   if (focusedCount > 1 && objectGap) {
     focusedHeight += (focusedCount - 1) * objectGap;
@@ -798,6 +858,12 @@ export function SceneColumn({
   // registration with Scene below; the existing geometry/freeze pipeline
   // (deriveColumnFocused/deriveObjectStates prop walk) is untouched.
   const registeredObjectFocusRef = useRef<Map<string, boolean>>(new Map());
+  // Registered SceneObjects' own height-channel targets (ui#21) — parallel
+  // to registeredEls, REPORTED by each SceneObject (not DOM-measured here —
+  // see GeometryEntry's own `heightTarget` doc comment for why remeasureGeometry
+  // must consume this rather than reading offsetHeight on the same node the
+  // height channel writes to).
+  const registeredHeightTargetsRef = useRef<Map<string, number | undefined>>(new Map());
   // Single measurement layer: every registered object's offsetTop/height,
   // relative to the content wrapper. Bulk-remeasured (a) synchronously after
   // every render via useLayoutEffect and (b) asynchronously by a shared
@@ -1396,12 +1462,15 @@ export function SceneColumn({
       const rect = el.getBoundingClientRect();
       const offsetTop = rect.top - wrapperRect.top;
       const height = el.offsetHeight;
+      // ui#21: reported by SceneObject via register(), not DOM-measured —
+      // see GeometryEntry's own `heightTarget` doc comment for why.
+      const heightTarget = registeredHeightTargetsRef.current.get(objName);
       // ui#17: offsetWidth, not rect.width — same H11 rationale as height
       // above (a layout metric, immune to any transform on the element or
       // its ancestors), now load-bearing for the owned width channel's
       // target measurement, not just a defensive choice.
       const width = el.offsetWidth;
-      geometryStore.current.set(objName, { offsetTop, height, width });
+      geometryStore.current.set(objName, { offsetTop, height, heightTarget, width });
       // F4 feature (c) debug-only mirror: exposes this store's per-object
       // entries to the debug overlay's geometry-store inspector without
       // giving it a live React-level handle into this column's internal
@@ -1417,7 +1486,7 @@ export function SceneColumn({
       el.setAttribute("data-geometry-width", String(Math.round(width)));
     }
     const fingerprint = Array.from(geometryStore.current.entries())
-      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.height)}:${Math.round(g.width)}`)
+      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.heightTarget ?? g.height)}:${Math.round(g.width)}`)
       .join(",");
     const changed = fingerprint !== geometryFingerprintRef.current;
     geometryFingerprintRef.current = fingerprint;
@@ -2341,14 +2410,16 @@ export function SceneColumn({
   // shared ResizeObserver's membership — newly registered elements join the
   // single measurement layer immediately (or are picked up by the mount
   // effect's initial sweep if the observer hasn't been created yet).
-  const register = useCallback((objName: string, el: HTMLElement, focused: boolean) => {
+  const register = useCallback((objName: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => {
     registeredEls.current.set(objName, el);
     registeredObjectFocusRef.current.set(objName, focused);
+    registeredHeightTargetsRef.current.set(objName, heightTarget);
     resizeObserverRef.current?.observe(el);
     return () => {
       resizeObserverRef.current?.unobserve(el);
       registeredEls.current.delete(objName);
       registeredObjectFocusRef.current.delete(objName);
+      registeredHeightTargetsRef.current.delete(objName);
       geometryStore.current.delete(objName);
     };
   }, []);
@@ -3126,7 +3197,7 @@ export function SceneColumn({
   }, [columnFocused, isScrollable]);
 
   return (
-    <ColumnContext.Provider value={{ register, withinColumnDepths }}>
+    <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
           time and silently shadows the spring. See depth.ts for the no-shadow rule.

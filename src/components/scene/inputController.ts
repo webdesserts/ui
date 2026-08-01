@@ -396,7 +396,24 @@ export interface AnchorCandidate {
  */
 export interface AnchorGeometry {
   offsetTop: number;
+  /**
+   * HAZARD (ui#21 delta claim review Slice 0 spike): a live offsetHeight
+   * read, unsafe to sum for a currently-focused object once ui#21's own
+   * height-override channel lands — see SceneColumn.tsx's GeometryEntry
+   * `heightTarget` doc comment for the full mechanism. Use `heightTarget`
+   * below.
+   */
   height: number;
+  /**
+   * Synchronously-known height-channel target — see SceneColumn.tsx's
+   * GeometryEntry `heightTarget` doc comment. Optional (not just
+   * `| undefined`) so existing construction sites that predate ui#21 and
+   * have no concept of a height channel (e.g. tests/scene-input-controller.test.ts's
+   * own direct AnchorGeometry literals) don't need updating just to add
+   * an explicit `undefined` — selectAnchorObject's own `?? geometry.height`
+   * fallback already treats a missing key the same as an explicit one.
+   */
+  heightTarget?: number;
 }
 
 /**
@@ -436,7 +453,7 @@ export function selectAnchorObject(
     const geometry = geometryStore.get(name);
     if (!geometry) continue;
     const objStart = geometry.offsetTop;
-    const objEnd = geometry.offsetTop + geometry.height;
+    const objEnd = geometry.offsetTop + (geometry.heightTarget ?? geometry.height);
     // Intersects the visible window: the object starts before the window
     // ends AND ends after the window starts (a half-open range check —
     // an object flush against the window's own edge, touching but not
@@ -672,9 +689,13 @@ export function findDeepestIntraObjectAnchor(
     const candidateEls = findIntraObjectAnchorCandidates(current).filter((el) => !isStickyOrFixed(el));
     if (candidateEls.length === 0) break; // genuine leaf — current has no further element children to descend into
 
+    // heightTarget: undefined — this is arbitrary consumer-provided
+    // content (F10/F10b intra-object anchoring), not a SceneColumn-
+    // registered object; no height channel applies here.
     const candidateGeometry: AnchorGeometry[] = candidateEls.map((el) => ({
       offsetTop: el.getBoundingClientRect().top - wrapperRect.top,
       height: (el as HTMLElement).offsetHeight,
+      heightTarget: undefined,
     }));
     const idx = selectIntraObjectAnchorIndex(candidateGeometry, scrollOffset, viewportHeight);
     if (idx === null) {
