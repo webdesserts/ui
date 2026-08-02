@@ -6,6 +6,7 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { TransitionPendingContext } from "./TransitionPendingContext";
 import { cn } from "../../utils/cn";
 
 export interface SceneObjectProps {
@@ -92,11 +93,27 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const transition = computeSceneTransition({ duration, slowMo, stiffness, damping });
   const objectGap = column?.objectGap ?? 0;
 
+  // ui#20: true while a Scene-wide focus transition (mount entrance, or any
+  // focus-arrangement change) hasn't yet settled — see
+  // TransitionPendingContext's own doc comment for the full mechanism,
+  // including the deliberate ambient-overlap tradeoff. Defaults to `false`
+  // outside a Scene (standalone SceneObject usage), matching this
+  // component's existing null-outside-Scene contract for every other
+  // Scene-provided context.
+  const transitionPending = useContext(TransitionPendingContext);
+
   // D3: an unfocused object with an onActivate handler doubles as a
   // keyboard-reachable activation control (Enter/Space), not just a mouse
   // click target — gated on onActivate presence so a plain non-activatable
-  // unfocused object never becomes an unexpected tab stop.
-  const activatable = !focused && Boolean(onActivate);
+  // unfocused object never becomes an unexpected tab stop. ui#20 adds
+  // `!transitionPending`: Michael's ruled three-state contract (in-
+  // transition = fully inert; settled-unfocused = click-to-focus via
+  // onActivate; settled-focused = fully interactive) means activation
+  // itself — not just the content wrapper below — must gate on settle.
+  // This single flag drives tabIndex/role/onKeyDown AND (ui#20 F1) the
+  // JSX onClick prop below, covering both pointer and keyboard activation
+  // from one gate.
+  const activatable = !focused && Boolean(onActivate) && !transitionPending;
 
   // Within-column depth deck: this object is sandwiched between two focused
   // siblings. Instead of hiding it, its object shows depth-card visual
@@ -508,39 +525,59 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     return column.register(name, outerRef.current, focused, heightOverrideActive ? heightTarget : undefined);
   });
 
-  // When this object transitions from unfocused to focused, move keyboard
-  // focus to the first focusable element inside it so keyboard users land
-  // directly in the new content without needing to tab manually.
+  // ui#20 F2 two-phase focus: on focus-gain, keyboard focus lands on the
+  // ANCHOR immediately (phase 1) — safe even mid-transition, since the
+  // anchor (outerRef) sits OUTSIDE the inert content wrapper (unlike the
+  // pre-ui#20 single-phase version, which searched for a focusable
+  // descendant right away; that descendant is INSIDE the content wrapper,
+  // which is inert for the whole in-transition window now — searching it
+  // immediately would either find nothing or focus an element `inert`
+  // still lets browsers technically target). Once the scene-wide focus
+  // transition settles (transitionPending clears) for THIS SAME focus-gain
+  // episode, phase 2 moves focus to the first focusable descendant. Michael's
+  // ruled contract requires in-transition = fully inert, focus input
+  // included — this is the mechanism that honors it without stranding
+  // keyboard focus off-screen mid-transition.
   //
-  // We use useEffect (not useLayoutEffect) so the DOM has been painted and the
-  // inner wrapper's `inert` attribute has been removed before we try to focus.
-  // The dependency on `focused` ensures this only fires when focus state changes,
-  // not on every render.
+  // We use useEffect (not useLayoutEffect) so the DOM has been painted
+  // before we try to focus. Re-keyed on [focused, transitionPending] with
+  // edge detection (descendantFocusDoneRef) so phase 2 fires exactly once
+  // per focus-gain — including the duration=0/already-settled case, where
+  // phase 1 and phase 2 both run in this SAME effect invocation (pending
+  // has already cleared by the time this passive effect observes it).
   const prevFocusedRef = useRef(focused);
+  const descendantFocusDoneRef = useRef(false);
   useEffect(() => {
     const justBecameFocused = focused && !prevFocusedRef.current;
     prevFocusedRef.current = focused;
 
-    if (!justBecameFocused || !outerRef.current) return;
+    if (!focused) {
+      descendantFocusDoneRef.current = false;
+      return;
+    }
 
+    if (justBecameFocused) {
+      descendantFocusDoneRef.current = false;
+      // D5: preventScroll avoids the browser auto-scrolling an ancestor to
+      // reveal the newly focused element — the camera owns horizontal
+      // positioning itself (see Scene.tsx's DELTA-2 fix for the scrollLeft
+      // corruption a native scroll-into-view causes when it isn't
+      // prevented).
+      outerRef.current?.focus({ preventScroll: true });
+    }
+
+    if (transitionPending || descendantFocusDoneRef.current || !outerRef.current) return;
+    descendantFocusDoneRef.current = true;
     const focusable = outerRef.current.querySelector<HTMLElement>(
       "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
     );
-    // D5: preventScroll avoids the browser auto-scrolling an ancestor to
-    // reveal the newly focused element — the camera owns horizontal
-    // positioning itself (see Scene.tsx's DELTA-2 fix for the scrollLeft
-    // corruption a native scroll-into-view causes when it isn't prevented).
-    // Fallback: with no focusable descendant, focus the outer wrapper
-    // itself — its permanent tabIndex={-1} baseline (below) makes it
-    // programmatically focusable without adding a stray tab stop, and is
-    // self-contained (no cross-component dependency on D2's conditional
-    // content-wrapper tabindex).
-    if (focusable) {
-      focusable.focus({ preventScroll: true });
-    } else {
-      outerRef.current.focus({ preventScroll: true });
-    }
-  }, [focused]);
+    // Fallback: with no focusable descendant, focus simply STAYS on the
+    // anchor from phase 1 above — its permanent tabIndex={-1} baseline
+    // (below) already makes that a valid, self-contained rest state (no
+    // second `outerRef.current.focus()` call needed here, unlike the
+    // pre-ui#20 single-phase version).
+    focusable?.focus({ preventScroll: true });
+  }, [focused, transitionPending]);
 
   // The anchor is ALWAYS in flow (position:relative) — no more flip to
   // position:absolute here (ui#21: that flip moves to the object below).
@@ -606,7 +643,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         marginBottom: duration === 0 ? marginBottomTarget : marginBottomMV,
         ...style,
       }}
-      onClick={!focused ? onActivate : undefined}
+      // ui#20 F1: routes through `activatable` (not the bare `!focused`
+      // this used before) — a SECOND gating site alongside tabIndex/role/
+      // onKeyDown above, since this prop sits outside the `activatable`
+      // spread. Without this, a real dispatched pointer click during a
+      // focus transition could still fire onActivate even though keyboard
+      // activation was already correctly gated.
+      onClick={activatable ? onActivate : undefined}
     >
       {/* The glass OBJECT (ui#21). ALWAYS rendered (never conditionally
           mounted/unmounted — conditionally wrapping children in an extra
@@ -727,8 +770,16 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           borderRadius: "var(--scene-focus-ring-radius,0px)",
         }}
       >
-        {/* Inner wrapper: inert when unfocused to disable all descendant interaction.
+        {/* Inner wrapper: inert when unfocused, OR while a Scene-wide focus
+            transition hasn't yet settled (ui#20 — see TransitionPendingContext's
+            own doc comment), to disable all descendant interaction.
             React 19 treats inert={true} as the attribute present, inert={false} as absent.
+            The transitionPending half is the actual NEW behavior ui#20 adds:
+            before this, a newly-focused object's content was interactive from
+            the instant `focused` flipped true, even while its own entrance
+            transition was still animating — Michael's ruled contract requires
+            full inertness for the whole in-transition window, not just while
+            unfocused.
             Also the natural-height measurement source (ui#21) — see
             naturalHeight's own comment above for why: unlike the anchor
             or the object (both circularly affected by the height channel's
@@ -737,7 +788,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
             height is governed purely by its CONTENT, regardless of
             whatever position mode or override its ancestors currently
             carry. */}
-        <div ref={contentRef} inert={!focused}>
+        <div ref={contentRef} inert={!focused || transitionPending}>
           {children}
         </div>
       </motion.div>

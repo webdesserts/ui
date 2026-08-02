@@ -2462,7 +2462,14 @@ export function SceneColumn({
     const el = colRef.current;
     if (!el || !registerColumnWithScene) return;
     const focused = Array.from(registeredObjectFocusRef.current.values()).some(Boolean);
-    return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget });
+    // ui#20: registry-derived (registeredObjectFocusRef), not the top-level
+    // prop-walk `objectStates` — same S6 registration-architecture reason
+    // `focused` above uses the registry: this stays correct regardless of
+    // Fragment-wrapping or a custom component returning a SceneObject.
+    const reportedObjectStates = Array.from(registeredObjectFocusRef.current.entries()).map(
+      ([objName, objFocused]) => ({ name: objName, focused: objFocused }),
+    );
+    return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget, objectStates: reportedObjectStates });
   });
 
   // Debug outline tracking: notify the animation counter in SceneViewport when

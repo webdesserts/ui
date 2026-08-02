@@ -3746,6 +3746,7 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
 
     const target = getByTestId("chat-target").element() as HTMLElement;
     const toggleBtn = getByTestId("toggle-detail").element() as HTMLElement;
+    const scene = getByTestId("scene").element() as HTMLElement;
 
     // The target's TRUE resting position for the CURRENT committed state,
     // captured BEFORE either toggle below fires — see 885c40d's message for
@@ -3771,7 +3772,19 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
     await wait(100); // mid-sweep, deliberately NOT settled
     toggleBtn.click();
 
-    await wait(600);
+    // ui#20 remap: a fixed 600ms wait (the pre-ui#20 value) is no longer
+    // reliably long enough here — the interrupted-then-resettled double
+    // toggle now also has to clear Scene-wide `transitionPending` (ui#20's
+    // scene-wide inertness gate, which the settle counter's own claim/
+    // retire sequence for this exact interrupted-transition shape can take
+    // a little past 600ms to reach zero on), not just visually reach its
+    // resting position. Poll on `data-scene-settled` (bounded) instead of
+    // guessing a duration — the click below is only meaningful once the
+    // scene has genuinely gone quiet.
+    for (let i = 0; i < 40 && scene.getAttribute("data-scene-settled") !== "true"; i++) {
+      await wait(50);
+    }
+    expect(scene.getAttribute("data-scene-settled")).toBe("true");
 
     // A real hit-tested click at fixed screen coordinates.
     const hitEl = document.elementFromPoint(clickX, clickY);
@@ -10733,8 +10746,20 @@ describe("SceneObject keyboard focus management", () => {
 
       const btn = getByTestId("btn-in-panel").element() as HTMLElement;
       expect(document.activeElement).toBe(btn);
-      expect(focusSpy).toHaveBeenCalledTimes(1);
-      expect(focusSpy).toHaveBeenCalledWith(expect.objectContaining({ preventScroll: true }));
+      // ui#20 remap: two-phase focus (F2) now calls .focus() TWICE on a
+      // focus-gain — phase 1 lands on the anchor immediately (mid-
+      // transition-safe, since the anchor sits outside the inert content
+      // wrapper), phase 2 moves focus to the first focusable descendant
+      // once the transition settles. At duration=0 both phases run in the
+      // same effect pass (the settle counter never rises), so the FINAL
+      // resting state (asserted above) is unchanged, but the call count
+      // is not — every call still passes preventScroll: true.
+      expect(focusSpy).toHaveBeenCalledTimes(2);
+      for (const call of focusSpy.mock.calls) {
+        expect(call[0]).toEqual(expect.objectContaining({ preventScroll: true }));
+      }
+      expect(focusSpy).toHaveBeenLastCalledWith(expect.objectContaining({ preventScroll: true }));
+      expect(focusSpy.mock.instances[focusSpy.mock.instances.length - 1]).toBe(btn);
     } finally {
       focusSpy.mockRestore();
     }
