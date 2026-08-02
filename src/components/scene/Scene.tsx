@@ -3036,6 +3036,15 @@ export function Scene({
       transitionPendingRef.current = false;
       setTransitionPending(false);
       if (pendingIsFocusTransitionRef.current) {
+        // Defensive only, not load-bearing: the only other write site is
+        // the arm block above, which always freshly sets this true
+        // immediately before it's read again — reaching this fire branch a
+        // second time requires transitionPendingRef.current to be true
+        // again first, which (given the line above resets it false on
+        // every pass through this block) only happens via a fresh arm.
+        // Kept for clarity/resilience against a future refactor that
+        // decouples the two refs, not because removing it changes
+        // observable behavior today.
         pendingIsFocusTransitionRef.current = false;
         onTransitionEndRef.current?.(arrangement);
       }

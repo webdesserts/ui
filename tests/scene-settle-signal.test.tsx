@@ -199,6 +199,67 @@ describe("onTransitionEnd", () => {
     expect(right?.focused).toBe(true);
   });
 
+  test("within-column swap (never-sandwiched siblings) fires exactly once with the correct settled arrangement — the scenario the object-level fingerprint fork exists for", async () => {
+    const fired: Array<Array<{ name: string; focused: boolean }>> = [];
+
+    function Harness() {
+      const [focused, setFocused] = useState<"a" | "b">("a");
+      return (
+        <Scene onTransitionEnd={(arrangement) => fired.push(arrangement)}>
+          <SceneColumn name="col">
+            <SceneObject name="a-obj" focused={focused === "a"}>
+              <div style={{ width: 300, height: 200 }}>a</div>
+            </SceneObject>
+            <SceneObject name="b-obj" focused={focused === "b"}>
+              <div style={{ width: 300, height: 200 }}>b</div>
+            </SceneObject>
+          </SceneColumn>
+          <button data-testid="swap" onClick={() => setFocused("b")}>
+            swap
+          </button>
+        </Scene>
+      );
+    }
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Harness />
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element() as HTMLElement;
+    await waitForSceneSettled(scene, { timeoutMs: 2000 });
+    expect(fired.length).toBe(0);
+
+    // Deliberately a within-column swap between two never-sandwiched
+    // siblings with matching declared width (mirrors the "flips false"
+    // test's own discovery above: neither object's own height channel nor
+    // the column's own width channel ever engages for this shape — see
+    // that test's comment). The column's own aggregate `focused` stays
+    // true throughout the whole swap, so a COLUMN-level fingerprint (the
+    // plan body's own literal recommendation, reusing
+    // columnStatesFingerprintRef as-is) would silently never detect this
+    // as a focus-arrangement change at all — this is exactly the scenario
+    // the object-level fingerprint fork (RegisteredColumn.objectStates)
+    // exists to catch, and it's ui#21's whole within-column-swap feature.
+    getByTestId("swap").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // Anchored on the fire itself, not a fixed wait: this swap may settle
+    // synchronously (nothing ever claims for this never-sandwiched,
+    // matching-geometry pair — the same "counter never rises" shape the
+    // duration=0 unified-fire-rule test above exercises) or take a real
+    // frame or two, and a too-short fixed wait can false-fail before the
+    // fire is observable.
+    const fireDeadline = performance.now() + 2000;
+    while (fired.length === 0 && performance.now() < fireDeadline) {
+      await waitForAnimationFrame();
+    }
+
+    expect(fired.length).toBe(1);
+    const arrangement = fired[0]!;
+    expect(arrangement.find((o) => o.name === "a-obj")?.focused).toBe(false);
+    expect(arrangement.find((o) => o.name === "b-obj")?.focused).toBe(true);
+  });
+
   test("duration={0} focus change fires exactly once, synchronously, with the correct payload (F3 unified fire rule)", async () => {
     const fired: Array<Array<{ name: string; focused: boolean }>> = [];
 
@@ -362,28 +423,37 @@ describe("transition-scoped inertness", () => {
     // have NO effect — the whole scene is inert while ANY focus transition
     // is pending (Michael's ruled contract), including "left" itself, which
     // is neither settled-focused nor settled-unfocused right now.
-    let hitEl = document.elementFromPoint(leftX, leftY);
+    const hitEl = document.elementFromPoint(leftX, leftY);
     hitEl?.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: leftX, clientY: leftY }));
     await waitForAnimationFrame();
     expect(leftActivateCount).toBe(0);
     expect(leftContentClicks).toBe(0);
 
-    await waitForSceneSettled(scene, { timeoutMs: 2000 });
-
-    // Post-settle: "left" is now settled-unfocused. Re-measure its position
-    // — the camera panned to center "right" while settling, so the
-    // pre-transition coordinates captured above no longer point at "left".
-    const postSettleRect = leftObject.getBoundingClientRect();
-    const postSettleX = postSettleRect.x + postSettleRect.width / 2;
-    const postSettleY = postSettleRect.y + postSettleRect.height / 2;
-
-    // A real hit-tested click at its (current) position must fire
-    // onActivate, and — since its content wrapper is still inert at the
-    // moment of the click (inert clears only once THIS object becomes
-    // focused AND its own settle edge is reached) — the click must never
-    // reach the inner button.
-    hitEl = document.elementFromPoint(postSettleX, postSettleY);
-    hitEl?.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: postSettleX, clientY: postSettleY }));
+    // Post-settle: "left" is now settled-unfocused. A real hit-tested click
+    // at its (current) position must fire onActivate, and — since its
+    // content wrapper is still inert at the moment of the click (inert
+    // clears only once THIS object becomes focused AND its own settle edge
+    // is reached) — the click must never reach the inner button.
+    // settleThenClick (criterion 5's own primitive): the click target is a
+    // deferred hit-test, not a fixed reference, because the camera pans to
+    // center "right" while settling — "left"'s pre-transition coordinates
+    // (captured above) no longer point at it once settled, so the hit-test
+    // itself must run AFTER the wait resolves, not before.
+    await settleThenClick(
+      scene,
+      {
+        click: () => {
+          const postSettleRect = leftObject.getBoundingClientRect();
+          const postSettleX = postSettleRect.x + postSettleRect.width / 2;
+          const postSettleY = postSettleRect.y + postSettleRect.height / 2;
+          const postSettleHitEl = document.elementFromPoint(postSettleX, postSettleY);
+          postSettleHitEl?.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, clientX: postSettleX, clientY: postSettleY }),
+          );
+        },
+      },
+      { timeoutMs: 2000 },
+    );
     await waitForAnimationFrame();
     expect(leftActivateCount).toBe(1);
     expect(leftContentClicks).toBe(0);
@@ -533,7 +603,8 @@ describe("double interruption", () => {
   // SKIPPED — real, pre-existing, universal architectural gap discovered
   // while writing this required test (addendum v2 F3, adopted from the
   // delta review's margins), reported as a blocker rather than shipped as
-  // a fake pass or silently dropped. Root cause (probe-confirmed, isolated
+  // a fake pass or silently dropped. Filed on the board as ui#o42 (records
+  // this exact repro). Root cause (probe-confirmed, isolated
   // from ui#20's own code): EVERY owned MotionValue channel in the Scene
   // family (Scene.tsx's cameraX/left, SceneObject.tsx's height/
   // marginBottom, SceneColumn.tsx's width/marginRight/z/columnWidth/top —
