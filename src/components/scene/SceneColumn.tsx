@@ -15,6 +15,7 @@ import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { useSettledValue } from "./useSettledValue";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -543,26 +544,20 @@ export function SceneColumn({
   // criterion 5 re-derivation: columnTransition (marginTopTransition's own
   // sibling site) no longer consumes this — see its own declaration
   // comment for why (its original reason, Motion's `layout` FLIP, is gone).
-  const columnGeometrySettledRef = useRef(false);
-  // F7 item 2 fix: "settled" requires effectiveViewportHeight to be
-  // UNCHANGED across two consecutive commits, not just nonzero once.
-  // Probe-confirmed (cqw demo, real space-reserving scrollbars — headless
-  // Chromium normally suppresses these entirely, see F5 item 5):
-  // viewportHeight arrives in TWO separate real commits during mount, not
-  // one — first without the horizontal scrollbar's space reservation
-  // (254), then with it once SceneViewport's own overflow-x measurement
-  // toggles the scrollbar on and the ResizeObserver picks up the
-  // now-smaller content-box height (243). The original one-shot "nonzero
-  // means settled" check correctly gated the FIRST commit (254) instant,
-  // but by the time the SECOND, scrollbar-corrected commit (243) arrived,
-  // settled was already true from the first — so marginTop sprang from
-  // the placeholder 254-based value down to the correct 243-based one
-  // instead of jumping straight to it (measured: 78.94px -> 73.5px over
-  // ~280ms). Tracking the last-seen value and only marking settled once
-  // it repeats closes this without needing to know anything about
-  // scrollbars specifically — it generalizes to any late-arriving
-  // viewport-height correction during mount, not just this one.
-  const lastEffectiveViewportHeightRef = useRef<number | null>(null);
+  //
+  // F7 item 2 fix (why "settled" requires TWO consecutive equal commits,
+  // not just one nonzero one — full rationale now lives on the shared
+  // useSettledValue hook this reuses, ui#20 criterion 6): probe-confirmed
+  // (cqw demo, real space-reserving scrollbars — headless Chromium
+  // normally suppresses these entirely, see F5 item 5) viewportHeight
+  // arrives in TWO separate real commits during mount, not one — first
+  // without the horizontal scrollbar's space reservation (254), then with
+  // it once SceneViewport's own overflow-x measurement toggles the
+  // scrollbar on and the ResizeObserver picks up the now-smaller
+  // content-box height (243). Tracking the last-seen value and only
+  // marking settled once it repeats closes this (measured before the fix:
+  // marginTop sprang 78.94px -> 73.5px over ~280ms instead of jumping).
+  const [columnGeometryWasSettled, checkColumnGeometrySettled] = useSettledValue();
 
   // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
   // so the content wrapper's `top` can be driven off React's render cycle —
@@ -947,35 +942,13 @@ export function SceneColumn({
   // Padding reduces the usable height, so the scroll range grows accordingly.
   const effectiveViewportHeight = viewportHeight - padding * 2;
 
-  // A4 first-paint gate (continued from columnGeometrySettledRef's decl
-  // above): read the PRE-mutation value; the mutation itself is deferred to
-  // a useLayoutEffect below (F5 item 3 fix) rather than happening inline
-  // here during render. Mutating a ref directly in the render body is
-  // impure, and React StrictMode's development-only double-invocation of
-  // the render function body defeats this exact gate: probe-confirmed (F5
-  // item 3) that at the critical commit — the render where
-  // effectiveViewportHeight first becomes real — StrictMode calls this
-  // component function twice; the first call correctly reads `false` and
-  // mutates the ref to `true` as a side effect, then the SECOND call (whose
-  // return value React actually uses for reconciliation) reads the
-  // already-mutated `true`, silently collapsing `columnGeometryWasSettled`
-  // to `true` for the very render this gate exists to keep instant. That
-  // showed up as marginTop (and any other `columnGeometryWasSettled`
-  // consumer) springing from a placeholder on every first paint instead of
-  // jumping. Reading the ref here (unmutated) and writing it only from a
-  // layout effect keeps both StrictMode invocations of a given commit
-  // observing the SAME value, since the effect only runs once the real
-  // commit has been decided — no more render-body impurity for StrictMode
-  // to catch.
-  const columnGeometryWasSettled = columnGeometrySettledRef.current;
+  // A4 first-paint gate (continued from columnGeometryWasSettled's decl
+  // above, ui#20 criterion 6: useSettledValue) — the StrictMode double-
+  // invocation rationale for reading the PRE-mutation value here and only
+  // ever calling checkColumnGeometrySettled from a layout effect now lives
+  // on that hook's own doc comment.
   useLayoutEffect(() => {
-    if (
-      effectiveViewportHeight > 0 &&
-      lastEffectiveViewportHeightRef.current === effectiveViewportHeight
-    ) {
-      columnGeometrySettledRef.current = true;
-    }
-    lastEffectiveViewportHeightRef.current = effectiveViewportHeight;
+    checkColumnGeometrySettled(effectiveViewportHeight);
   });
 
   const maxScroll = Math.max(
@@ -2523,7 +2496,7 @@ export function SceneColumn({
   // ADDITION to firstPaintRef.current (not redundant with it) — probe-
   // confirmed the render where topOffset's underlying geometry first
   // settles already has firstPaintRef.current === false (see
-  // columnGeometrySettledRef's declaration above).
+  // columnGeometryWasSettled's declaration above).
   const topOffsetOwnedAnimation = useOwnedAnimation();
   useLayoutEffect(() => {
     if (topOffset === topOffsetTargetRef.current) return;

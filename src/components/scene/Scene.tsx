@@ -9,6 +9,7 @@ import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } fro
 import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
 import { TransitionPendingContext } from "./TransitionPendingContext";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { useSettledValue } from "./useSettledValue";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -1592,9 +1593,10 @@ function SceneViewport({
   // The valid panOffset range for the CURRENT focused layout — `{min, max}`
   // matching the sign convention above (min = -range, max = 0). Written at
   // the end of the recentering effect below (mirrors stageLeftRef's
-  // declaration-site idiom), gated by the settling latch (vpWidthSettledRef,
-  // declared further below) exactly like the retired overflowsX
-  // classification write used to be — see that latch's own comment for why.
+  // declaration-site idiom), gated by the settling latch (vpWidthWasSettled,
+  // declared further below, useSettledValue) exactly like the retired
+  // overflowsX classification write used to be — see that latch's own
+  // comment for why.
   const panBoundsRef = useRef({ min: 0, max: 0 });
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
@@ -1647,18 +1649,21 @@ function SceneViewport({
   // changes — the trigger for resetting native horizontal scroll (B1).
   const prevFocusedNamesRef = useRef("");
 
-  // Settling latch: mirrors SceneColumn's columnGeometrySettledRef/
-  // lastEffectiveViewportHeightRef idiom (SceneColumn.tsx ~389-406/777-785),
-  // applied to viewport.clientWidth. Originally gated the (now-retired)
-  // overflowsX classification write; ui#19 repoints it to gate the
-  // panBoundsRef write below instead — clientWidth can arrive across more
-  // than one real commit during mount/resize settling (the content-box
-  // correction above, ResizeObserver's own async callback), and a
-  // transient pan-bounds miscalculation mid-settle would flap the clamp
-  // range a user could be actively panning against. Position math
-  // (newStageLeft) is NOT gated by this — it stays live every render.
-  const vpWidthSettledRef = useRef(false);
-  const lastVpWidthRef = useRef<number | null>(null);
+  // Settling latch (ui#20 criterion 6: useSettledValue, shared with
+  // SceneColumn's columnGeometryWasSettled), applied to viewport.clientWidth.
+  // Originally gated the (now-retired) overflowsX classification write;
+  // ui#19 repoints it to gate the panBoundsRef write below instead —
+  // clientWidth can arrive across more than one real commit during
+  // mount/resize settling (the content-box correction above,
+  // ResizeObserver's own async callback), and a transient pan-bounds
+  // miscalculation mid-settle would flap the clamp range a user could be
+  // actively panning against. Position math (newStageLeft) is NOT gated by
+  // this — it stays live every render. `checkVpWidthSettled` is called
+  // below, inside the recentering effect, at the point `viewport.clientWidth`
+  // is actually measured (a live DOM read, not a render-time value — see
+  // useSettledValue's own doc comment for why this hook exposes a manual
+  // check function rather than owning its own effect).
+  const [vpWidthWasSettled, checkVpWidthSettled] = useSettledValue();
 
   // Measure viewport dimensions (and page-relative position) synchronously
   // on first render so columns have valid values immediately (useLayoutEffect
@@ -2056,17 +2061,15 @@ function SceneViewport({
 
     const vpWidth = viewport.clientWidth;
 
-    // Settling latch (see vpWidthSettledRef's declaration above): captures
-    // whether vpWidth was ALREADY settled entering this commit, before
-    // updating the latch for the current value — the render where
-    // clientWidth first repeats still counts as not-yet-settled for ITS OWN
-    // panBoundsRef write (same one-render delay as SceneColumn's
-    // columnGeometryWasSettled), settling takes effect starting next render.
-    const vpWidthWasSettled = vpWidthSettledRef.current;
-    if (vpWidth > 0 && lastVpWidthRef.current === vpWidth) {
-      vpWidthSettledRef.current = true;
-    }
-    lastVpWidthRef.current = vpWidth;
+    // Settling latch (see vpWidthWasSettled's declaration above,
+    // useSettledValue): `vpWidthWasSettled` (captured at render time, before
+    // this effect ran) reflects whether vpWidth was ALREADY settled entering
+    // this commit — the render where clientWidth first repeats still counts
+    // as not-yet-settled for ITS OWN panBoundsRef write below (same
+    // one-render delay as SceneColumn's columnGeometryWasSettled), settling
+    // takes effect starting next render. checkVpWidthSettled updates the
+    // latch for the CURRENT value, for the NEXT render to see.
+    checkVpWidthSettled(vpWidth);
 
     let newStageLeft: number;
     // Local branch decision only (ui#19 retired the overflowsX STATE this
