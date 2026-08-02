@@ -601,3 +601,45 @@ export function assertPaintOrderInvariant(
     lastOverlappingTop = sample.topElement;
   }
 }
+
+/**
+ * Waits until a Scene's own `data-scene-settled` attribute reads `"true"`
+ * (ui#20 criterion 1 — no owned animation currently active), polling real
+ * animation frames up to `timeoutMs`. Bounded wait (~600ms per ui#o20) —
+ * throws a legible error naming the wait bound on timeout, rather than
+ * silently returning with the scene still unsettled (mirrors the
+ * `throw new Error(...)` precedent already established in this suite's own
+ * `measureSettleDurationMs`, scene.test.tsx).
+ *
+ * `scene` is the viewport element itself (`getByTestId("scene").element()`)
+ * — the element `data-scene-settled` is actually rendered on.
+ */
+export async function waitForSceneSettled(scene: HTMLElement, options: { timeoutMs?: number } = {}): Promise<void> {
+  const { timeoutMs = 600 } = options;
+  const start = performance.now();
+  while (scene.getAttribute("data-scene-settled") !== "true") {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `waitForSceneSettled: scene never settled within ${timeoutMs}ms (data-scene-settled stayed "${scene.getAttribute("data-scene-settled")}")`,
+      );
+    }
+    await waitForAnimationFrame();
+  }
+}
+
+/**
+ * Waits for the scene to settle (`waitForSceneSettled`, same bounded-wait/
+ * legible-throw contract), then clicks `target`. Named for its own primary
+ * consuming action (ui#20's own inertness gating means a click dispatched
+ * before the scene has settled is a legitimate no-op, not a bug — see
+ * SceneObject's `activatable`/`transitionPending` gating) — tests that only
+ * need the WAIT half without a click use `waitForSceneSettled` directly.
+ */
+export async function settleThenClick(
+  scene: HTMLElement,
+  target: { click: () => void },
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  await waitForSceneSettled(scene, options);
+  target.click();
+}

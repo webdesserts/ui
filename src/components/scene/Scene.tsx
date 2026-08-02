@@ -8,6 +8,7 @@ import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionCont
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
 import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
 import { TransitionPendingContext } from "./TransitionPendingContext";
+import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
 import { useOwnedAnimation } from "./ownedAnimation";
 import { useSettledValue } from "./useSettledValue";
 import { StackDepthContext } from "./StackDepthContext";
@@ -2827,7 +2828,15 @@ export function Scene({
   // idiom) — the settle effect below needs a synchronous, same-commit read
   // of "is pending" that doesn't wait for a re-render, since it may both
   // ARM and CLEAR pending within the very same commit (the duration=0 path
-  // — see F3's unified fire rule).
+  // — see F3's unified fire rule). ALSO re-provided via
+  // TransitionPendingRefContext — probe-confirmed real race (not a
+  // precaution): SceneObject's two-phase focus effect can observe
+  // TransitionPendingContext's own reactive boolean mid-stale, one render
+  // generation behind this ref, because a state update from inside a
+  // layout effect (this one arming `transitionPending` true) forces React
+  // to flush a descendant's PASSIVE effect for the pre-correction commit
+  // before the corrective re-render's own layout phase runs — see
+  // TransitionPendingRefContext's own doc comment for the full trace.
   const transitionPendingRef = useRef(transitionPending);
   transitionPendingRef.current = transitionPending;
   const pendingIsFocusTransitionRef = useRef(false);
@@ -3071,6 +3080,7 @@ export function Scene({
           <StackDepthContext.Provider value={stackDepths}>
           <SettleSignalContext.Provider value={onColumnGeometrySettled}>
           <TransitionPendingContext.Provider value={transitionPending}>
+          <TransitionPendingRefContext.Provider value={transitionPendingRef}>
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
@@ -3096,6 +3106,7 @@ export function Scene({
             >
               {wrappedChildren}
             </SceneViewport>
+          </TransitionPendingRefContext.Provider>
           </TransitionPendingContext.Provider>
           </SettleSignalContext.Provider>
           </StackDepthContext.Provider>

@@ -7,6 +7,7 @@ import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
 import { useOwnedAnimation } from "./ownedAnimation";
 import { TransitionPendingContext } from "./TransitionPendingContext";
+import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
 import { cn } from "../../utils/cn";
 
 export interface SceneObjectProps {
@@ -101,6 +102,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // component's existing null-outside-Scene contract for every other
   // Scene-provided context.
   const transitionPending = useContext(TransitionPendingContext);
+  // Ref mirror of the above, ALWAYS synchronously current regardless of
+  // which render generation a given effect invocation corresponds to —
+  // read by the two-phase focus effect below instead of the reactive
+  // `transitionPending` boolean, for the one real race that boolean is
+  // exposed to (see TransitionPendingRefContext's own doc comment for the
+  // probe-confirmed trace).
+  const transitionPendingRef = useContext(TransitionPendingRefContext);
 
   // D3: an unfocused object with an onActivate handler doubles as a
   // keyboard-reachable activation control (Enter/Space), not just a mouse
@@ -566,7 +574,9 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       outerRef.current?.focus({ preventScroll: true });
     }
 
-    if (transitionPending || descendantFocusDoneRef.current || !outerRef.current) return;
+    // transitionPendingRef.current, NOT the reactive `transitionPending`
+    // boolean — see its own declaration comment for why.
+    if (transitionPendingRef.current || descendantFocusDoneRef.current || !outerRef.current) return;
     descendantFocusDoneRef.current = true;
     const focusable = outerRef.current.querySelector<HTMLElement>(
       "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",

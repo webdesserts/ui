@@ -15,6 +15,7 @@ import {
   createMotionSeamRecorder,
   waitForAnimationsToSettle,
   awaitStyleFlush,
+  waitForSceneSettled,
 } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
@@ -4503,27 +4504,13 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     (getByTestId("toggle").element() as HTMLElement).click();
     await pollForColumnZRetarget(recorder, zMV, zBefore);
 
-    // Settle-anchored: poll until zMV is stable across 2 consecutive
-    // frames, then measure LIVE (not a frozen pre-click snapshot).
-    let prev = zMV.get();
-    let stableFrames = 0;
-    const settleStart = performance.now();
-    let settled = false;
-    while (performance.now() - settleStart < 2000) {
-      await waitForAnimationFrame();
-      const current = zMV.get();
-      if (Math.abs(current - prev) < 0.5) {
-        stableFrames++;
-        if (stableFrames >= 2) {
-          settled = true;
-          break;
-        }
-      } else {
-        stableFrames = 0;
-      }
-      prev = current;
-    }
-    if (!settled) throw new Error("z:middle never settled (stable across 2 consecutive frames) within 2000ms — setup bug, not a timing race");
+    // ui#20 criterion 6 migration: `z:middle` is one of the owned
+    // MotionValue channels routed through useOwnedAnimation() (confirmed at
+    // source — SceneColumn's zOwnedAnimation.animateTo call), so
+    // data-scene-settled becoming true is a direct, correct signal that
+    // zMV itself has reached its final value — measured LIVE afterward
+    // (not a frozen pre-click snapshot).
+    await waitForSceneSettled(getByTestId("scene").element() as HTMLElement, { timeoutMs: 2000 });
 
     const mRect = middlePanel.getBoundingClientRect();
     const rRect = rightPanel.getBoundingClientRect();
