@@ -735,7 +735,7 @@ function parseTranslateZ(transform: string): number {
  * DOM-order actually governs, translateZ is kept for the perspective
  * foreshortening visual cue only); within-column object cards use a
  * discrete zIndex write instead (SceneObject's own zIndex comment —
- * object-level translateZ never actually reached the panel and was removed
+ * object-level translateZ never actually reached the object and was removed
  * entirely). The badge reads whichever channel is real for that card kind.
  */
 function PaintOrderBadges({
@@ -770,20 +770,21 @@ function PaintOrderBadges({
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
       if (card.kind === "column") {
-        // ui#17 anchor/panel split: the depth translateZ lives on the column's
-        // inner panel node now, not the outer flex anchor `el` itself — read
-        // z from the panel when one exists (every column has one; this falls
-        // back to `el` defensively, which has no panel child to begin with).
-        const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
+        // ui#17 anchor/column split: the depth translateZ lives on the column's
+        // inner column node now, not the outer flex anchor `el` itself — read
+        // z from the column node when one exists (every column has one; this
+        // falls back to `el` defensively, which has no column child to begin
+        // with).
+        const zSource = el.querySelector<HTMLElement>("[data-scene-column]") ?? el;
         const z = parseTranslateZ(getComputedStyle(zSource).transform);
         badge.textContent = `z:${Math.round(z)}`;
       } else {
         // ui#21 z-index paint-order channel amendment: object-level depth
         // cards no longer carry translateZ at all (removed entirely — see
         // SceneObject's own zIndex comment) — paint order is a discrete
-        // zIndex write on the panel instead. parseTranslateZ would always
+        // zIndex write on the object instead. parseTranslateZ would always
         // read 0 here now; read the real channel directly.
-        const zSource = el.querySelector<HTMLElement>("[data-scene-panel]") ?? el;
+        const zSource = el.querySelector<HTMLElement>("[data-scene-object]") ?? el;
         badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
       }
     }
@@ -1587,7 +1588,7 @@ function SceneViewport({
   // <SettleSignalContext.Provider> (below, in Scene's own JSX). This is
   // the specific fix for this round's named late mover: cameraX's own
   // corrective retarget (triggered BY the zero-crossing once width/
-  // margin/panelWidth settle) previously wasn't itself tracked, so the
+  // margin/columnWidth settle) previously wasn't itself tracked, so the
   // counter reached zero — and Scene re-measured — before the camera had
   // actually finished springing to the value that re-measurement
   // produced. See ownedAnimation.ts's own doc comment for the full
