@@ -621,8 +621,9 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         // object-placement ruling — Michael: "on the card makes sense").
         // FOCUS SEMANTICS live here (this is the tabIndex/actual DOM focus
         // target) — the ring itself now PAINTS on the object below, via
-        // Tailwind's `group`/`group-focus-visible:` pattern (this element
-        // is the group; see the object's own className for the paint side).
+        // Tailwind's `group/scene-object`/`group-focus-visible/scene-object:`
+        // pattern (this element is the group/scene-object; see the
+        // object's own className for the paint side).
         // Originally drawn on the anchor itself (replacing the browser's
         // native outline:auto, which the anchor/object split broke —
         // Michael's occlusion read, confirmed by direct measurement: the
@@ -635,10 +636,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         // drawn there was never visible on the actual (tucked) card a
         // keyboard user sees. `outline-none` still lives here — this
         // element is the real DOM focus target, so it's the one that
-        // would otherwise show the browser's native outline:auto; `group`
-        // has no visual effect of its own, it only makes this element a
-        // valid `group-*:` target for the object below.
-        "outline-none group",
+        // would otherwise show the browser's native outline:auto;
+        // `group/scene-object` has no visual effect of its own, it only
+        // makes this element a valid `group-*/scene-object:` target for
+        // the object below (named to avoid colliding with a consumer's
+        // own bare `group`/`group-hover:` pairing nested inside — ui#26,
+        // ui#p26).
+        "outline-none group/scene-object",
         className,
       )}
       style={{
@@ -686,10 +690,11 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       <motion.div
         data-scene-object={name}
         className={cn(
-          // Ring PAINT (the anchor above is the `group` — its own
-          // className has the full design history). outline-offset-0 (see
-          // below) — a non-"auto" style is spec-guaranteed to render
-          // outward-only, so it still draws entirely outside THIS
+          // Ring PAINT (the anchor above is the `group/scene-object` —
+          // its own className has the full design history).
+          // outline-offset-0 (see below) — a non-"auto" style is
+          // spec-guaranteed to render outward-only, so it still draws
+          // entirely outside THIS
           // element's (the object's) own border edge, the same
           // descendant-occlusion immunity the original design required,
           // now measured against the object's own box instead of the
@@ -712,7 +717,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // scale utilities, since those can't target outline-width/
           // -offset/-color independently when the value is a var()
           // reference rather than a literal.
-          "outline-none group-focus-visible:outline-solid group-focus-visible:[outline-width:var(--scene-focus-ring-width,2px)] group-focus-visible:[outline-offset:var(--scene-focus-ring-offset,0px)] group-focus-visible:[outline-color:var(--scene-focus-ring-color,rgb(153,200,255))]",
+          "outline-none group-focus-visible/scene-object:outline-solid group-focus-visible/scene-object:[outline-width:var(--scene-focus-ring-width,2px)] group-focus-visible/scene-object:[outline-offset:var(--scene-focus-ring-offset,0px)] group-focus-visible/scene-object:[outline-color:var(--scene-focus-ring-color,rgb(153,200,255))]",
         )}
         {...(depthTreatment
           ? {
