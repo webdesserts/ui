@@ -17,6 +17,9 @@ import {
   awaitStyleFlush,
   waitForSceneSettled,
 } from "./utils/animation";
+import { parseTranslateX, parseTranslateY } from "./utils/transform";
+import { captureFlipCommit, findGbcrOutliers, gbcrDeltasOf, type GBCRBox } from "./utils/gbcrSampling";
+import { CameraReader } from "./utils/cameraReader";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,33 +34,6 @@ async function getColumnStyle(
   const content = getByTestId(testId).element() as HTMLElement;
   const column = content.closest("[data-column]") as HTMLElement;
   return window.getComputedStyle(column);
-}
-
-/**
- * Extracts the raw (pre-perspective-projection) translateX value written to
- * an element's inline `transform` style. Motion writes this as either
- * `translate3d(x, y, z)` or, when y is 0, separate `translateX(x)
- * translateZ(z)` functions — this matches either shape. Depth-deck geometry
- * assertions read this raw value rather than getBoundingClientRect() because
- * CSS perspective projection scales rendered pixel positions non-linearly by
- * depth (deeper cards are foreshortened more), while the x offset actually
- * written to the transform (what SceneColumn's animateX computes) is exact.
- */
-function parseTranslateX(transform: string): number {
-  const match = transform.match(/translateX?\(([-\d.]+)px(?:,|\))/) ?? transform.match(/translate3d\(([-\d.]+)px/);
-  if (!match) throw new Error(`Could not parse translateX from transform: "${transform}"`);
-  return parseFloat(match[1]!);
-}
-
-/** Same rationale as parseTranslateX (see its docstring) — the raw
- *  translateY written to the transform (undistorted by perspective
- *  foreshortening), not a rendered getBoundingClientRect() position. */
-function parseTranslateY(transform: string): number {
-  const match =
-    transform.match(/translate3d\([-\d.]+px,\s*([-\d.]+)px/) ??
-    transform.match(/translateY\(([-\d.]+)px\)/);
-  if (!match) throw new Error(`Could not parse translateY from transform: "${transform}"`);
-  return parseFloat(match[1]!);
 }
 
 /** Custom component that returns a SceneColumn — used to prove Scene's
@@ -3875,83 +3851,6 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
 // declared directly on SceneObject's own style prop, never a child div.
 // ---------------------------------------------------------------------------
 
-/**
- * Polls via requestAnimationFrame until `hasChanged()` first returns
- * true (default predicate: `el.style.position` differs from its value
- * at call time). The panel's flip — and any Scene-derived state a
- * bystander column's own geometry depends on (position, stackDepth) —
- * reaches SceneColumn through context values that are NOT synchronous
- * with the raw `focused` prop change that triggers them: a registry-
- * correction render lands on a LATER commit, so sampling gBCR
- * synchronously around a click with no `await` never actually observes
- * the flip, making a same-tick before/after comparison vacuous
- * regardless of what it asserts (probe-confirmed directly: `data-
- * column-position` read back unchanged immediately after a click, for
- * both the directly-toggled column and a bystander sibling). Returns
- * the geometry from the frame immediately before the change and the
- * frame it was first observed in, the same "last pre-flip frame vs
- * first post-flip frame" methodology the spike's own trace-refocus.log
- * used.
- *
- * Layout-box geometry (ui#17 target-derived-aiming round, Part B's
- * structurally final form, superseding an earlier gBCR-rebased-against-
- * anchor draft of this same helper): `offsetLeft`/`offsetTop` (relative
- * to `offsetParent`, which is verified elsewhere to be the panel's own
- * anchor on BOTH sides of the flip — position:relative and
- * position:absolute both resolve to it) plus `offsetWidth`/
- * `offsetHeight`. Transform-free BY CONSTRUCTION: stage/camera
- * translation, the depth-deck's `translateZ` perspective projection, and
- * `columnAnimateX`'s own tuck offset are all CSS transforms, invisible to
- * offset* — while every REAL defect class this suite exists to catch
- * stays visible, because each one is a layout-box change: the 175px
- * refocus bug drove `width` (a layout property, ΔoffsetWidth sees it
- * directly); a `static`-vs-`absolute` position break moves the box
- * itself; a margin bug moves it too. The flip's zero-pixel promise IS a
- * layout-box promise — an EARLIER round of this suite measured it
- * through the perspective projection (gBCR, even after rebasing against
- * the anchor to cancel translation) and that measurement is what caught
- * one real frame of lawful, continuous mid-spring Z motion as a false
- * positive (innocence-checked directly: the flip-frame delta was
- * comparable to — often smaller than — its own frame-neighbor deltas,
- * and the Z MotionValue's own sequence was smoothly monotonic with no
- * jump coinciding with the position-mode flip).
- *
- * `anchorEl`, when provided, is an assertion-only sanity guard (not used
- * for any measurement): throws immediately if `el.offsetParent` isn't
- * `anchorEl` at either sample, so a future architecture change that
- * breaks the offsetParent-is-the-anchor assumption fails loudly here
- * instead of silently changing what these tests measure.
- */
-async function captureFlipCommit(
-  el: HTMLElement,
-  timeoutMs = 2000,
-  hasChanged?: () => boolean,
-  anchorEl?: HTMLElement,
-): Promise<{ before: DOMRect; after: DOMRect; framesWaited: number }> {
-  const initialPosition = el.style.position;
-  const changed = hasChanged ?? (() => el.style.position !== initialPosition);
-  const captureBox = (): DOMRect => {
-    if (anchorEl && el.offsetParent !== anchorEl) {
-      throw new Error(
-        `captureFlipCommit: expected el.offsetParent to be anchorEl but it was ${el.offsetParent ? `<${el.offsetParent.tagName}>` : "null"} — the offsetParent-is-the-anchor assumption this helper's layout-box measurement depends on no longer holds`,
-      );
-    }
-    return new DOMRect(el.offsetLeft, el.offsetTop, el.offsetWidth, el.offsetHeight);
-  };
-  let before = captureBox();
-  const start = performance.now();
-  let frames = 0;
-  while (performance.now() - start < timeoutMs) {
-    await waitForAnimationFrame();
-    frames++;
-    if (changed()) {
-      return { before, after: captureBox(), framesWaited: frames };
-    }
-    before = captureBox();
-  }
-  throw new Error(`change predicate never became true within ${timeoutMs}ms (initial panel position: "${initialPosition}")`);
-}
-
 describe("Glass-stack deck: zero-pixel flip", () => {
   test("unfocus direction: panel-local geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
@@ -4723,52 +4622,6 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
 // layout was fine) was transform-driven and structurally invisible in
 // layout space — paint-space is the only instrument that can see it.
 // ---------------------------------------------------------------------------
-
-interface GBCRBox {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-/**
- * Ports the spike's outlier detector: flags a frame ONLY if its delta is
- * BOTH >20px absolute AND >5x each of its two immediate neighbors — a flat
- * threshold alone false-positives on normal, fast spring motion (a
- * legitimately large but neighbor-proportional delta isn't a
- * discontinuity, just a fast-moving frame — springs preserve position and
- * velocity continuity even across a retarget, so a healthy interrupt
- * commit produces no outlier here despite a real, large retarget).
- */
-function findGbcrOutliers(deltas: number[]): number[] {
-  const outliers: number[] = [];
-  for (let i = 1; i < deltas.length - 1; i++) {
-    const d = deltas[i]!;
-    const prev = deltas[i - 1]!;
-    const next = deltas[i + 1]!;
-    if (d > 20 && d > 5 * prev && d > 5 * next) {
-      outliers.push(i);
-    }
-  }
-  return outliers;
-}
-
-function gbcrDeltasOf(samples: GBCRBox[]): number[] {
-  const deltas: number[] = [];
-  for (let i = 1; i < samples.length; i++) {
-    const a = samples[i - 1]!;
-    const b = samples[i]!;
-    deltas.push(
-      Math.max(
-        Math.abs(b.left - a.left),
-        Math.abs(b.top - a.top),
-        Math.abs(b.width - a.width),
-        Math.abs(b.height - a.height),
-      ),
-    );
-  }
-  return deltas;
-}
 
 /**
  * Runs the double-interruption fixture once (same shape and interruption
@@ -11075,27 +10928,6 @@ describe("Scene reduced motion", () => {
 // ---------------------------------------------------------------------------
 // Phase 9c/9d + S6: useCamera hook
 // ---------------------------------------------------------------------------
-
-import { useCamera } from "../src";
-
-/** Test component that exposes CameraState values as data attributes. */
-function CameraReader() {
-  const camera = useCamera();
-  return (
-    <div
-      data-testid="camera-reader"
-      data-viewport-top={camera.viewport.top}
-      data-viewport-left={camera.viewport.left}
-      data-viewport-width={camera.viewport.width}
-      data-viewport-height={camera.viewport.height}
-      data-target-top={camera.target.top}
-      data-target-left={camera.target.left}
-      data-target-width={camera.target.width}
-      data-target-height={camera.target.height}
-      data-transitioning={String(camera.transitioning)}
-    />
-  );
-}
 
 describe("useCamera", () => {
   test("useCamera reports viewport rect width and height", async () => {
