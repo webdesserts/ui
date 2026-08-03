@@ -14636,12 +14636,13 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
   // worker report's occlusion-vs-shrink discriminator). Panel-placement
   // ruling (Michael: "on the card makes sense") moved the PAINT from the
   // anchor to the panel — focus semantics (tabIndex, the real DOM focus
-  // target) stay on the anchor, via Tailwind's `group`/`group-focus-
-  // visible:` pattern (anchor is the group, panel paints when the group
-  // is :focus-visible). Fixes a real gap the anchor-placed ring never
-  // solved: a SANDWICHED object's anchor is a zero-footprint, invisible
-  // wrapper — a ring drawn there was never visible on the actual card a
-  // keyboard user sees (see this block's own third test). Drawn entirely
+  // target) stay on the anchor, via Tailwind's `group/scene-object`/
+  // `group-focus-visible/scene-object:` pattern (anchor is the group,
+  // panel paints when the group is :focus-visible). Fixes a real gap
+  // the anchor-placed ring never solved: a SANDWICHED object's anchor
+  // is a zero-footprint, invisible wrapper — a ring drawn there was
+  // never visible on the actual card a keyboard user sees (see this
+  // block's own third test). Drawn entirely
   // outside the PANEL's own border edge (outline-offset:0 with a non-
   // "auto" style is spec-guaranteed outward-only) so no further
   // descendant can ever cover it. 2px (Michael's directive, was 1px on
