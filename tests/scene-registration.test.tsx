@@ -13,7 +13,7 @@ import { buildScene } from "./utils/sceneFixtures";
 /** Returns the computed style of the column wrapper ([data-column]) containing
  *  the element located by data-testid. */
 async function getColumnStyle(
-  getByTestId: ReturnType<typeof render> extends Promise<infer R> ? R["getByTestId"] : never,
+  getByTestId: Awaited<ReturnType<typeof render>>["getByTestId"],
   testId: string,
 ): Promise<CSSStyleDeclaration> {
   const content = getByTestId(testId).element() as HTMLElement;
