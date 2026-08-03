@@ -1,11 +1,28 @@
 import { createContext } from "react";
 
+/** A single SceneObject's name and focus state, as reported by its parent SceneColumn. */
+export interface RegisteredColumnObjectState {
+  name: string;
+  focused: boolean;
+}
+
 /** A column's self-reported registration data. */
 export interface RegisteredColumn {
   /** Whether any of this column's registered SceneObjects are currently focused. */
   focused: boolean;
   /** The column's own outer DOM element. */
   element: HTMLElement;
+  /**
+   * This column's own direct SceneObject children, in DOM order, with their
+   * current focus state (ui#20 — mirrors `deriveObjectStates`/`ObjectState`
+   * exactly, reported here so Scene can detect an OBJECT-level focus-
+   * arrangement change — including a within-column swap, where this
+   * column's own aggregate `focused` above never changes — without a DOM
+   * query). Used only to build the settled-focus-arrangement fingerprint
+   * and the `onTransitionEnd` payload; not consumed by the pre-existing
+   * camera-aiming/geometry machinery.
+   */
+  objectStates: RegisteredColumnObjectState[];
   /**
    * The anchor's own owned width-channel target (ui#17 target-derived
    * camera aiming) — the SAME value the width channel itself springs

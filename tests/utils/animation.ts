@@ -45,12 +45,16 @@ export function waitForAnimationFrame(): Promise<void> {
  * `requestAnimationFrame` callback, 3/3 runs under real suite contention —
  * since rAF callbacks run before the browser's next repaint, the stale
  * value is a pure test-read-timing artifact, never a painted frame).
- * Named for the BEHAVIOR it waits for (not the mechanism) so a future
- * settle-signal primitive (ui#20) can replace this function's body with an
- * explicit signal instead of a blind rAF wait, without touching call
- * sites. Currently just `waitForAnimationFrame()` — one tick was measured
- * sufficient, not assumed; escalate to a second tick only if a specific
- * call site proves racy at one.
+ * Named for the BEHAVIOR it waits for (not the mechanism), anticipating a
+ * future settle-signal primitive (ui#20) as a possible replacement — landed,
+ * and NOT a fit for this specific job: `data-scene-settled`
+ * (`waitForSceneSettled`, this file) waits for the scene to fully settle,
+ * which can take many frames for a real spring, while this function's own
+ * contract is a single-tick flush wait for Motion's rAF-batched writes to
+ * reach the DOM, often called mid-transition to read INTERMEDIATE geometry
+ * rather than at rest. Stays `waitForAnimationFrame()` — one tick was
+ * measured sufficient, not assumed; escalate to a second tick only if a
+ * specific call site proves racy at one.
  */
 export function awaitStyleFlush(): Promise<void> {
   return waitForAnimationFrame();
@@ -600,4 +604,46 @@ export function assertPaintOrderInvariant(
     }
     lastOverlappingTop = sample.topElement;
   }
+}
+
+/**
+ * Waits until a Scene's own `data-scene-settled` attribute reads `"true"`
+ * (ui#20 criterion 1 — no owned animation currently active), polling real
+ * animation frames up to `timeoutMs`. Bounded wait (~600ms per ui#o20) —
+ * throws a legible error naming the wait bound on timeout, rather than
+ * silently returning with the scene still unsettled (mirrors the
+ * `throw new Error(...)` precedent already established in this suite's own
+ * `measureSettleDurationMs`, scene.test.tsx).
+ *
+ * `scene` is the viewport element itself (`getByTestId("scene").element()`)
+ * — the element `data-scene-settled` is actually rendered on.
+ */
+export async function waitForSceneSettled(scene: HTMLElement, options: { timeoutMs?: number } = {}): Promise<void> {
+  const { timeoutMs = 600 } = options;
+  const start = performance.now();
+  while (scene.getAttribute("data-scene-settled") !== "true") {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `waitForSceneSettled: scene never settled within ${timeoutMs}ms (data-scene-settled stayed "${scene.getAttribute("data-scene-settled")}")`,
+      );
+    }
+    await waitForAnimationFrame();
+  }
+}
+
+/**
+ * Waits for the scene to settle (`waitForSceneSettled`, same bounded-wait/
+ * legible-throw contract), then clicks `target`. Named for its own primary
+ * consuming action (ui#20's own inertness gating means a click dispatched
+ * before the scene has settled is a legitimate no-op, not a bug — see
+ * SceneObject's `activatable`/`transitionPending` gating) — tests that only
+ * need the WAIT half without a click use `waitForSceneSettled` directly.
+ */
+export async function settleThenClick(
+  scene: HTMLElement,
+  target: { click: () => void },
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  await waitForSceneSettled(scene, options);
+  target.click();
 }

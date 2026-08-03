@@ -15,6 +15,7 @@ import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext } from "./ColumnRegistryContext";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { useSettledValue } from "./useSettledValue";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -250,11 +251,11 @@ function computeFocusedWidth(
 /**
  * The widest REGISTERED object's own measured width, regardless of focus.
  * Unlike computeFocusedWidth, this doesn't filter to focused objects — a
- * deck panel's own object is never focused while it's the one being
+ * deck column's own object is never focused while it's the one being
  * measured, so computeFocusedWidth would always return undefined for it.
  * Safe from the circularity a same-node-composition design would hit
  * (geometryStore measuring an already-crushed size fed back as the
- * channel's own target): the panel this feeds is position:absolute within
+ * channel's own target): the column this feeds is position:absolute within
  * its own zero-footprint anchor, never constrained by the anchor's own
  * shrinking width, so its own natural/cqw-resolved size is always what's
  * actually measured here.
@@ -300,8 +301,8 @@ function computeMeasuredWidth(
  * ordering is what makes shallower siblings paint in front of deeper ones
  * (the "multi-sandwiched" z-index test's own subject). UNLIKE column-level
  * paint order, object-level DOM order alone does NOT structurally guarantee
- * correct stacking on its own (object panels sit outside any column's
- * preserve-3d chain — ui#o32, the D-series record), so this invariant is
+ * correct stacking on its own (an object's own inner node sits outside any
+ * column's preserve-3d chain — ui#o32, the D-series record), so this invariant is
  * what the explicit z-index channel is built ON TOP OF, not a substitute
  * for it.
  *
@@ -313,7 +314,7 @@ function computeMeasuredWidth(
  * section made before implementation: every sandwiched object's own
  * zero-height anchor converges on the SAME local origin (flush against the
  * lower focused sibling) once settled, since each collapsed object
- * contributes exactly zero net flow height — the panel's peek-offset
+ * contributes exactly zero net flow height — the column's peek-offset
  * transform only needs its OWN local depth (`-peekOffset * depth`), never a
  * cross-object measured position. Same shape as ui#17's own stackTargetLeft
  * deletion (a cross-sibling measured value the flow-collapse architecture
@@ -461,6 +462,9 @@ export interface SceneColumnProps {
 }
 
 /**
+ * The SceneColumn component is composed of the anchor, the column itself,
+ * and its contents.
+ *
  * A vertical slot within a Scene. Objects inside a column share a horizontal
  * position and swap vertically when focus changes. A column is considered
  * focused if any of its children are focused.
@@ -540,26 +544,20 @@ export function SceneColumn({
   // criterion 5 re-derivation: columnTransition (marginTopTransition's own
   // sibling site) no longer consumes this — see its own declaration
   // comment for why (its original reason, Motion's `layout` FLIP, is gone).
-  const columnGeometrySettledRef = useRef(false);
-  // F7 item 2 fix: "settled" requires effectiveViewportHeight to be
-  // UNCHANGED across two consecutive commits, not just nonzero once.
-  // Probe-confirmed (cqw demo, real space-reserving scrollbars — headless
-  // Chromium normally suppresses these entirely, see F5 item 5):
-  // viewportHeight arrives in TWO separate real commits during mount, not
-  // one — first without the horizontal scrollbar's space reservation
-  // (254), then with it once SceneViewport's own overflow-x measurement
-  // toggles the scrollbar on and the ResizeObserver picks up the
-  // now-smaller content-box height (243). The original one-shot "nonzero
-  // means settled" check correctly gated the FIRST commit (254) instant,
-  // but by the time the SECOND, scrollbar-corrected commit (243) arrived,
-  // settled was already true from the first — so marginTop sprang from
-  // the placeholder 254-based value down to the correct 243-based one
-  // instead of jumping straight to it (measured: 78.94px -> 73.5px over
-  // ~280ms). Tracking the last-seen value and only marking settled once
-  // it repeats closes this without needing to know anything about
-  // scrollbars specifically — it generalizes to any late-arriving
-  // viewport-height correction during mount, not just this one.
-  const lastEffectiveViewportHeightRef = useRef<number | null>(null);
+  //
+  // F7 item 2 fix (why "settled" requires TWO consecutive equal commits,
+  // not just one nonzero one — full rationale now lives on the shared
+  // useSettledValue hook this reuses, ui#20 criterion 6): probe-confirmed
+  // (cqw demo, real space-reserving scrollbars — headless Chromium
+  // normally suppresses these entirely, see F5 item 5) viewportHeight
+  // arrives in TWO separate real commits during mount, not one — first
+  // without the horizontal scrollbar's space reservation (254), then with
+  // it once SceneViewport's own overflow-x measurement toggles the
+  // scrollbar on and the ResizeObserver picks up the now-smaller
+  // content-box height (243). Tracking the last-seen value and only
+  // marking settled once it repeats closes this (measured before the fix:
+  // marginTop sprang 78.94px -> 73.5px over ~280ms instead of jumping).
+  const [columnGeometryWasSettled, checkColumnGeometrySettled] = useSettledValue();
 
   // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
   // so the content wrapper's `top` can be driven off React's render cycle —
@@ -944,35 +942,13 @@ export function SceneColumn({
   // Padding reduces the usable height, so the scroll range grows accordingly.
   const effectiveViewportHeight = viewportHeight - padding * 2;
 
-  // A4 first-paint gate (continued from columnGeometrySettledRef's decl
-  // above): read the PRE-mutation value; the mutation itself is deferred to
-  // a useLayoutEffect below (F5 item 3 fix) rather than happening inline
-  // here during render. Mutating a ref directly in the render body is
-  // impure, and React StrictMode's development-only double-invocation of
-  // the render function body defeats this exact gate: probe-confirmed (F5
-  // item 3) that at the critical commit — the render where
-  // effectiveViewportHeight first becomes real — StrictMode calls this
-  // component function twice; the first call correctly reads `false` and
-  // mutates the ref to `true` as a side effect, then the SECOND call (whose
-  // return value React actually uses for reconciliation) reads the
-  // already-mutated `true`, silently collapsing `columnGeometryWasSettled`
-  // to `true` for the very render this gate exists to keep instant. That
-  // showed up as marginTop (and any other `columnGeometryWasSettled`
-  // consumer) springing from a placeholder on every first paint instead of
-  // jumping. Reading the ref here (unmutated) and writing it only from a
-  // layout effect keeps both StrictMode invocations of a given commit
-  // observing the SAME value, since the effect only runs once the real
-  // commit has been decided — no more render-body impurity for StrictMode
-  // to catch.
-  const columnGeometryWasSettled = columnGeometrySettledRef.current;
+  // A4 first-paint gate (continued from columnGeometryWasSettled's decl
+  // above, ui#20 criterion 6: useSettledValue) — the StrictMode double-
+  // invocation rationale for reading the PRE-mutation value here and only
+  // ever calling checkColumnGeometrySettled from a layout effect now lives
+  // on that hook's own doc comment.
   useLayoutEffect(() => {
-    if (
-      effectiveViewportHeight > 0 &&
-      lastEffectiveViewportHeightRef.current === effectiveViewportHeight
-    ) {
-      columnGeometrySettledRef.current = true;
-    }
-    lastEffectiveViewportHeightRef.current = effectiveViewportHeight;
+    checkColumnGeometrySettled(effectiveViewportHeight);
   });
 
   const maxScroll = Math.max(
@@ -2459,7 +2435,14 @@ export function SceneColumn({
     const el = colRef.current;
     if (!el || !registerColumnWithScene) return;
     const focused = Array.from(registeredObjectFocusRef.current.values()).some(Boolean);
-    return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget });
+    // ui#20: registry-derived (registeredObjectFocusRef), not the top-level
+    // prop-walk `objectStates` — same S6 registration-architecture reason
+    // `focused` above uses the registry: this stays correct regardless of
+    // Fragment-wrapping or a custom component returning a SceneObject.
+    const reportedObjectStates = Array.from(registeredObjectFocusRef.current.entries()).map(
+      ([objName, objFocused]) => ({ name: objName, focused: objFocused }),
+    );
+    return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget, objectStates: reportedObjectStates });
   });
 
   // Debug outline tracking: notify the animation counter in SceneViewport when
@@ -2513,7 +2496,7 @@ export function SceneColumn({
   // ADDITION to firstPaintRef.current (not redundant with it) — probe-
   // confirmed the render where topOffset's underlying geometry first
   // settles already has firstPaintRef.current === false (see
-  // columnGeometrySettledRef's declaration above).
+  // columnGeometryWasSettled's declaration above).
   const topOffsetOwnedAnimation = useOwnedAnimation();
   useLayoutEffect(() => {
     if (topOffset === topOffsetTargetRef.current) return;
@@ -2574,12 +2557,12 @@ export function SceneColumn({
   // in-flow ANCHOR for an in-between column, not a visually-narrowed
   // sliver. Its footprint springs naturalWidth -> 0 and STAYS at 0 forever
   // once settled — there is no flip back to full width anywhere in this
-  // design. The full-size glass PANEL (a nested node, see its own JSX
+  // design. The full-size glass COLUMN (a nested node, see its own JSX
   // comment further down) is position:absolute WITHIN this anchor and
   // carries the actual visual rendering, so the anchor's own footprint
   // being invisible/zero doesn't crush anything. Computed inline
   // (duplicating isInBetween's own condition, declared later in this file)
-  // rather than reordering — same tradeoff F5 item 2's `panelAnimateX`
+  // rather than reordering — same tradeoff F5 item 2's `columnAnimateX`
   // comment already documents for this file.
   const inBetweenNow = !columnFocused && position === "in-between" && stackDepth > 0;
   // Deferred shrink for a never-focused deck column (no frozenSize, no
@@ -2682,79 +2665,79 @@ export function SceneColumn({
     }
   });
 
-  // The deck PANEL's own width: pixels ONLY mid-spring, live CSS at rest,
+  // The deck COLUMN's own width: pixels ONLY mid-spring, live CSS at rest,
   // on BOTH sides — mirroring what the FOCUSED side already does
   // (widthOverrideActive/widthSettled above). A pixel override drives the
-  // transition, then releases once settled, handing off to the panel's
+  // transition, then releases once settled, handing off to the column's
   // own object-level cqw-derived width (cqw resolves against the stage's
   // container-query context, so it tracks viewport resize with zero JS
   // re-measurement, same mechanism the focused side already relies on).
-  // Target: computeMeasuredWidth (regardless of focus — a deck panel's
+  // Target: computeMeasuredWidth (regardless of focus — a deck column's
   // own object is never itself focused). Also defined during a REFOCUS
   // transition (columnFocused && !widthSettled, mirroring the anchor's
   // own widthOverrideActive condition for that side) — see
-  // panelWidthOverrideActive's own comment for why the refocus side needs
+  // columnWidthOverrideActive's own comment for why the refocus side needs
   // this too. computeMeasuredWidth gives the SAME value on both sides of
-  // the flip (the panel's natural width doesn't depend on focus), so this
+  // the flip (the column's natural width doesn't depend on focus), so this
   // typically doesn't change the target across the commit at all — the
   // override just stays continuously active through it, which is the
   // whole point (a target that never changes needs no animation, only to
   // not be released prematurely).
-  const panelWidthTarget =
+  const columnWidthTarget =
     inBetweenNow || (columnFocused && !widthSettled)
       ? computeMeasuredWidth(objectStates, geometryStore.current)
       : undefined;
-  const panelWidthMV = useMotionValue(panelWidthTarget ?? 0);
+  const columnWidthMV = useMotionValue(columnWidthTarget ?? 0);
   useEffect(() => {
-    motionSeam?.registerMotionValue(`panelWidth:${name}`, panelWidthMV);
-    return () => motionSeam?.unregisterMotionValue?.(`panelWidth:${name}`);
-  }, [motionSeam, panelWidthMV, name]);
+    motionSeam?.registerMotionValue(`columnWidth:${name}`, columnWidthMV);
+    return () => motionSeam?.unregisterMotionValue?.(`columnWidth:${name}`);
+  }, [motionSeam, columnWidthMV, name]);
 
-  const panelWidthTargetRef = useRef(panelWidthTarget);
-  const panelWidthHasHadTargetRef = useRef(panelWidthTarget !== undefined);
-  const [panelWidthSettled, setPanelWidthSettled] = useState(true);
-  const panelWidthOwnedAnimation = useOwnedAnimation();
+  const columnWidthTargetRef = useRef(columnWidthTarget);
+  const columnWidthHasHadTargetRef = useRef(columnWidthTarget !== undefined);
+  const [columnWidthSettled, setColumnWidthSettled] = useState(true);
+  const columnWidthOwnedAnimation = useOwnedAnimation();
 
   useLayoutEffect(() => {
-    if (panelWidthTarget === undefined || panelWidthTarget === panelWidthTargetRef.current) return;
-    const isFirstTarget = !panelWidthHasHadTargetRef.current;
-    panelWidthHasHadTargetRef.current = true;
-    panelWidthTargetRef.current = panelWidthTarget;
+    if (columnWidthTarget === undefined || columnWidthTarget === columnWidthTargetRef.current) return;
+    const isFirstTarget = !columnWidthHasHadTargetRef.current;
+    columnWidthHasHadTargetRef.current = true;
+    columnWidthTargetRef.current = columnWidthTarget;
     if (duration === 0 || isFirstTarget || firstPaintRef.current || !columnGeometryWasSettled) {
-      panelWidthOwnedAnimation.jump(panelWidthMV, panelWidthTarget);
-      setPanelWidthSettled(true);
+      columnWidthOwnedAnimation.jump(columnWidthMV, columnWidthTarget);
+      setColumnWidthSettled(true);
     } else {
-      setPanelWidthSettled(false);
-      const controls = panelWidthOwnedAnimation.animateTo(panelWidthMV, panelWidthTarget, transition, () => {
-        setPanelWidthSettled(true);
+      setColumnWidthSettled(false);
+      const controls = columnWidthOwnedAnimation.animateTo(columnWidthMV, columnWidthTarget, transition, () => {
+        setColumnWidthSettled(true);
       });
-      motionSeam?.registerControls(`panelWidth:${name}`, controls);
-      motionSeam?.registerTarget?.(`panelWidth:${name}`, panelWidthTarget);
+      motionSeam?.registerControls(`columnWidth:${name}`, controls);
+      motionSeam?.registerTarget?.(`columnWidth:${name}`, columnWidthTarget);
     }
   });
 
-  // Whether the panel's own pixel width override is active. Two windows,
+  // Whether the column's own pixel width override is active. Two windows,
   // matching the two directions a flip can happen:
   //   - Unfocus (permanent once decked): while in-between AND still
-  //     mid-spring (released once panelWidthSettled, letting the panel's
+  //     mid-spring (released once columnWidthSettled, letting the column's
   //     own cqw sizing take over at rest — unchanged from before).
   //   - Refocus (transient): while focused AND the ANCHOR's OWN width
   //     channel is still mid-spring (widthOverrideActive's own condition
   //     for the focused side, !widthSettled) — this is the fix for the
   //     refocus-direction width-source asymmetry (ui#17 Slice 1 close-
-  //     out): without this, the panel had NO override at all on refocus
+  //     out): without this, the column had NO override at all on refocus
   //     and fell back to filling an anchor still springing from its
   //     decked 0 footprint, producing a real (measured ~175px) width
   //     discontinuity at the flip commit — the invariant this design
-  //     depends on (the panel never visually resizes; only the anchor's
+  //     depends on (the column never visually resizes; only the anchor's
   //     footprint animates) was only actually upheld on the unfocus side.
-  //     Gated on the ANCHOR's widthSettled, not panelWidthSettled — the
-  //     panel isn't itself springing to a new value on this side (see
-  //     panelWidthTarget's own comment: the target typically doesn't even
+  //     Gated on the ANCHOR's widthSettled, not columnWidthSettled — the
+  //     column isn't itself springing to a new value on this side (see
+  //     columnWidthTarget's own comment: the target typically doesn't even
   //     change across the commit), it's holding its already-correct value
   //     for exactly as long as the anchor's footprint is still growing
   //     back, then releasing.
-  const panelWidthOverrideActive = inBetweenNow ? !panelWidthSettled : columnFocused && !widthSettled;
+  const columnWidthOverrideActive = inBetweenNow ? !columnWidthSettled : columnFocused && !widthSettled;
 
   // position and flex must be in `style` (not `animate`) because motion only
   // animates transforms, opacity, and CSS custom properties — not layout properties.
@@ -2774,10 +2757,10 @@ export function SceneColumn({
   // sees a smooth reshape instead of the column vanishing from flow in a
   // single commit. Deliberately NO overflow:clip (and no explicit width
   // binding here at all, see the style prop below) — the actual glass
-  // PANEL (a nested node, see its own JSX comment further down) is
+  // COLUMN (a nested node, see its own JSX comment further down) is
   // position:absolute WITHIN this anchor and paints its own full-size
   // content escaping this anchor's own (invisible, zero-width-at-rest)
-  // box entirely; clipping here would hide the whole panel. marginRight
+  // box entirely; clipping here would hide the whole column. marginRight
   // (marginMV) compensates the one extra columnGap a zero-width-but-
   // still-in-flow item would otherwise leave behind — see that channel's
   // own comment.
@@ -2822,7 +2805,7 @@ export function SceneColumn({
   // (position: relative, in the flex row — `columnStyle` above already
   // prioritizes `columnFocused` first) while STILL computing real depth-deck
   // `animate` values (reduced opacity, translateZ, and a nonzero
-  // `panelAnimateX` offset) from the stale `position`/`stackDepth` — a transform offset
+  // `columnAnimateX` offset) from the stale `position`/`stackDepth` — a transform offset
   // applied on top of an already-in-flex-flow element, which paints as a
   // visible jump before the next commit (Scene's registry-correction pass)
   // resets the offset to 0 and the zMV/opacity spring proceeds normally. A
@@ -2832,14 +2815,14 @@ export function SceneColumn({
   // negative risk, it only closes the stale-registry window.
   const isInBetween = !columnFocused && position === "in-between" && stackDepth > 0;
 
-  // This is the PANEL's own transform (the panel is a nested node,
+  // This is the COLUMN's own transform (the column is a nested node,
   // position:absolute WITHIN the zero-footprint anchor — see its own JSX
   // comment further down), not the anchor's. Closed-form and
   // anchor-relative — no globally-measured stack-anchor position (that
   // mechanism needed per-render Scene-level re-measurement to stay fresh,
   // exactly the staleness class this design eliminates).
   //
-  // The panel's own untransformed ("static") position, being
+  // The column's own untransformed ("static") position, being
   // position:absolute with no explicit `left` inside a position:relative
   // anchor with no other siblings, is (0,0) of the anchor's own content
   // box — and the anchor's own natural flow LEFT EDGE, once footprint=0
@@ -2854,12 +2837,12 @@ export function SceneColumn({
   // when pulled from the deck, so a column deck anchored under the right
   // focused column peeks left, fanned by stackDepth so every deeper
   // card's left edge stays visible past its shallower neighbors) lands
-  // the panel's own left edge exactly peekOffset*stackDepth px to the
+  // the column's own left edge exactly peekOffset*stackDepth px to the
   // left of that anchor point — no absolute coordinate needed anywhere.
   // Outer columns stay at x:0 — they're in the natural flex row position.
   // Same `!columnFocused` guard as isInBetween above, and for the same
   // reason (F5 item 2).
-  const panelAnimateX = isInBetween ? -peekOffset * stackDepth : 0;
+  const columnAnimateX = isInBetween ? -peekOffset * stackDepth : 0;
   // translateZ pushes in-between columns back in 3D space. The stage's
   // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
   // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.
@@ -2895,7 +2878,7 @@ export function SceneColumn({
   // invariant (e.g. reordering columns independent of focus/depth),
   // column-level paint order needs an explicit mechanism — object level
   // (SceneObject.tsx) already has this via its own z-index channel,
-  // built for exactly this reason (object panels sit outside any
+  // built for exactly this reason (an object's own inner node sits outside any
   // column's preserve-3d chain, so DOM order there does NOT structurally
   // guarantee correctness the way it does at column level).
 
@@ -2979,7 +2962,7 @@ export function SceneColumn({
   // the right (depth-forward navigation). Motion's `initial`/`animate` props
   // spring `x` from this off-screen starting value to the anchor's own
   // `x` target (always 0 — the anchor never otherwise translates, only
-  // the panel does, via `panelAnimateX`) — the same x transform channel
+  // the column does, via `columnAnimateX`) — the same x transform channel
   // `animate` always drives, not Motion's `layout` FLIP prop (removed
   // from this node entirely, ui#17; this entrance slide never depended on
   // it).
@@ -3250,7 +3233,7 @@ export function SceneColumn({
           replacing Motion's `layout` FLIP prop entirely (removed from this
           node — see the width channel's own doc comment for why). This node
           is the zero-footprint in-flow ANCHOR — opacity/y/z/filter (the
-          depth-deck visual) live on the PANEL node below instead. `x` stays
+          depth-deck visual) live on the COLUMN node below instead. `x` stays
           here ONLY for mountInitial's own entrance-slide purpose (a focused
           column's first-mount slide-in from off-screen) — always 0
           otherwise. */}
@@ -3291,15 +3274,15 @@ export function SceneColumn({
           // transformed element defaults to transform-style:flat — which
           // flattens ANY descendant's own 3D transform into the anchor's
           // own 2D plane, discarding it visually even though it's still
-          // present in that descendant's own computed style. The panel's
+          // present in that descendant's own computed style. The column's
           // z-transform (the depth-deck perspective projection) needs to
           // keep participating in the viewport/stage's shared 3D context
           // (both already preserve-3d — see their own comments) all the
-          // way down to the panel, so the anchor has to preserve it too.
+          // way down to the column, so the anchor has to preserve it too.
           transformStyle: "preserve-3d",
         }}
       >
-        {/* The glass PANEL. ALWAYS rendered (never conditionally
+        {/* The glass COLUMN. ALWAYS rendered (never conditionally
             mounted/unmounted — conditionally wrapping children in an extra
             node would change the tree shape React reconciles against,
             remounting everything inside on every focus change) so its own
@@ -3308,19 +3291,19 @@ export function SceneColumn({
             (a plain block child of a block anchor). In-between:
             position:absolute WITHIN the zero-footprint anchor above — its
             own untransformed ("static") position is (0,0) of the anchor's
-            own content box (see panelAnimateX's own comment for the
+            own content box (see columnAnimateX's own comment for the
             geometry this enables), escaping the anchor's own collapsed box
             entirely so the full-size content paints regardless of the
             anchor's own width. This is what makes viewport/container/
-            sibling-width changes reach the panel via pure CSS reflow of
+            sibling-width changes reach the column via pure CSS reflow of
             the anchor — zero JS re-measurement. */}
         <motion.div
-          data-column-panel
+          data-scene-column
           animate={{
             opacity: depthOpacity,
             // z is NOT here, see zMV's declaration above (z-clearance
             // coupling) and the style prop below.
-            x: panelAnimateX,
+            x: columnAnimateX,
             y: inBetweenY,
             // Always emit a valid filter string — motion cannot interpolate
             // between undefined and a filter string, which caused the
@@ -3336,18 +3319,18 @@ export function SceneColumn({
             // this specifically covers position:relative, which
             // otherwise participates in normal margin collapsing).
             // Without it, the content wrapper's own marginTop (see the
-            // height comment below) collapses through the panel while
-            // position:relative, shifting the PANEL's own top-edge
+            // height comment below) collapses through the column while
+            // position:relative, shifting the COLUMN's own top-edge
             // position down by the margin amount — a real, measured
-            // discontinuity when the panel later flips to
+            // discontinuity when the column later flips to
             // position:absolute (where collapsing no longer applies at
-            // all): the panel's own top edge jumps from a margin-shifted
+            // all): the column's own top edge jumps from a margin-shifted
             // position back to its true (0) one. display:flow-root is the
             // purpose-built way to opt out of collapsing without side
             // effects like clipping.
             display: "flow-root",
             // Explicit height in BOTH position modes, not just when
-            // decked — without this, the panel's own box shape differs
+            // decked — without this, the column's own box shape differs
             // structurally between modes, not just numerically. While
             // position:relative (focused), a shrink-to-fit block's own
             // height normally collapses its first child's marginTop
@@ -3355,20 +3338,20 @@ export function SceneColumn({
             // wrapper's own marginTop — the vertical-centering offset for
             // short focused content, computed unconditionally, not gated
             // on focus, since it's meant to hold its value across a focus
-            // change — pushes the PANEL down instead of growing it). Once
-            // position:absolute (decked), the panel establishes a new
+            // change — pushes the COLUMN down instead of growing it). Once
+            // position:absolute (decked), the column establishes a new
             // block formatting context, margin collapsing no longer
             // applies, and that same marginTop instead balloons the
-            // panel's own shrink-to-fit height (measured: a 300px column
+            // column's own shrink-to-fit height (measured: a 300px column
             // with marginTop:250px shrink-wrapped to 550px, top-shifted by
-            // 250px the instant the panel flips). The old sliver design's
+            // 250px the instant the column flips). The old sliver design's
             // single flex-stretched, clipped node never exposed this — a
             // flex-stretched box's own height comes from the row, not
             // shrink-to-fit, in EITHER mode. height:100% while focused
-            // (matching the anchor's own flex-stretch, since the panel
+            // (matching the anchor's own flex-stretch, since the column
             // isn't itself a flex item and doesn't inherit that stretch
             // automatically) and the frozen height once decked keeps the
-            // panel's own box the same full-column shape in both modes,
+            // column's own box the same full-column shape in both modes,
             // eliminating the discontinuity rather than just resizing it.
             height: !isInBetween ? "100%" : frozenSize ? frozenSize.height : undefined,
             // Instant mode (duration=0): synchronous plain-number write,
@@ -3379,13 +3362,13 @@ export function SceneColumn({
             // internals.
             z: duration === 0 ? depthZ : zMV,
             // Michael's ruling — pixels only mid-spring, live CSS at rest.
-            // Active while the panel's own override is active (see
-            // panelWidthOverrideActive's own comment); released once
-            // settled, letting the panel's own object-level cqw sizing
+            // Active while the column's own override is active (see
+            // columnWidthOverrideActive's own comment); released once
+            // settled, letting the column's own object-level cqw sizing
             // take over so it tracks viewport resize with zero JS from
             // that point on. The release is an explicit "auto" write, not
             // an omitted key — `width` was bound to a live MotionValue
-            // (panelWidthMV) moments earlier, and Motion does not clear a
+            // (columnWidthMV) moments earlier, and Motion does not clear a
             // previously MotionValue-bound style key on its own when that
             // key stops appearing in the style object; the last pixel
             // value it wrote stays stuck in the DOM forever (found and
@@ -3393,7 +3376,7 @@ export function SceneColumn({
             // this exact width-channel family). Writing "auto" explicitly
             // is a real style write Motion still applies, so it actually
             // overwrites the stale pixel rather than silently leaving it.
-            width: panelWidthOverrideActive ? (duration === 0 ? panelWidthTarget : panelWidthMV) : "auto",
+            width: columnWidthOverrideActive ? (duration === 0 ? columnWidthTarget : columnWidthMV) : "auto",
           }}
         >
         {/* Content wrapper: spring-animated top offset for vertical swap.
@@ -3435,17 +3418,17 @@ export function SceneColumn({
             // above (unchanged) — only its own instant-mode style mirror
             // moves with `duration === 0` here, same as before.
             ...(duration === 0 ? { top: combinedTop, marginTop } : { top: composedTop }),
-            // While the panel's own width channel is mid-spring, this
+            // While the column's own width channel is mid-spring, this
             // wrapper stays pinned to a full-size width so `children`
-            // never re-lays-out at a narrow/in-flight width — the panel
+            // never re-lays-out at a narrow/in-flight width — the column
             // never resizes to something narrower than the true content
             // once settled, so this pin is a transition-only guard, not a
             // permanent narrowing (criterion 6, no text distortion).
-            // Gated on panelWidthOverrideActive, NOT isInBetween — this is
+            // Gated on columnWidthOverrideActive, NOT isInBetween — this is
             // load-bearing, not cosmetic: pinning it for the ENTIRE
             // in-between duration (rather than just mid-spring) would
             // permanently stick the wrapper at its frozen/never-focused
-            // width even once the panel's own live-cqw sizing should take
+            // width even once the column's own live-cqw sizing should take
             // over at rest. Prefers frozenSize.width (a column that WAS
             // focused, then lost it); falls back to neverFocusedNaturalWidth
             // for a column that mounts already in-between and has no
@@ -3454,7 +3437,7 @@ export function SceneColumn({
             // it, in lockstep with widthTarget's own inBetweenKnownWidth
             // gate, so this fallback is never consulted before it has a
             // real value to give).
-            ...(panelWidthOverrideActive ? { width: frozenSize?.width ?? neverFocusedNaturalWidth } : {}),
+            ...(columnWidthOverrideActive ? { width: frozenSize?.width ?? neverFocusedNaturalWidth } : {}),
             display: "flex",
             flexDirection: "column",
             gap: objectGap || undefined,
@@ -3479,13 +3462,13 @@ export function SceneColumn({
             // root instead of an ordinary positioned participant in
             // whatever context sits above it. A root's own background
             // paints FIRST, before its negative z-index descendants — so
-            // a sandwiched object's panel (negative z-index, a
+            // a sandwiched object's own inner node (negative z-index, a
             // descendant of this element) now paints ABOVE this
             // element's own box at any point neither covers, restoring
-            // the panel as the real hit-test target for its own
+            // the object as the real hit-test target for its own
             // exclusive peek sliver. Deliberately `isolation: isolate`,
             // not an explicit z-index or a transform — isolation has no
-            // grouping/3D side effects and sits BELOW the column panel's
+            // grouping/3D side effects and sits BELOW the column's
             // own preserve-3d participation (SceneColumn's own anchor,
             // above this element), so column-level 3D/paint-order
             // behavior is untouched by construction.

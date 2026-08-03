@@ -15,6 +15,7 @@ import {
   createMotionSeamRecorder,
   waitForAnimationsToSettle,
   awaitStyleFlush,
+  waitForSceneSettled,
 } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
@@ -999,7 +1000,7 @@ describe("SceneColumn unfocused freeze", () => {
     // node now, not the zero-footprint anchor `articleCol` itself (which
     // carries the un-projected frozen height checked above) — see the
     // panel's own JSX comment for why.
-    const articlePanel = articleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const articlePanel = articleCol.querySelector("[data-scene-column]") as HTMLElement;
     const projectedOnce = 800 * (800 / 900);
     expect(articlePanel.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
   });
@@ -3746,6 +3747,7 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
 
     const target = getByTestId("chat-target").element() as HTMLElement;
     const toggleBtn = getByTestId("toggle-detail").element() as HTMLElement;
+    const scene = getByTestId("scene").element() as HTMLElement;
 
     // The target's TRUE resting position for the CURRENT committed state,
     // captured BEFORE either toggle below fires — see 885c40d's message for
@@ -3771,7 +3773,19 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
     await wait(100); // mid-sweep, deliberately NOT settled
     toggleBtn.click();
 
-    await wait(600);
+    // ui#20 remap: a fixed 600ms wait (the pre-ui#20 value) is no longer
+    // reliably long enough here — the interrupted-then-resettled double
+    // toggle now also has to clear Scene-wide `transitionPending` (ui#20's
+    // scene-wide inertness gate, which the settle counter's own claim/
+    // retire sequence for this exact interrupted-transition shape can take
+    // a little past 600ms to reach zero on), not just visually reach its
+    // resting position. Poll on `data-scene-settled` (bounded) instead of
+    // guessing a duration — the click below is only meaningful once the
+    // scene has genuinely gone quiet.
+    for (let i = 0; i < 40 && scene.getAttribute("data-scene-settled") !== "true"; i++) {
+      await wait(50);
+    }
+    expect(scene.getAttribute("data-scene-settled")).toBe("true");
 
     // A real hit-tested click at fixed screen coordinates.
     const hitEl = document.elementFromPoint(clickX, clickY);
@@ -3887,7 +3901,7 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
  * position:absolute both resolve to it) plus `offsetWidth`/
  * `offsetHeight`. Transform-free BY CONSTRUCTION: stage/camera
  * translation, the depth-deck's `translateZ` perspective projection, and
- * `panelAnimateX`'s own tuck offset are all CSS transforms, invisible to
+ * `columnAnimateX`'s own tuck offset are all CSS transforms, invisible to
  * offset* — while every REAL defect class this suite exists to catch
  * stays visible, because each one is a layout-box change: the 175px
  * refocus bug drove `width` (a layout property, ΔoffsetWidth sees it
@@ -3966,7 +3980,7 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     await wait(500);
 
     const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
-    const panelEl = anchorEl.querySelector("[data-column-panel]") as HTMLElement;
+    const panelEl = anchorEl.querySelector("[data-scene-column]") as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     // Layout-box geometry (Part B's final form) — transform-free by
@@ -4008,7 +4022,7 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     await wait(500);
 
     const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
-    const panelEl = anchorEl.querySelector("[data-column-panel]") as HTMLElement;
+    const panelEl = anchorEl.querySelector("[data-scene-column]") as HTMLElement;
 
     // Deck first (was-focused-before, matching the spike's own validated
     // trace-refocus.log scenario), let it fully settle, THEN test the
@@ -4098,7 +4112,7 @@ describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", (
     // own "resize tracks at 1.4998 against expected 1.5" finding for the
     // FOCUSED side (already proven on the committed code under this exact
     // shape); this test extends that proof to the DECKED side's
-    // panelWidthMV/computeMeasuredWidth channel, which wasn't previously
+    // columnWidthMV/computeMeasuredWidth channel, which wasn't previously
     // verified against a real resize.
     const recorder = createMotionSeamRecorder();
     function Demo({ viewportWidth }: { viewportWidth: number }) {
@@ -4137,29 +4151,29 @@ describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", (
     // own methodology for the focused-side proof.
     const focusedEl = document.querySelector('[data-scene-id="focused-obj"]') as HTMLElement;
 
-    // Decked side: panelWidthMV's own live value via the motion seam, NOT
+    // Decked side: columnWidthMV's own live value via the motion seam, NOT
     // any DOM read. Two dead ends found first (both defeat-check-caught,
     // 2026-07-31): (1) reading the SceneObject node is vacuous — it
     // carries its own independent cqw width regardless of the panel's own
-    // JS-driven state, so a permanently-stuck panelWidthOverrideActive
+    // JS-driven state, so a permanently-stuck columnWidthOverrideActive
     // left it green. (2) reading the PANEL's own gBCR/offsetWidth is ALSO
     // vacuous under duration=0 specifically — the jump branch
-    // (`if (duration === 0 || ...) { ...; setPanelWidthSettled(true); }`)
-    // sets panelWidthSettled back to true SYNCHRONOUSLY within the same
-    // commit that computed the target, so panelWidthOverrideActive
-    // (`inBetweenNow ? !panelWidthSettled : ...`) is already false by the
+    // (`if (duration === 0 || ...) { ...; setColumnWidthSettled(true); }`)
+    // sets columnWidthSettled back to true SYNCHRONOUSLY within the same
+    // commit that computed the target, so columnWidthOverrideActive
+    // (`inBetweenNow ? !columnWidthSettled : ...`) is already false by the
     // time any test observes it — the style binding renders "auto" before
-    // a test can ever catch panelWidthTarget applied, so severing
+    // a test can ever catch columnWidthTarget applied, so severing
     // computeMeasuredWidth to a fixed stale value left even the panel
-    // read green too. panelWidthMV itself persists its last-jumped value
+    // read green too. columnWidthMV itself persists its last-jumped value
     // regardless of whether the style override is currently applied,
     // so reading it directly exercises computeMeasuredWidth/geometryStore's
     // own resize-driven recomputation without depending on that window.
-    const panelWidthMV = recorder.values.get("panelWidth:decked-col");
-    if (!panelWidthMV) {
-      throw new Error("panelWidth:decked-col was never registered — setup bug, not a timing race");
+    const columnWidthMV = recorder.values.get("columnWidth:decked-col");
+    if (!columnWidthMV) {
+      throw new Error("columnWidth:decked-col was never registered — setup bug, not a timing race");
     }
-    const deckedBeforeTarget = panelWidthMV.get();
+    const deckedBeforeTarget = columnWidthMV.get();
 
     const focusedBefore = focusedEl.offsetWidth;
 
@@ -4168,11 +4182,11 @@ describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", (
     await waitForAnimationFrame();
 
     const focusedAfter = focusedEl.offsetWidth;
-    const deckedAfterTarget = panelWidthMV.get();
+    const deckedAfterTarget = columnWidthMV.get();
 
     // 1500/1000 = 1.5x viewport resize — both columns' cqw-driven widths
     // should track it closely at rest (no JS width override active once
-    // widthSettled/panelWidthSettled are true, which duration=0 makes
+    // widthSettled/columnWidthSettled are true, which duration=0 makes
     // immediate — natural CSS container-query sizing is what's actually
     // rendering for the FOCUSED side; the decked side's channel value is
     // read directly, per the dead-ends above).
@@ -4482,35 +4496,21 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const middlePanel = document.querySelector('[data-column="middle"] [data-column-panel]') as HTMLElement;
-    const rightPanel = document.querySelector('[data-column="right"] [data-column-panel]') as HTMLElement;
+    const middlePanel = document.querySelector('[data-column="middle"] [data-scene-column]') as HTMLElement;
+    const rightPanel = document.querySelector('[data-column="right"] [data-scene-column]') as HTMLElement;
 
     const zBefore = zMV.get();
     recorder.controls.clear();
     (getByTestId("toggle").element() as HTMLElement).click();
     await pollForColumnZRetarget(recorder, zMV, zBefore);
 
-    // Settle-anchored: poll until zMV is stable across 2 consecutive
-    // frames, then measure LIVE (not a frozen pre-click snapshot).
-    let prev = zMV.get();
-    let stableFrames = 0;
-    const settleStart = performance.now();
-    let settled = false;
-    while (performance.now() - settleStart < 2000) {
-      await waitForAnimationFrame();
-      const current = zMV.get();
-      if (Math.abs(current - prev) < 0.5) {
-        stableFrames++;
-        if (stableFrames >= 2) {
-          settled = true;
-          break;
-        }
-      } else {
-        stableFrames = 0;
-      }
-      prev = current;
-    }
-    if (!settled) throw new Error("z:middle never settled (stable across 2 consecutive frames) within 2000ms — setup bug, not a timing race");
+    // ui#20 criterion 6 migration: `z:middle` is one of the owned
+    // MotionValue channels routed through useOwnedAnimation() (confirmed at
+    // source — SceneColumn's zOwnedAnimation.animateTo call), so
+    // data-scene-settled becoming true is a direct, correct signal that
+    // zMV itself has reached its final value — measured LIVE afterward
+    // (not a frozen pre-click snapshot).
+    await waitForSceneSettled(getByTestId("scene").element() as HTMLElement, { timeoutMs: 2000 });
 
     const mRect = middlePanel.getBoundingClientRect();
     const rRect = rightPanel.getBoundingClientRect();
@@ -4569,8 +4569,8 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const middlePanel = document.querySelector('[data-column="middle"] [data-column-panel]') as HTMLElement;
-    const rightPanel = document.querySelector('[data-column="right"] [data-column-panel]') as HTMLElement;
+    const middlePanel = document.querySelector('[data-column="middle"] [data-scene-column]') as HTMLElement;
+    const rightPanel = document.querySelector('[data-column="right"] [data-scene-column]') as HTMLElement;
 
     const zBefore = zMV.get();
     recorder.controls.clear();
@@ -4661,7 +4661,7 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+    const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
     const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
     // "mid-b" (DOM order: left, mid-b, mid-a, right) is anchored to
@@ -4673,7 +4673,7 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
     toggleBtn.click(); // mid-a starts unfocusing -> mid-b's stackDepth changes too
     await wait(150); // deliberately mid-spring, same timing the original layout-FLIP defect needed
 
-    const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+    const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
     const midBAnchorEl = midBPanel.closest("[data-column]") as HTMLElement;
     const initialMidBDepth = midBAnchorEl.getAttribute("data-stack-depth");
 
@@ -4810,8 +4810,8 @@ async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]
   const { getByTestId } = await render(<Demo />);
   await wait(500);
 
-  const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
-  const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-column-panel]") as HTMLElement;
+  const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
+  const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
   const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
   const sampleGbcr = (el: HTMLElement): GBCRBox => {
@@ -8850,7 +8850,7 @@ describe("Scene depth deck stacking", () => {
     // the panel instead for a decked column's own geometry (rightCol
     // stays focused/position:relative pass-through, unaffected either
     // way).
-    const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
     const middleRect = middlePanel.getBoundingClientRect();
     const rightRect = rightCol.getBoundingClientRect();
 
@@ -9128,8 +9128,8 @@ describe("Scene depth deck stacking", () => {
     // Depth-2 (middle1) should appear smaller than depth-1 (middle2). ui#17
     // anchor/panel split: the perspective projection that shrinks apparent
     // width lives on the panel node's own z-transform, not the anchor.
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     const rect1 = panel1.getBoundingClientRect();
     const rect2 = panel2.getBoundingClientRect();
     expect(rect1.width).toBeLessThan(rect2.width);
@@ -9175,8 +9175,8 @@ describe("Scene depth deck stacking", () => {
     // col-middle1 (further from right) → depth-2, lower opacity
     // ui#17 anchor/panel split: opacity is an `animate`-driven depth-deck
     // visual now applied on the panel node, not the anchor.
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     const opacity1 = parseFloat(window.getComputedStyle(panel1).opacity);
     const opacity2 = parseFloat(window.getComputedStyle(panel2).opacity);
 
@@ -9222,7 +9222,7 @@ describe("Scene depth deck stacking", () => {
     // transform, unlike the sibling "appears smaller than natural size"
     // test above (which explicitly doesn't care which node contributes
     // the shrink), so it reads the panel.
-    const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
     // ui#17 Slice 3 fold-in: getComputedStyle().transform always resolves
     // to a matrix/matrix3d string (verified directly — never contains the
     // literal substring "translateZ", regardless of what functions
@@ -9271,7 +9271,7 @@ describe("Scene depth deck stacking", () => {
     const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
     // ui#17 anchor/panel split: the depth-deck greyscale filter is an
     // `animate`-driven property on the panel node now, not the anchor.
-    const middlePanel = middleCol.querySelector("[data-column-panel]") as HTMLElement;
+    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
     const filter = window.getComputedStyle(middlePanel).filter;
 
     // depth-1 → grayscale(0.25)
@@ -9315,8 +9315,8 @@ describe("Scene depth deck stacking", () => {
     const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
 
     // ui#17 anchor/panel split: greyscale is a panel-node property now.
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     const filter1 = window.getComputedStyle(panel1).filter;
     const filter2 = window.getComputedStyle(panel2).filter;
 
@@ -9357,7 +9357,7 @@ describe("Scene depth deck stacking", () => {
     // again with the default peekOffset — cleanup() between renders keeps the
     // two mounts from colliding on shared data-testids within this one test.
     const flush = await render(scene(0));
-    // ui#17 anchor/panel split: the fan (panelAnimateX) and the perspective
+    // ui#17 anchor/panel split: the fan (columnAnimateX) and the perspective
     // foreshortening (z) are both `animate`-driven properties on the panel
     // node now, not the zero-footprint anchor — so this reads the REAL
     // rendered gap between the PANELS (gBCR) rather than the anchor, same
@@ -9368,12 +9368,12 @@ describe("Scene depth deck stacking", () => {
       .getByTestId("content-right")
       .element()
       .closest("[data-column]")!
-      .querySelector("[data-column-panel]") as HTMLElement;
+      .querySelector("[data-scene-column]") as HTMLElement;
     const flushMiddlePanel = flush
       .getByTestId("content-middle")
       .element()
       .closest("[data-column]")!
-      .querySelector("[data-column-panel]") as HTMLElement;
+      .querySelector("[data-scene-column]") as HTMLElement;
     await waitForAnimationFrame();
     await waitForAnimationFrame();
     const flushGap = flushRightPanel.getBoundingClientRect().left - flushMiddlePanel.getBoundingClientRect().left;
@@ -9384,18 +9384,18 @@ describe("Scene depth deck stacking", () => {
       .getByTestId("content-right")
       .element()
       .closest("[data-column]")!
-      .querySelector("[data-column-panel]") as HTMLElement;
+      .querySelector("[data-scene-column]") as HTMLElement;
     const middlePanel = peeked
       .getByTestId("content-middle")
       .element()
       .closest("[data-column]")!
-      .querySelector("[data-column-panel]") as HTMLElement;
+      .querySelector("[data-scene-column]") as HTMLElement;
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
     // At peekOffset=0 the deck column renders flush against the focused
     // column (no visible gap) — a genuine theoretical claim about the
-    // design (zero net offset when panelAnimateX is itself 0), not a
+    // design (zero net offset when columnAnimateX is itself 0), not a
     // measured-then-hand-waved number, so it stays a flat-tolerance check.
     expect(flushGap).toBeCloseTo(0, -1);
 
@@ -9455,8 +9455,8 @@ describe("Scene depth deck stacking", () => {
     // ui#17 anchor/panel split: gBCR of the PANEL node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment for why.
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     const depth1Rect = panel2.getBoundingClientRect();
     const depth2Rect = panel1.getBoundingClientRect();
 
@@ -9511,13 +9511,13 @@ describe("Scene depth deck stacking", () => {
     // ui#17 anchor/panel split: gBCR of the PANEL node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment.
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     const depth1Rect = panel2.getBoundingClientRect();
     const depth2Rect = panel1.getBoundingClientRect();
 
     // With peekOffset=20, the NOMINAL x-transform is -20 at depth-1 and
-    // -40 at depth-2 (panelAnimateX = -peekOffset * stackDepth) — but that
+    // -40 at depth-2 (columnAnimateX = -peekOffset * stackDepth) — but that
     // transform composes with the SAME perspective/translateZ transform
     // that also shrinks each panel's rendered width (preserve-3d now
     // correctly propagates both together — see the anchor's own
@@ -9573,15 +9573,15 @@ describe("Scene depth deck stacking", () => {
     // With no peek offset, every in-between column renders flush at the
     // same left edge regardless of depth — the pre-A5 behavior, where only
     // perspective projection (not a manual x offset) distinguished depths.
-    // ui#17 selector audit: reads the PANEL (panelAnimateX = 0 at
+    // ui#17 selector audit: reads the PANEL (columnAnimateX = 0 at
     // peekOffset=0, so the panel's own static (0,0)-within-anchor position
     // means this should read identically to the anchor here, but the panel
     // is the node whose position actually matters for what's visible — see
     // the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment for why this suite reads panels, not anchors, for decked
     // geometry).
-    const panel1 = middle1.querySelector("[data-column-panel]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-column-panel]") as HTMLElement;
+    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
+    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
     expect(panel1.getBoundingClientRect().left).toBeCloseTo(panel2.getBoundingClientRect().left, -1);
   });
 
@@ -10733,8 +10733,20 @@ describe("SceneObject keyboard focus management", () => {
 
       const btn = getByTestId("btn-in-panel").element() as HTMLElement;
       expect(document.activeElement).toBe(btn);
-      expect(focusSpy).toHaveBeenCalledTimes(1);
-      expect(focusSpy).toHaveBeenCalledWith(expect.objectContaining({ preventScroll: true }));
+      // ui#20 remap: two-phase focus (F2) now calls .focus() TWICE on a
+      // focus-gain — phase 1 lands on the anchor immediately (mid-
+      // transition-safe, since the anchor sits outside the inert content
+      // wrapper), phase 2 moves focus to the first focusable descendant
+      // once the transition settles. At duration=0 both phases run in the
+      // same effect pass (the settle counter never rises), so the FINAL
+      // resting state (asserted above) is unchanged, but the call count
+      // is not — every call still passes preventScroll: true.
+      expect(focusSpy).toHaveBeenCalledTimes(2);
+      for (const call of focusSpy.mock.calls) {
+        expect(call[0]).toEqual(expect.objectContaining({ preventScroll: true }));
+      }
+      expect(focusSpy).toHaveBeenLastCalledWith(expect.objectContaining({ preventScroll: true }));
+      expect(focusSpy.mock.instances[focusSpy.mock.instances.length - 1]).toBe(btn);
     } finally {
       focusSpy.mockRestore();
     }
@@ -11403,7 +11415,7 @@ describe("SceneColumn within-column depth deck", () => {
     // ui#21 anchor/panel split: the depth-card visual treatment (opacity,
     // visibility) lives on the PANEL now, not the zero-footprint anchor —
     // the anchor only carries the `data-within-column-depth` marker.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
 
     // B is between two focused objects — it should have depth treatment (data attribute)
     expect(anchorB.getAttribute("data-within-column-depth")).toBe("1");
@@ -11446,8 +11458,8 @@ describe("SceneColumn within-column depth deck", () => {
     const anchorC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
     // ui#21 anchor/panel split: opacity lives on the PANEL now, not the
     // zero-footprint anchor (see the sibling test above for the same fix).
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
-    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement;
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement;
 
     // C is depth-1 (adjacent to lower focused D), B is depth-2
     expect(anchorC.getAttribute("data-within-column-depth")).toBe("1");
@@ -11522,7 +11534,7 @@ describe("SceneColumn within-column depth deck", () => {
     // file already wait a frame for.
     await waitForAnimationFrame();
 
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement;
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
 
     // B's panel escapes its zero-footprint anchor via position:absolute.
     expect(window.getComputedStyle(panelB).position).toBe("absolute");
@@ -11572,8 +11584,8 @@ describe("SceneColumn within-column depth deck", () => {
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, matching this file's established idiom, not the
     // retired inline `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // C (depth-1) peeks up by 12px, B (depth-2) by 24px (default peekOffset).
     expect(parseTranslateY(panelC.style.transform)).toBeCloseTo(-12, 0);
@@ -11610,8 +11622,8 @@ describe("SceneColumn within-column depth deck", () => {
     // ui#21 anchor/panel split: peek offset lives in the panel's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, not the retired `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // With peekOffset=20, C (depth-1) peeks up by 20px and B (depth-2) by
     // 2*20=40px.
@@ -11643,8 +11655,8 @@ describe("SceneColumn within-column depth deck", () => {
 
     // ui#21 anchor/panel split: peek offset lives in the panel's own
     // y-transform now — read rendered geometry, not the retired `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-panel]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-panel]") as HTMLElement; // depth-1
+    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // With no peek offset, both depths anchor flush at their shared local
     // origin (200) — the pre-A5 behavior, where only zIndex (not a manual
@@ -13446,7 +13458,7 @@ describe("Within-column deck (ui#21): instant flow snap / teleport repro, N=10 (
 });
 
 describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
-  // Targets the PANEL (data-scene-panel) — the node that flips position
+  // Targets the PANEL (data-scene-object) — the node that flips position
   // mode post-split (the anchor never flips again — permanent
   // zero-footprint in flow). Originally targeted the object's own single
   // node pre-split (that WAS what flipped position mode before the anchor/
@@ -13477,7 +13489,7 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     await wait(600);
 
     const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middlePanelEl = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const middlePanelEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
@@ -13512,7 +13524,7 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     await wait(600);
 
     const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middlePanelEl = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const middlePanelEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
@@ -13636,8 +13648,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middlePanel = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
-    const bottomPanel = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+    const middlePanel = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const bottomPanel = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const zIndexBefore = zIndexOf(middlePanel);
     (getByTestId("toggle").element() as HTMLElement).click();
@@ -13732,8 +13744,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middlePanel = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
-    const bottomPanel = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+    const middlePanel = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const bottomPanel = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const zIndexBefore = zIndexOf(middlePanel);
     if (!isReceded(zIndexBefore)) {
@@ -13840,11 +13852,11 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<MultiDemo />);
     await wait(600);
 
-    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
-    const panelA = container.querySelector('[data-scene-panel="obj-a"]') as HTMLElement;
-    const panelB = container.querySelector('[data-scene-panel="obj-b"]') as HTMLElement;
-    const panelC = container.querySelector('[data-scene-panel="obj-c"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const panelA = container.querySelector('[data-scene-object="obj-a"]') as HTMLElement;
+    const panelB = container.querySelector('[data-scene-object="obj-b"]') as HTMLElement;
+    const panelC = container.querySelector('[data-scene-object="obj-c"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const depthA = container.querySelector('[data-scene-id="obj-a"]')?.getAttribute("data-within-column-depth");
     const depthB = container.querySelector('[data-scene-id="obj-b"]')?.getAttribute("data-within-column-depth");
@@ -13911,9 +13923,9 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const panelMiddle = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
-    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+    const panelMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const sliverY = findCleanSampleY(panelMiddle, panelMiddle, [panelTop, panelBottom]);
     expect(sliverY, "no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed").not.toBeUndefined();
@@ -13924,8 +13936,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
 
     // Regression guard: raw index-0 IS the panel itself, post-fix.
     expect(
-      rawTopmost?.getAttribute("data-scene-panel"),
-      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-panel=${rawTopmost?.getAttribute("data-scene-panel")}", expected the panel itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
+      rawTopmost?.getAttribute("data-scene-object"),
+      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-object=${rawTopmost?.getAttribute("data-scene-object")}", expected the panel itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
     ).toBe("stack-middle");
 
     // ownerAt's search-past-wrappers approach still works too (belt and
@@ -13992,10 +14004,10 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const panelMiddle = container.querySelector('[data-scene-panel="stack-middle"]') as HTMLElement;
+    const panelMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
     const anchorMiddle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const panelTop = container.querySelector('[data-scene-panel="stack-top"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-panel="stack-bottom"]') as HTMLElement;
+    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const mRect = panelMiddle.getBoundingClientRect();
     const tRect = panelTop.getBoundingClientRect();
@@ -14023,7 +14035,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     let landedOn = "none";
     const listener = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
-      landedOn = t ? `${t.tagName} data-scene-panel=${t.getAttribute("data-scene-panel")} data-column-content=${t.getAttribute("data-column-content")}` : "null";
+      landedOn = t ? `${t.tagName} data-scene-object=${t.getAttribute("data-scene-object")} data-column-content=${t.getAttribute("data-column-content")}` : "null";
     };
     document.addEventListener("click", listener, true);
 
@@ -14257,7 +14269,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     await wait(500);
 
     const midBAnchorEl = container.querySelector('[data-scene-id="mid-b"]') as HTMLElement;
-    const midBPanelEl = container.querySelector('[data-scene-panel="mid-b"]') as HTMLElement;
+    const midBPanelEl = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
     const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
     // "mid-b" (DOM order: top, mid-b, mid-a, bottom) is anchored to
@@ -14270,7 +14282,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     await wait(150); // deliberately mid-spring, matching ui#17's own E1 timing
 
     const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
-    const midAPanelEl = container.querySelector('[data-scene-panel="mid-a"]') as HTMLElement;
+    const midAPanelEl = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
     const initialMidBDepth = midBAnchorEl.getAttribute("data-within-column-depth");
 
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
@@ -14426,7 +14438,7 @@ async function measureDeckSettleDurationMs(initialMidAFocused: boolean): Promise
   await wait(500);
 
   const panels = ["top", "mid-b", "mid-a", "bottom"].map(
-    (name) => container.querySelector(`[data-scene-panel="${name}"]`) as HTMLElement,
+    (name) => container.querySelector(`[data-scene-object="${name}"]`) as HTMLElement,
   );
   (getByTestId("toggle").element() as HTMLElement).click();
   const durationMs = await measureSettleDurationMs(panels);
@@ -14464,10 +14476,10 @@ async function runFullInterruptionTrial(
   const { getByTestId, container } = await render(<Demo />);
   await wait(500);
 
-  const topPanel = container.querySelector('[data-scene-panel="top"]') as HTMLElement;
-  const midBPanel = container.querySelector('[data-scene-panel="mid-b"]') as HTMLElement;
-  const midAPanel = container.querySelector('[data-scene-panel="mid-a"]') as HTMLElement;
-  const bottomPanel = container.querySelector('[data-scene-panel="bottom"]') as HTMLElement;
+  const topPanel = container.querySelector('[data-scene-object="top"]') as HTMLElement;
+  const midBPanel = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
+  const midAPanel = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
+  const bottomPanel = container.querySelector('[data-scene-object="bottom"]') as HTMLElement;
   const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
   const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
@@ -14654,7 +14666,7 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 
@@ -14695,7 +14707,7 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     expect(anchorEl).not.toBe(document.activeElement);
     expect(window.getComputedStyle(panelEl).outlineStyle).toBe("none");
   });
@@ -14733,7 +14745,7 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await wait(600);
 
     const anchorEl = container.querySelector('[data-scene-id="middle"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-panel="middle"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-object="middle"]') as HTMLElement;
 
     anchorEl.focus();
     await waitForAnimationFrame();
@@ -14791,7 +14803,7 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-panel="only"]') as HTMLElement;
+    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 

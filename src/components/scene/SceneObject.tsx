@@ -6,6 +6,8 @@ import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { TransitionPendingContext } from "./TransitionPendingContext";
+import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
 import { cn } from "../../utils/cn";
 
 export interface SceneObjectProps {
@@ -24,7 +26,7 @@ export interface SceneObjectProps {
    * Inline styles applied to the outer wrapper div. Useful for setting
    * explicit dimensions (width, height, minWidth) on the object. Stays on
    * the ANCHOR (ui#21 — mirrors ui#17's own placement for width) — see
-   * inColumnStyle's own comment for why moving it to the nested panel
+   * inColumnStyle's own comment for why moving it to the nested object
    * traces two real failure modes instead.
    */
   style?: React.CSSProperties;
@@ -50,28 +52,30 @@ export interface SceneObjectProps {
 }
 
 /**
+ * The SceneObject component is composed of the anchor, the object itself,
+ * and its contents.
+ *
  * An individual focusable item within a SceneColumn. When unfocused, the inner
  * content wrapper receives the `inert` attribute, disabling all descendant
  * interaction. The outer wrapper stays interactive for click-to-focus (Phase 8).
  *
- * ui#21 anchor/panel split (the vertical, per-object port of ui#17's
- * anchor/panel pattern — see plans/ui#21 Within-Column Deck Rework Plan
+ * ui#21 anchor/object split (the vertical, per-object port of ui#17's
+ * anchor/object pattern — see plans/ui#21 Within-Column Deck Rework Plan
  * (2026-07-31) for the full design): this component's own outer node is a
  * permanent in-flow ANCHOR whose HEIGHT footprint springs natural-height <->
  * 0 (never flips position mode — no flip-back, mirrors ui#17's column
- * anchor exactly). A nested PANEL (`data-scene-panel`) carries the actual
+ * anchor exactly). A nested OBJECT (`data-scene-object`) carries the actual
  * depth visual treatment (opacity/filter/z) and the peek-offset TRANSFORM
- * (`y`) — the panel is what flips position:relative <-> position:absolute,
+ * (`y`) — the object is what flips position:relative <-> position:absolute,
  * with its own `top` held structurally constant (0) across that flip
  * (forecast E4 — the peek offset must live in a transform, never a layout
  * property, for the flip to be zero-pixel).
  *
  * Within a column, focused objects are in flow contributing their natural
  * height; an object sandwiched between two focused siblings contributes
- * ZERO height to flow (permanently, once settled) and is shown via its
- * panel's own depth-card visual treatment instead of being hidden. The
- * column's content wrapper slides vertically to bring the focused object
- * into view.
+ * ZERO height to flow (permanently, once settled) and is shown via its own
+ * depth-card visual treatment instead of being hidden. The column's
+ * content wrapper slides vertically to bring the focused object into view.
  *
  * @example
  * <SceneObject name="article" focused={currentView === "article"}>
@@ -90,14 +94,37 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const transition = computeSceneTransition({ duration, slowMo, stiffness, damping });
   const objectGap = column?.objectGap ?? 0;
 
+  // ui#20: true while a Scene-wide focus transition (mount entrance, or any
+  // focus-arrangement change) hasn't yet settled — see
+  // TransitionPendingContext's own doc comment for the full mechanism,
+  // including the deliberate ambient-overlap tradeoff. Defaults to `false`
+  // outside a Scene (standalone SceneObject usage), matching this
+  // component's existing null-outside-Scene contract for every other
+  // Scene-provided context.
+  const transitionPending = useContext(TransitionPendingContext);
+  // Ref mirror of the above, ALWAYS synchronously current regardless of
+  // which render generation a given effect invocation corresponds to —
+  // read by the two-phase focus effect below instead of the reactive
+  // `transitionPending` boolean, for the one real race that boolean is
+  // exposed to (see TransitionPendingRefContext's own doc comment for the
+  // probe-confirmed trace).
+  const transitionPendingRef = useContext(TransitionPendingRefContext);
+
   // D3: an unfocused object with an onActivate handler doubles as a
   // keyboard-reachable activation control (Enter/Space), not just a mouse
   // click target — gated on onActivate presence so a plain non-activatable
-  // unfocused object never becomes an unexpected tab stop.
-  const activatable = !focused && Boolean(onActivate);
+  // unfocused object never becomes an unexpected tab stop. ui#20 adds
+  // `!transitionPending`: Michael's ruled three-state contract (in-
+  // transition = fully inert; settled-unfocused = click-to-focus via
+  // onActivate; settled-focused = fully interactive) means activation
+  // itself — not just the content wrapper below — must gate on settle.
+  // This single flag drives tabIndex/role/onKeyDown AND (ui#20 F1) the
+  // JSX onClick prop below, covering both pointer and keyboard activation
+  // from one gate.
+  const activatable = !focused && Boolean(onActivate) && !transitionPending;
 
   // Within-column depth deck: this object is sandwiched between two focused
-  // siblings. Instead of hiding it, its panel shows depth-card visual
+  // siblings. Instead of hiding it, its object shows depth-card visual
   // treatment stacked behind the lower focused sibling.
   const withinDepthInfo = column?.withinColumnDepths.get(name);
   const withinDepth = withinDepthInfo ? computeDepthTreatment(withinDepthInfo.depth) : undefined;
@@ -188,7 +215,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       // contentRef (the innermost, unstyled children wrapper), NOT
       // outerRef (the anchor) — the anchor's own offsetHeight is
       // STRUCTURALLY always 0 here regardless of any override: its only
-      // child (the panel) is position:absolute the instant sandwichedNow
+      // child (the object) is position:absolute the instant sandwichedNow
       // is true, contributing nothing to the anchor's own auto-height
       // flow calculation. Measured this the hard way first (a scratch
       // instrumentation trace showed anchorOffsetHeight: 0 even at a
@@ -354,7 +381,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   });
 
   // ---------------------------------------------------------------------
-  // Depth visual treatment (opacity, filter) — moves to the PANEL below
+  // Depth visual treatment (opacity, filter) — moves to the OBJECT below
   // (forecast E3+E4 tie-together), declarative (WAAPI-friendly). Gated on
   // `column` (standalone usage outside a Scene gets no depth treatment at
   // all, matching the pre-split behavior of `objectDepthAnimate` being
@@ -372,7 +399,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // ---------------------------------------------------------------------
   // z-index channel (replaces the object-level translateZ/zMV channel a
   // prior iteration of this file used). Object-level 3D depth-sort never
-  // actually reached the panel — a multi-round defeat-check investigation
+  // actually reached the object — a multi-round defeat-check investigation
   // (ui#o32, the D-series record) found three flat transform-style
   // intermediates between here and the nearest preserve-3d ancestor, and
   // even an isolated probe that forced the chain past that didn't restore
@@ -458,9 +485,9 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         "auto";
 
   // Peek offset (forecast E4 — required fix, not a toss-up): lives ENTIRELY
-  // in the panel's own `y` TRANSFORM, never in a layout property (`top`/
+  // in the object's own `y` TRANSFORM, never in a layout property (`top`/
   // `left`) — a layout property Motion can't reliably zero-pixel-flip the
-  // way it can a transform, mirroring ui#17's own panelAnimateX/inBetweenY
+  // way it can a transform, mirroring ui#17's own objectAnimateX/inBetweenY
   // precedent exactly. Only the DEPTH matters here, not a cross-object
   // measured anchor position: once every sandwiched object gets its own
   // zero-footprint in-flow anchor, its own local origin already converges
@@ -506,42 +533,64 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     return column.register(name, outerRef.current, focused, heightOverrideActive ? heightTarget : undefined);
   });
 
-  // When this object transitions from unfocused to focused, move keyboard
-  // focus to the first focusable element inside it so keyboard users land
-  // directly in the new content without needing to tab manually.
+  // ui#20 F2 two-phase focus: on focus-gain, keyboard focus lands on the
+  // ANCHOR immediately (phase 1) — safe even mid-transition, since the
+  // anchor (outerRef) sits OUTSIDE the inert content wrapper (unlike the
+  // pre-ui#20 single-phase version, which searched for a focusable
+  // descendant right away; that descendant is INSIDE the content wrapper,
+  // which is inert for the whole in-transition window now — searching it
+  // immediately would either find nothing or focus an element `inert`
+  // still lets browsers technically target). Once the scene-wide focus
+  // transition settles (transitionPending clears) for THIS SAME focus-gain
+  // episode, phase 2 moves focus to the first focusable descendant. Michael's
+  // ruled contract requires in-transition = fully inert, focus input
+  // included — this is the mechanism that honors it without stranding
+  // keyboard focus off-screen mid-transition.
   //
-  // We use useEffect (not useLayoutEffect) so the DOM has been painted and the
-  // inner wrapper's `inert` attribute has been removed before we try to focus.
-  // The dependency on `focused` ensures this only fires when focus state changes,
-  // not on every render.
+  // We use useEffect (not useLayoutEffect) so the DOM has been painted
+  // before we try to focus. Re-keyed on [focused, transitionPending] with
+  // edge detection (descendantFocusDoneRef) so phase 2 fires exactly once
+  // per focus-gain — including the duration=0/already-settled case, where
+  // phase 1 and phase 2 both run in this SAME effect invocation (pending
+  // has already cleared by the time this passive effect observes it).
   const prevFocusedRef = useRef(focused);
+  const descendantFocusDoneRef = useRef(false);
   useEffect(() => {
     const justBecameFocused = focused && !prevFocusedRef.current;
     prevFocusedRef.current = focused;
 
-    if (!justBecameFocused || !outerRef.current) return;
+    if (!focused) {
+      descendantFocusDoneRef.current = false;
+      return;
+    }
 
+    if (justBecameFocused) {
+      descendantFocusDoneRef.current = false;
+      // D5: preventScroll avoids the browser auto-scrolling an ancestor to
+      // reveal the newly focused element — the camera owns horizontal
+      // positioning itself (see Scene.tsx's DELTA-2 fix for the scrollLeft
+      // corruption a native scroll-into-view causes when it isn't
+      // prevented).
+      outerRef.current?.focus({ preventScroll: true });
+    }
+
+    // transitionPendingRef.current, NOT the reactive `transitionPending`
+    // boolean — see its own declaration comment for why.
+    if (transitionPendingRef.current || descendantFocusDoneRef.current || !outerRef.current) return;
+    descendantFocusDoneRef.current = true;
     const focusable = outerRef.current.querySelector<HTMLElement>(
       "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
     );
-    // D5: preventScroll avoids the browser auto-scrolling an ancestor to
-    // reveal the newly focused element — the camera owns horizontal
-    // positioning itself (see Scene.tsx's DELTA-2 fix for the scrollLeft
-    // corruption a native scroll-into-view causes when it isn't prevented).
-    // Fallback: with no focusable descendant, focus the outer wrapper
-    // itself — its permanent tabIndex={-1} baseline (below) makes it
-    // programmatically focusable without adding a stray tab stop, and is
-    // self-contained (no cross-component dependency on D2's conditional
-    // content-wrapper tabindex).
-    if (focusable) {
-      focusable.focus({ preventScroll: true });
-    } else {
-      outerRef.current.focus({ preventScroll: true });
-    }
-  }, [focused]);
+    // Fallback: with no focusable descendant, focus simply STAYS on the
+    // anchor from phase 1 above — its permanent tabIndex={-1} baseline
+    // (below) already makes that a valid, self-contained rest state (no
+    // second `outerRef.current.focus()` call needed here, unlike the
+    // pre-ui#20 single-phase version).
+    focusable?.focus({ preventScroll: true });
+  }, [focused, transitionPending]);
 
   // The anchor is ALWAYS in flow (position:relative) — no more flip to
-  // position:absolute here (ui#21: that flip moves to the panel below).
+  // position:absolute here (ui#21: that flip moves to the object below).
   // Standalone usage (no column) gets the same single relative style it
   // always did.
   const inColumnStyle: React.CSSProperties | undefined = column ? { position: "relative" } : undefined;
@@ -569,18 +618,18 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         : {})}
       className={cn(
         // Author-drawn :focus-visible ring (ui#21 delta claim review,
-        // panel-placement ruling — Michael: "on the card makes sense").
+        // object-placement ruling — Michael: "on the card makes sense").
         // FOCUS SEMANTICS live here (this is the tabIndex/actual DOM focus
-        // target) — the ring itself now PAINTS on the panel below, via
+        // target) — the ring itself now PAINTS on the object below, via
         // Tailwind's `group`/`group-focus-visible:` pattern (this element
-        // is the group; see the panel's own className for the paint side).
+        // is the group; see the object's own className for the paint side).
         // Originally drawn on the anchor itself (replacing the browser's
-        // native outline:auto, which the anchor/panel split broke —
+        // native outline:auto, which the anchor/object split broke —
         // Michael's occlusion read, confirmed by direct measurement: the
         // native "auto" ring straddles the border edge rather than
         // drawing purely outside it, so any opaque descendant painting
         // inside the anchor's own border-box occludes roughly half of
-        // it). Moving the PAINT to the panel fixes a second, related
+        // it). Moving the PAINT to the object fixes a second, related
         // problem the anchor-placed ring never solved: a SANDWICHED
         // object's anchor is a zero-footprint, invisible wrapper — a ring
         // drawn there was never visible on the actual (tucked) card a
@@ -588,7 +637,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         // element is the real DOM focus target, so it's the one that
         // would otherwise show the browser's native outline:auto; `group`
         // has no visual effect of its own, it only makes this element a
-        // valid `group-*:` target for the panel below.
+        // valid `group-*:` target for the object below.
         "outline-none group",
         className,
       )}
@@ -604,9 +653,15 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         marginBottom: duration === 0 ? marginBottomTarget : marginBottomMV,
         ...style,
       }}
-      onClick={!focused ? onActivate : undefined}
+      // ui#20 F1: routes through `activatable` (not the bare `!focused`
+      // this used before) — a SECOND gating site alongside tabIndex/role/
+      // onKeyDown above, since this prop sits outside the `activatable`
+      // spread. Without this, a real dispatched pointer click during a
+      // focus transition could still fire onActivate even though keyboard
+      // activation was already correctly gated.
+      onClick={activatable ? onActivate : undefined}
     >
-      {/* The glass PANEL (ui#21). ALWAYS rendered (never conditionally
+      {/* The glass OBJECT (ui#21). ALWAYS rendered (never conditionally
           mounted/unmounted — conditionally wrapping children in an extra
           node would change the tree shape React reconciles against,
           remounting everything inside on every focus change) so its own
@@ -616,12 +671,12 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           above — its own untransformed ("static") position is (0,0) of the
           anchor's own content box, escaping the anchor's own collapsed box
           entirely so the full-size content paints regardless of the
-          anchor's own height (mirrors SceneColumn's own data-column-panel
+          anchor's own height (mirrors SceneColumn's own data-scene-column
           exactly). Paint order at the depth-deck flip commit is driven by
           an explicit z-index channel (see its own declaration above), not
           3D-transform depth-sort — a multi-round defeat-check
           investigation (ui#o32, the D-series record) found object-level
-          translateZ never actually reached the panel (three flat
+          translateZ never actually reached the object (three flat
           transform-style intermediates between here and the nearest
           preserve-3d ancestor), and even an isolated probe that forced
           the chain past that didn't restore genuine cross-sibling z-sort.
@@ -629,15 +684,15 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           2D stacking rules, no preserve-3d chain needed anywhere in this
           component. */}
       <motion.div
-        data-scene-panel={name}
+        data-scene-object={name}
         className={cn(
           // Ring PAINT (the anchor above is the `group` — its own
           // className has the full design history). outline-offset-0 (see
           // below) — a non-"auto" style is spec-guaranteed to render
           // outward-only, so it still draws entirely outside THIS
-          // element's (the panel's) own border edge, the same
+          // element's (the object's) own border edge, the same
           // descendant-occlusion immunity the original design required,
-          // now measured against the panel's own box instead of the
+          // now measured against the object's own box instead of the
           // anchor's.
           //
           // CUSTOMIZATION CONTRACT (Michael's ruling): consumers override
@@ -649,8 +704,8 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // --scene-focus-ring-radius (default 0 — square; the library
           // doesn't know a consumer's own card rounding, so it never
           // guesses one, mirroring ui#o28's overridable-default contract
-          // — see the panel's own borderRadius style declaration below,
-          // not gated on focus since the panel carries no background/
+          // — see the object's own borderRadius style declaration below,
+          // not gated on focus since the object carries no background/
           // border/overflow of its own in any state, verified at source,
           // so an always-applied radius shapes ONLY the ring). Arbitrary
           // PROPERTY syntax (`[prop:value]`), not Tailwind's `outline-*`
@@ -678,21 +733,21 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // Explicit width in BOTH position modes, mirroring the height
           // comment below — the anchor's own width (the consumer's `style`
           // prop, e.g. `width: 480`) is static, never sprung by this
-          // rework, so the panel simply always fills it. Without this the
-          // panel shrink-to-fits its own content width instead, a real
+          // rework, so the object simply always fills it. Without this the
+          // object shrink-to-fits its own content width instead, a real
           // measured discontinuity at the flip (272px, caught by the
           // RED-FIRST layout-box flip test before this line existed).
           width: "100%",
           // Establishes a block formatting context in BOTH position modes
-          // (mirrors SceneColumn's own data-column-panel exactly, same
+          // (mirrors SceneColumn's own data-scene-column exactly, same
           // ui#17 margin-collapse trap the plan explicitly carries forward
           // — a child's own top margin would otherwise collapse through
-          // this panel while position:relative, shifting its own top-edge
+          // this object while position:relative, shifting its own top-edge
           // position, then NOT collapse once position:absolute, a real
           // measured discontinuity at the flip).
           display: "flow-root",
           // Explicit height in BOTH position modes, not just while
-          // sandwiched — without this the panel's own box SHAPE differs
+          // sandwiched — without this the object's own box SHAPE differs
           // structurally between modes, not just numerically (same ui#17
           // trap). Gated on !heightOverrideActive (settled), NOT
           // !sandwichedNow (flipped) — a first attempt gating on
@@ -700,12 +755,12 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // at the FOCUS-direction flip commit (RED-FIRST layout-box test
           // caught it): the anchor's own height spring starts EXACTLY at
           // its "from" value (0, mid-collapse) on the flip's own frame, so
-          // "100%" of it at that instant is still ~0 — the panel must keep
+          // "100%" of it at that instant is still ~0 — the object must keep
           // using the STATIC natural-height snapshot through the WHOLE
           // transition (not just while sandwiched), only switching to
           // "100%" (tracking the anchor live) once the height channel has
           // actually released, mirroring SceneColumn's own "released once
-          // settled, letting the panel's own object-level sizing take
+          // settled, letting the object's own object-level sizing take
           // over" precedent for its width channel.
           height: !heightOverrideActive ? "100%" : naturalHeight || undefined,
           // z-index channel — see its own declaration above for the full
@@ -713,10 +768,10 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // depth-scaled negative integer), never omitted, matching this
           // file's established explicit-release convention elsewhere.
           zIndex,
-          // Ring customization contract, radius half (see the panel's own
+          // Ring customization contract, radius half (see the object's own
           // className comment above for the full four-var contract) —
           // shapes the outline (outline follows border-radius per spec),
-          // not gated on focus-visible: the panel carries no background/
+          // not gated on focus-visible: the object carries no background/
           // border/overflow of its own in any state (verified at source —
           // this style object and the className above are its ONLY visual
           // properties), so an always-applied radius has no effect except
@@ -725,17 +780,25 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           borderRadius: "var(--scene-focus-ring-radius,0px)",
         }}
       >
-        {/* Inner wrapper: inert when unfocused to disable all descendant interaction.
+        {/* Inner wrapper: inert when unfocused, OR while a Scene-wide focus
+            transition hasn't yet settled (ui#20 — see TransitionPendingContext's
+            own doc comment), to disable all descendant interaction.
             React 19 treats inert={true} as the attribute present, inert={false} as absent.
+            The transitionPending half is the actual NEW behavior ui#20 adds:
+            before this, a newly-focused object's content was interactive from
+            the instant `focused` flipped true, even while its own entrance
+            transition was still animating — Michael's ruled contract requires
+            full inertness for the whole in-transition window, not just while
+            unfocused.
             Also the natural-height measurement source (ui#21) — see
             naturalHeight's own comment above for why: unlike the anchor
-            or the panel (both circularly affected by the height channel's
+            or the object (both circularly affected by the height channel's
             own override, either directly or via a percentage-height
             resolving against it), this plain, unstyled div's own auto
             height is governed purely by its CONTENT, regardless of
             whatever position mode or override its ancestors currently
             carry. */}
-        <div ref={contentRef} inert={!focused}>
+        <div ref={contentRef} inert={!focused || transitionPending}>
           {children}
         </div>
       </motion.div>

@@ -7,7 +7,10 @@ import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
 import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
 import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
+import { TransitionPendingContext } from "./TransitionPendingContext";
+import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
 import { useOwnedAnimation } from "./ownedAnimation";
+import { useSettledValue } from "./useSettledValue";
 import { StackDepthContext } from "./StackDepthContext";
 import { ScrollOffsetStoreContext, type ScrollOffsetEntry } from "./ScrollOffsetStoreContext";
 import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
@@ -178,6 +181,15 @@ export function computeStackDepths(
   return depths;
 }
 
+/**
+ * A single SceneObject's name and focus state at the moment a focus
+ * transition settled (ui#20) — the payload `onTransitionEnd` reports.
+ */
+export interface SceneFocusArrangementEntry {
+  name: string;
+  focused: boolean;
+}
+
 export interface SceneProps {
   children: React.ReactNode;
   /**
@@ -190,6 +202,29 @@ export interface SceneProps {
    * `undefined`) has the identical effect to passing any non-zero number.
    */
   duration?: number;
+  /**
+   * Fires exactly once per settled FOCUS transition (ui#20) — a change to
+   * which SceneObjects are focused (including a within-column swap), once
+   * the scene has genuinely gone quiet (the settle counter reaches zero
+   * post-commit — the same crossing `data-scene-settled` flips true on).
+   * Payload is the settled focus arrangement: every registered SceneObject
+   * across every column, in DOM order, with its final `focused` state.
+   *
+   * Does NOT fire on the initial mount's pure-entrance settle (no focus
+   * change occurred), and does NOT fire for a non-focus-driven settle
+   * (e.g. an unrelated content-resize spring quieting down) — narrower
+   * than `data-scene-settled`, which is mechanism-broad (see its own doc
+   * comment). Reduced-motion / `duration={0}` focus changes DO fire
+   * (synchronously, before the browser's next paint) — a silent no-fire
+   * there would break every consumer on the accessibility path.
+   *
+   * Structurally excluded: SceneColumn's own vertical scroll inertia
+   * (wheel/touch/keyboard scrolling within a focused column) never claims
+   * through the settle-signal seam (a deliberate, pre-existing exclusion —
+   * see SettleSignalContext's own doc comment) and is not a "focus
+   * transition" in the first place, so it never triggers this callback.
+   */
+  onTransitionEnd?: (arrangement: SceneFocusArrangementEntry[]) => void;
   /** Enable debug overlays. */
   debug?: boolean;
   /** Gap (in px) between focused columns in the stage flex row. Defaults to 8. */
@@ -735,7 +770,7 @@ function parseTranslateZ(transform: string): number {
  * DOM-order actually governs, translateZ is kept for the perspective
  * foreshortening visual cue only); within-column object cards use a
  * discrete zIndex write instead (SceneObject's own zIndex comment —
- * object-level translateZ never actually reached the panel and was removed
+ * object-level translateZ never actually reached the object and was removed
  * entirely). The badge reads whichever channel is real for that card kind.
  */
 function PaintOrderBadges({
@@ -770,20 +805,21 @@ function PaintOrderBadges({
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
       if (card.kind === "column") {
-        // ui#17 anchor/panel split: the depth translateZ lives on the column's
-        // inner panel node now, not the outer flex anchor `el` itself — read
-        // z from the panel when one exists (every column has one; this falls
-        // back to `el` defensively, which has no panel child to begin with).
-        const zSource = el.querySelector<HTMLElement>("[data-column-panel]") ?? el;
+        // ui#17 anchor/column split: the depth translateZ lives on the column's
+        // inner column node now, not the outer flex anchor `el` itself — read
+        // z from the column node when one exists (every column has one; this
+        // falls back to `el` defensively, which has no column child to begin
+        // with).
+        const zSource = el.querySelector<HTMLElement>("[data-scene-column]") ?? el;
         const z = parseTranslateZ(getComputedStyle(zSource).transform);
         badge.textContent = `z:${Math.round(z)}`;
       } else {
         // ui#21 z-index paint-order channel amendment: object-level depth
         // cards no longer carry translateZ at all (removed entirely — see
         // SceneObject's own zIndex comment) — paint order is a discrete
-        // zIndex write on the panel instead. parseTranslateZ would always
+        // zIndex write on the object instead. parseTranslateZ would always
         // read 0 here now; read the real channel directly.
-        const zSource = el.querySelector<HTMLElement>("[data-scene-panel]") ?? el;
+        const zSource = el.querySelector<HTMLElement>("[data-scene-object]") ?? el;
         badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
       }
     }
@@ -1432,6 +1468,7 @@ function SceneViewport({
   children,
   debugColumnStacks,
   reducedMotion,
+  settled,
   onToggleSlowMo,
   onTransitionStart,
   onTransitionComplete,
@@ -1444,6 +1481,9 @@ function SceneViewport({
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
+  /** ui#20: renders as `data-scene-settled` on the viewport element — see
+   *  Scene's own `settled` state doc comment for the full mechanism. */
+  settled: boolean;
   /** F4 feature (e): flips Scene's internal slowMo override (debug overlay
    *  toggle only — see Scene's slowMoOverride state). */
   onToggleSlowMo: () => void;
@@ -1554,9 +1594,10 @@ function SceneViewport({
   // The valid panOffset range for the CURRENT focused layout — `{min, max}`
   // matching the sign convention above (min = -range, max = 0). Written at
   // the end of the recentering effect below (mirrors stageLeftRef's
-  // declaration-site idiom), gated by the settling latch (vpWidthSettledRef,
-  // declared further below) exactly like the retired overflowsX
-  // classification write used to be — see that latch's own comment for why.
+  // declaration-site idiom), gated by the settling latch (vpWidthWasSettled,
+  // declared further below, useSettledValue) exactly like the retired
+  // overflowsX classification write used to be — see that latch's own
+  // comment for why.
   const panBoundsRef = useRef({ min: 0, max: 0 });
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
@@ -1587,7 +1628,7 @@ function SceneViewport({
   // <SettleSignalContext.Provider> (below, in Scene's own JSX). This is
   // the specific fix for this round's named late mover: cameraX's own
   // corrective retarget (triggered BY the zero-crossing once width/
-  // margin/panelWidth settle) previously wasn't itself tracked, so the
+  // margin/columnWidth settle) previously wasn't itself tracked, so the
   // counter reached zero — and Scene re-measured — before the camera had
   // actually finished springing to the value that re-measurement
   // produced. See ownedAnimation.ts's own doc comment for the full
@@ -1609,18 +1650,21 @@ function SceneViewport({
   // changes — the trigger for resetting native horizontal scroll (B1).
   const prevFocusedNamesRef = useRef("");
 
-  // Settling latch: mirrors SceneColumn's columnGeometrySettledRef/
-  // lastEffectiveViewportHeightRef idiom (SceneColumn.tsx ~389-406/777-785),
-  // applied to viewport.clientWidth. Originally gated the (now-retired)
-  // overflowsX classification write; ui#19 repoints it to gate the
-  // panBoundsRef write below instead — clientWidth can arrive across more
-  // than one real commit during mount/resize settling (the content-box
-  // correction above, ResizeObserver's own async callback), and a
-  // transient pan-bounds miscalculation mid-settle would flap the clamp
-  // range a user could be actively panning against. Position math
-  // (newStageLeft) is NOT gated by this — it stays live every render.
-  const vpWidthSettledRef = useRef(false);
-  const lastVpWidthRef = useRef<number | null>(null);
+  // Settling latch (ui#20 criterion 6: useSettledValue, shared with
+  // SceneColumn's columnGeometryWasSettled), applied to viewport.clientWidth.
+  // Originally gated the (now-retired) overflowsX classification write;
+  // ui#19 repoints it to gate the panBoundsRef write below instead —
+  // clientWidth can arrive across more than one real commit during
+  // mount/resize settling (the content-box correction above,
+  // ResizeObserver's own async callback), and a transient pan-bounds
+  // miscalculation mid-settle would flap the clamp range a user could be
+  // actively panning against. Position math (newStageLeft) is NOT gated by
+  // this — it stays live every render. `checkVpWidthSettled` is called
+  // below, inside the recentering effect, at the point `viewport.clientWidth`
+  // is actually measured (a live DOM read, not a render-time value — see
+  // useSettledValue's own doc comment for why this hook exposes a manual
+  // check function rather than owning its own effect).
+  const [vpWidthWasSettled, checkVpWidthSettled] = useSettledValue();
 
   // Measure viewport dimensions (and page-relative position) synchronously
   // on first render so columns have valid values immediately (useLayoutEffect
@@ -2018,17 +2062,15 @@ function SceneViewport({
 
     const vpWidth = viewport.clientWidth;
 
-    // Settling latch (see vpWidthSettledRef's declaration above): captures
-    // whether vpWidth was ALREADY settled entering this commit, before
-    // updating the latch for the current value — the render where
-    // clientWidth first repeats still counts as not-yet-settled for ITS OWN
-    // panBoundsRef write (same one-render delay as SceneColumn's
-    // columnGeometryWasSettled), settling takes effect starting next render.
-    const vpWidthWasSettled = vpWidthSettledRef.current;
-    if (vpWidth > 0 && lastVpWidthRef.current === vpWidth) {
-      vpWidthSettledRef.current = true;
-    }
-    lastVpWidthRef.current = vpWidth;
+    // Settling latch (see vpWidthWasSettled's declaration above,
+    // useSettledValue): `vpWidthWasSettled` (captured at render time, before
+    // this effect ran) reflects whether vpWidth was ALREADY settled entering
+    // this commit — the render where clientWidth first repeats still counts
+    // as not-yet-settled for ITS OWN panBoundsRef write below (same
+    // one-render delay as SceneColumn's columnGeometryWasSettled), settling
+    // takes effect starting next render. checkVpWidthSettled updates the
+    // latch for the CURRENT value, for the NEXT render to see.
+    checkVpWidthSettled(vpWidth);
 
     let newStageLeft: number;
     // Local branch decision only (ui#19 retired the overflowsX STATE this
@@ -2502,6 +2544,7 @@ function SceneViewport({
         ref={viewportRef}
         data-testid="scene"
         data-reduced-motion={reducedMotion ? "" : undefined}
+        data-scene-settled={String(settled)}
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={handleViewportPointerUp}
@@ -2706,6 +2749,7 @@ export function Scene({
   touchTimeConstant = DEFAULT_TOUCH_TIME_CONSTANT,
   perspective = DEFAULT_PERSPECTIVE,
   peekOffset = DEFAULT_PEEK_OFFSET,
+  onTransitionEnd,
 }: SceneProps) {
   const wrappedChildren = React.Children.map(children, wrapChild);
 
@@ -2751,9 +2795,63 @@ export function Scene({
   // it, avoiding a spurious re-provide on every unrelated Scene render.
   const activeAnimationCountRef = useRef(0);
   const [, bumpSettleSignal] = useState(0);
+  // `data-scene-settled` (ui#20, criterion 1): true iff no owned animation
+  // is currently active — genuine React state (not just the ref above),
+  // flipping false the instant a channel claims (the ref's 0->1 crossing)
+  // and true again on the existing zero-crossing. Mechanism-broad by
+  // design: ANY owned channel claiming flips this, including a non-focus-
+  // driven settle (e.g. an unrelated content-resize spring) — see
+  // `transitionPending` below for the narrower, focus-transition-scoped
+  // signal `onTransitionEnd` actually gates on. Never flips false at
+  // duration=0 (jump() never claims — see ownedAnimation.ts's `ownedJump`),
+  // which is vacuously correct per this attribute's own "no animation
+  // active" wording. Structurally excludes SceneColumn's own vertical
+  // scroll inertia (scrollY never routes through this seam — a deliberate,
+  // pre-existing exclusion, see SettleSignalContext's own doc comment).
+  const [settled, setSettled] = useState(true);
+  // `transitionPending` (ui#20, criteria 3/4/8/9): true from mount
+  // (entrance) or any FOCUS-arrangement change, cleared on the same
+  // zero-crossing `settled` above uses. Deliberately a DIFFERENT signal
+  // from `settled` on the SET side (this only goes true for a focus-
+  // arrangement change or mount, not any owned-channel claim) while
+  // SHARING the clear side (both clear on the raw global zero-crossing) —
+  // see the ACCEPTED TRADEOFF paragraph on the settle effect below for why
+  // a per-transition claim tag was rejected in favor of this. Drives
+  // inertness scene-wide via TransitionPendingContext (SceneObject.tsx):
+  // in-transition = fully inert, matching Michael's ruled three-state
+  // contract. `pendingIsFocusTransitionRef` tracks whether the CURRENT
+  // pending window was armed by an actual focus change (vs. pure mount
+  // entrance) — only that case fires `onTransitionEnd` on clear.
+  const [transitionPending, setTransitionPending] = useState(true);
+  // Ref mirror of `transitionPending`, kept in lockstep at the top of every
+  // render (mirrors this file's own stageLeftRef/columnStatesFingerprintRef
+  // idiom) — the settle effect below needs a synchronous, same-commit read
+  // of "is pending" that doesn't wait for a re-render, since it may both
+  // ARM and CLEAR pending within the very same commit (the duration=0 path
+  // — see F3's unified fire rule). ALSO re-provided via
+  // TransitionPendingRefContext — probe-confirmed real race (not a
+  // precaution): SceneObject's two-phase focus effect can observe
+  // TransitionPendingContext's own reactive boolean mid-stale, one render
+  // generation behind this ref, because a state update from inside a
+  // layout effect (this one arming `transitionPending` true) forces React
+  // to flush a descendant's PASSIVE effect for the pre-correction commit
+  // before the corrective re-render's own layout phase runs — see
+  // TransitionPendingRefContext's own doc comment for the full trace.
+  const transitionPendingRef = useRef(transitionPending);
+  transitionPendingRef.current = transitionPending;
+  const pendingIsFocusTransitionRef = useRef(false);
+  // The last object-level focus-arrangement fingerprint this Scene instance
+  // has SEEN (not necessarily fired on) — `null` until the first commit's
+  // fingerprint is captured, so mount never misreads as "the arrangement
+  // changed" (there is no prior arrangement to diff against yet).
+  const focusArrangementFingerprintRef = useRef<string | null>(null);
+  const onTransitionEndRef = useRef<SceneProps["onTransitionEnd"]>(undefined);
   const onColumnGeometrySettled = useMemo<SettleSignal>(
     () => ({
       animationStarted: () => {
+        if (activeAnimationCountRef.current === 0) {
+          setSettled(false);
+        }
         activeAnimationCountRef.current++;
       },
       animationEnded: () => {
@@ -2774,6 +2872,7 @@ export function Scene({
         activeAnimationCountRef.current--;
         if (activeAnimationCountRef.current === 0) {
           bumpSettleSignal((c) => c + 1);
+          setSettled(true);
         }
       },
     }),
@@ -2882,6 +2981,76 @@ export function Scene({
     }
   });
 
+  onTransitionEndRef.current = onTransitionEnd;
+
+  // ui#20 settle-transition tracking: arms `transitionPending` on a focus-
+  // arrangement change, clears it (and fires `onTransitionEnd`) on the
+  // scene's true global quiet point. Runs every commit (no deps), AFTER
+  // every descendant SceneColumn/SceneObject has registered/claimed for
+  // this commit (useLayoutEffect ordering is bottom-up) — so by the time
+  // this runs, `columnRegistryRef` already reflects this commit's fresh
+  // per-object focus states, and `activeAnimationCountRef` already
+  // reflects whatever channels this commit's own focus change claimed
+  // (the animate() path) or didn't (the duration=0/jump path, F3).
+  //
+  // Object-level, not column-level (deliberate fork from the plan's own
+  // "reuse columnStatesFingerprintRef literally" recommendation): a
+  // within-column swap (ui#21's whole feature) never changes a column's
+  // own aggregate `focused` boolean, so a column-level fingerprint would
+  // silently miss it — RegisteredColumn.objectStates (ColumnRegistryContext,
+  // registry-derived, Fragment-safe) is what makes the finer-grained
+  // fingerprint possible without a DOM query.
+  //
+  // ACCEPTED TRADEOFF (F4 REVISION v3): transitionPending's CLEAR condition
+  // is the RAW GLOBAL zero-crossing, shared with `data-scene-settled` —
+  // NOT a per-transition claim tag. A focus change landing while an
+  // unrelated ambient channel (e.g. a sibling's content-growth spring) is
+  // still mid-flight extends the pending window until the true global
+  // quiet point, delaying `onTransitionEnd` and the settle-edge descendant
+  // focus (SceneObject's own two-phase focus effect) until then. Accepted
+  // rather than fixed with per-transition claim tracking: distinguishing
+  // transition-caused claims from ambient ones needs an arming window
+  // spanning the multi-commit re-layout cascade — exactly the class of
+  // fragile-tag race that produced the ui#17 cascade fix this mechanism
+  // reuses; the overlap is self-limiting (touch flings — the only
+  // long-tail ambient channel — die at pointerdown before a click-to-focus
+  // can land, and mouse ambient motion is sub-second keyboard-pan/
+  // content-growth), and the scene is scene-wide inert during any focus
+  // transition regardless, so the tradeoff only extends the settle TAIL.
+  useLayoutEffect(() => {
+    const arrangement: SceneFocusArrangementEntry[] = columnStates.flatMap(
+      (c) => columnRegistryRef.current.get(c.name)?.objectStates ?? [],
+    );
+    const fingerprint = arrangement.map((o) => `${o.name}:${o.focused}`).join(",");
+
+    if (focusArrangementFingerprintRef.current !== null && fingerprint !== focusArrangementFingerprintRef.current) {
+      pendingIsFocusTransitionRef.current = true;
+      if (!transitionPendingRef.current) {
+        transitionPendingRef.current = true;
+        setTransitionPending(true);
+      }
+    }
+    focusArrangementFingerprintRef.current = fingerprint;
+
+    if (transitionPendingRef.current && activeAnimationCountRef.current === 0) {
+      transitionPendingRef.current = false;
+      setTransitionPending(false);
+      if (pendingIsFocusTransitionRef.current) {
+        // Defensive only, not load-bearing: the only other write site is
+        // the arm block above, which always freshly sets this true
+        // immediately before it's read again — reaching this fire branch a
+        // second time requires transitionPendingRef.current to be true
+        // again first, which (given the line above resets it false on
+        // every pass through this block) only happens via a fresh arm.
+        // Kept for clarity/resilience against a future refactor that
+        // decouples the two refs, not because removing it changes
+        // observable behavior today.
+        pendingIsFocusTransitionRef.current = false;
+        onTransitionEndRef.current?.(arrangement);
+      }
+    }
+  });
+
   // Build debug column stacking info from position and depth maps.
   const debugColumnStacks: DebugColumnStackEntry[] | null = debug
     ? columnStates
@@ -2919,10 +3088,13 @@ export function Scene({
         <ColumnPositionContext.Provider value={columnPositions}>
           <StackDepthContext.Provider value={stackDepths}>
           <SettleSignalContext.Provider value={onColumnGeometrySettled}>
+          <TransitionPendingContext.Provider value={transitionPending}>
+          <TransitionPendingRefContext.Provider value={transitionPendingRef}>
             <SceneViewport
               debugColumnStacks={debugColumnStacks}
               reducedMotion={prefersReducedMotion}
               columnRegistryRef={columnRegistryRef}
+              settled={settled}
               onToggleSlowMo={() => setSlowMoOverride((prev) => !(prev ?? slowMo))}
               onTransitionStart={() => setTransitioning(true)}
               onTransitionComplete={() => setTransitioning(false)}
@@ -2943,6 +3115,8 @@ export function Scene({
             >
               {wrappedChildren}
             </SceneViewport>
+          </TransitionPendingRefContext.Provider>
+          </TransitionPendingContext.Provider>
           </SettleSignalContext.Provider>
           </StackDepthContext.Provider>
         </ColumnPositionContext.Provider>

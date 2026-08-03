@@ -37,8 +37,13 @@ import { createContext } from "react";
  * ui#17 lands first so ui#20 can hook the final animation topology) —
  * this begin/end counter IS the registry-lite shape, one step closer to
  * ui#20's own begin/end-counter design than the single-signal version it
- * replaced. ui#20 is expected to absorb/replace this with its own richer,
- * per-channel-keyed settle-tracking mechanism.
+ * replaced. ui#20 KEEPS this scalar counter rather than replacing it with
+ * a per-channel-keyed registry: `useOwnedAnimation()`'s claim/retire guard
+ * (ownedAnimation.ts) already proved interruption-correct per channel, so
+ * the aggregate zero-crossing this pair produces is exactly what ui#20's
+ * `data-scene-settled`/`onTransitionEnd`/inertness-gating layer (Scene.tsx,
+ * SceneObject.tsx) needs — see Scene.tsx's own `transitionPending` doc
+ * comment for how that layer is built on top of this signal.
  */
 export type SettleSignal = {
   animationStarted: () => void;
