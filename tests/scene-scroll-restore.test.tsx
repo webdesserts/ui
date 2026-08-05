@@ -26,7 +26,7 @@ describe("Scene scroll position restore", () => {
     // The column should restore to offset 100.
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -59,8 +59,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -72,8 +72,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -92,8 +92,8 @@ describe("Scene scroll position restore", () => {
     const { rerender, getByTestId } = await render(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -104,8 +104,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -125,7 +125,7 @@ describe("Scene scroll position restore", () => {
     // the saved scroll position is invalid — fall back to top (offset 0).
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -159,8 +159,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 300, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 300, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -172,8 +172,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 300, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 300, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -306,7 +306,7 @@ describe("Scene swap-reset scroll model", () => {
     // new (smaller) maxScroll, not reset to 0 and not left overshooting.
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -340,8 +340,8 @@ describe("Scene swap-reset scroll model", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1000, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1000, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -354,8 +354,8 @@ describe("Scene swap-reset scroll model", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1000, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1000, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -387,7 +387,7 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-a" name="col1">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -417,12 +417,12 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-a" name="col1">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused>
+            <SceneObject name="object2" focused>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -436,7 +436,7 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused>
+            <SceneObject name="object2" focused>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -454,12 +454,12 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-b" name="col1">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 900 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused={false}>
+            <SceneObject name="object2" focused={false}>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -484,7 +484,7 @@ describe("Scene padding in scroll bounds", () => {
     // Without padding: 1200 - 800 = 400. With padding=16: 1200 - (800 - 32) = 432.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0, padding: 16 },
         { fullPage: true },
       ),
@@ -504,7 +504,7 @@ describe("Scene padding in scroll bounds", () => {
     // With padding=16px (32px total), effective viewport = 768px, so content overflows.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 780, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 780, testId: "content" }] }],
         { duration: 0, padding: 16 },
         { fullPage: true },
       ),
@@ -527,7 +527,7 @@ describe("Scene padding cluster (S6)", () => {
   test("marginTop centers focused content within the padded viewport, not the raw viewport", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 200, testId: "content" }] }],
         { duration: 0, padding: 60 },
         { fullPage: true },
       ),
@@ -603,7 +603,7 @@ describe("Scene padding cluster (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0} padding={100}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 3000 }}>
                 <button data-testid="focusable-btn">click me</button>
               </div>
@@ -636,7 +636,7 @@ describe("Scene padding cluster (S6)", () => {
   test("Scrollbar trackHeight accounts for padding (uses effective viewport height, not raw)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 3000, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 3000, testId: "content" }] }],
         { duration: 0, padding: 100 },
         { fullPage: true },
       ),
@@ -911,7 +911,7 @@ describe("Scrollbar ARIA", () => {
   test("scrollbar thumb has role=scrollbar", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -929,7 +929,7 @@ describe("Scrollbar ARIA", () => {
   test("scrollbar thumb has aria-valuenow, aria-valuemin, aria-valuemax", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -950,7 +950,7 @@ describe("Scrollbar ARIA", () => {
   test("D4: scrollbar thumb has tabindex=0", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -964,7 +964,7 @@ describe("Scrollbar ARIA", () => {
   test("D4: scrollbar thumb has aria-controls pointing to the content wrapper's stable id", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -980,7 +980,7 @@ describe("Scrollbar ARIA", () => {
   test("D4: pressing ArrowDown while the scrollbar thumb has focus scrolls the column (keyboard ops through the shared command path)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -1034,7 +1034,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1077,7 +1077,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage height={500}>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: "100cqh", overflowY: "auto" }}
@@ -1124,7 +1124,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1173,7 +1173,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1208,7 +1208,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1253,7 +1253,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto", overscrollBehaviorY: "contain" }}
@@ -1297,7 +1297,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}

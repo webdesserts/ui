@@ -29,7 +29,7 @@ describe("SceneColumn within-column depth deck", () => {
         </Scene>
       </TestWrapper>,
     );
-    // The panel's `animate`-driven opacity can lag the synchronous render
+    // The object node's `animate`-driven opacity can lag the synchronous render
     // under full-suite concurrent load (probe-confirmed: reliable in
     // isolation, flaky under load — the same wall-clock race class
     // documented elsewhere in this file) — a frame lets Motion's own
@@ -37,19 +37,19 @@ describe("SceneColumn within-column depth deck", () => {
     await waitForAnimationFrame();
 
     const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    // ui#21 anchor/panel split: the depth-card visual treatment (opacity,
-    // visibility) lives on the PANEL now, not the zero-footprint anchor —
+    // ui#21 anchor/object split: the depth-card visual treatment (opacity,
+    // visibility) lives on the OBJECT NODE now, not the zero-footprint anchor —
     // the anchor only carries the `data-within-column-depth` marker.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
 
     // B is between two focused objects — it should have depth treatment (data attribute)
     expect(anchorB.getAttribute("data-within-column-depth")).toBe("1");
 
-    // B's panel should be visible (not visibility: hidden — it peeks as a depth card)
-    expect(window.getComputedStyle(panelB).visibility).not.toBe("hidden");
+    // B's object node should be visible (not visibility: hidden — it peeks as a depth card)
+    expect(window.getComputedStyle(objectNodeB).visibility).not.toBe("hidden");
 
-    // B's panel should have reduced opacity (depth treatment)
-    const opacity = parseFloat(window.getComputedStyle(panelB).opacity);
+    // B's object node should have reduced opacity (depth treatment)
+    const opacity = parseFloat(window.getComputedStyle(objectNodeB).opacity);
     expect(opacity).toBeLessThan(1);
   });
 
@@ -81,18 +81,18 @@ describe("SceneColumn within-column depth deck", () => {
 
     const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
     const anchorC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
-    // ui#21 anchor/panel split: opacity lives on the PANEL now, not the
+    // ui#21 anchor/object split: opacity lives on the OBJECT NODE now, not the
     // zero-footprint anchor (see the sibling test above for the same fix).
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
-    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement;
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement;
 
     // C is depth-1 (adjacent to lower focused D), B is depth-2
     expect(anchorC.getAttribute("data-within-column-depth")).toBe("1");
     expect(anchorB.getAttribute("data-within-column-depth")).toBe("2");
 
     // C (depth-1) has higher opacity than B (depth-2) — less treatment = more visible
-    const opacityB = parseFloat(window.getComputedStyle(panelB).opacity);
-    const opacityC = parseFloat(window.getComputedStyle(panelC).opacity);
+    const opacityB = parseFloat(window.getComputedStyle(objectNodeB).opacity);
+    const opacityC = parseFloat(window.getComputedStyle(objectNodeC).opacity);
     expect(opacityC).toBeGreaterThan(opacityB);
   });
 
@@ -128,7 +128,7 @@ describe("SceneColumn within-column depth deck", () => {
     // A (focused, 200px tall), B (unfocused), C (focused, 200px tall)
     // B's zero-footprint anchor sits flush after A in flow (its own local
     // origin already converges on "flush against the lower focused
-    // sibling" — the plan's anchorTop-vestigial reasoning), and its PANEL
+    // sibling" — the plan's anchorTop-vestigial reasoning), and its OBJECT NODE
     // escapes via position:absolute, peeking up past that origin by the
     // default peekOffset (12px, A5's pull-out-direction principle) as a
     // y-transform. Depth is expressed via a discrete zIndex channel now —
@@ -159,18 +159,18 @@ describe("SceneColumn within-column depth deck", () => {
     // file already wait a frame for.
     await waitForAnimationFrame();
 
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
 
-    // B's panel escapes its zero-footprint anchor via position:absolute.
-    expect(window.getComputedStyle(panelB).position).toBe("absolute");
+    // B's object node escapes its zero-footprint anchor via position:absolute.
+    expect(window.getComputedStyle(objectNodeB).position).toBe("absolute");
 
     // Depth-1 — a negative, depth-scaled zIndex (not translateZ).
-    expect(window.getComputedStyle(panelB).zIndex).toBe("-1");
+    expect(window.getComputedStyle(objectNodeB).zIndex).toBe("-1");
 
     // The peek offset is a raw y-transform (mirrors SceneColumn's own
     // inBetweenY) — read it directly via parseTranslateY rather than
     // rendered gBCR, matching this file's established idiom.
-    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-12, 0);
+    expect(parseTranslateY(objectNodeB.style.transform)).toBeCloseTo(-12, 0);
   });
 
   // A5 — the pull-out-direction principle: a within-column deck card peeks
@@ -201,20 +201,20 @@ describe("SceneColumn within-column depth deck", () => {
     );
 
     // The height channel's own layout effect needs a frame to collapse
-    // B's/C's anchors out of flow before their panels' peek transforms are
+    // B's/C's anchors out of flow before their object nodes' peek transforms are
     // meaningful to read (same precondition as the sibling test above).
     await waitForAnimationFrame();
 
-    // ui#21 anchor/panel split: the peek offset lives in the panel's own
+    // ui#21 anchor/object split: the peek offset lives in the object node's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, matching this file's established idiom, not the
     // retired inline `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // C (depth-1) peeks up by 12px, B (depth-2) by 24px (default peekOffset).
-    expect(parseTranslateY(panelC.style.transform)).toBeCloseTo(-12, 0);
-    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-24, 0);
+    expect(parseTranslateY(objectNodeC.style.transform)).toBeCloseTo(-12, 0);
+    expect(parseTranslateY(objectNodeB.style.transform)).toBeCloseTo(-24, 0);
   });
 
   test("custom peekOffset prop changes the within-column deck peek offsets accordingly", async () => {
@@ -244,16 +244,16 @@ describe("SceneColumn within-column depth deck", () => {
     // sibling test above).
     await waitForAnimationFrame();
 
-    // ui#21 anchor/panel split: peek offset lives in the panel's own
+    // ui#21 anchor/object split: peek offset lives in the object node's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, not the retired `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // With peekOffset=20, C (depth-1) peeks up by 20px and B (depth-2) by
     // 2*20=40px.
-    expect(parseTranslateY(panelC.style.transform)).toBeCloseTo(-20, 0);
-    expect(parseTranslateY(panelB.style.transform)).toBeCloseTo(-40, 0);
+    expect(parseTranslateY(objectNodeC.style.transform)).toBeCloseTo(-20, 0);
+    expect(parseTranslateY(objectNodeB.style.transform)).toBeCloseTo(-40, 0);
   });
 
   test("peekOffset={0} reproduces the old flush-anchored behavior (no peek)", async () => {
@@ -278,16 +278,16 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    // ui#21 anchor/panel split: peek offset lives in the panel's own
+    // ui#21 anchor/object split: peek offset lives in the object node's own
     // y-transform now — read rendered geometry, not the retired `style.top`.
-    const panelB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const panelC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
 
     // With no peek offset, both depths anchor flush at their shared local
     // origin (200) — the pre-A5 behavior, where only zIndex (not a manual
     // transform offset) distinguishes depths.
-    expect(panelC.getBoundingClientRect().top).toBeCloseTo(200, -1);
-    expect(panelB.getBoundingClientRect().top).toBeCloseTo(200, -1);
+    expect(objectNodeC.getBoundingClientRect().top).toBeCloseTo(200, -1);
+    expect(objectNodeB.getBoundingClientRect().top).toBeCloseTo(200, -1);
   });
 
   test("focusing a sandwiched depth-deck object mid-flight settles into the open slot, not frozen at a stale depth-deck position (F5 item 1)", async () => {
@@ -304,7 +304,7 @@ describe("SceneColumn within-column depth deck", () => {
     // `topMV`/imperative `style.top` describe the PRE-height/margin-channel
     // mechanism and no longer exist in current code — SceneObject's peek
     // positioning now runs through the height/marginBottom channels plus
-    // the panel's own y-transform, see SceneObject.tsx's own comments. This
+    // the object node's own y-transform, see SceneObject.tsx's own comments. This
     // test's own SUBJECT — an interrupted mid-flight settle landing in the
     // open slot, not frozen at a stale depth-deck position — remains the
     // current regression guard for that class of bug; verified still
@@ -414,10 +414,10 @@ describe("SceneColumn within-column depth deck", () => {
 // ---------------------------------------------------------------------------
 // ui#21: Within-column deck rework — instant flow snap / teleport when an
 // object enters or leaves the within-column deck (board observation ui#o26).
-// The vertical, per-object port of ui#17's anchor/panel pattern — see
+// The vertical, per-object port of ui#17's anchor/column pattern — see
 // `plans/ui#21 Within-Column Deck Rework Plan (2026-07-31)` (vault) for the
 // full design. RED-FIRST per the plan's own TDD ordering: this repro and the
-// zero-pixel flip tests land BEFORE the anchor/panel split, confirmed red
+// zero-pixel flip tests land BEFORE the anchor/object split, confirmed red
 // against the CURRENT (pre-split, single-node) code.
 // ---------------------------------------------------------------------------
 
@@ -608,11 +608,11 @@ describe("Within-column deck (ui#21): instant flow snap / teleport repro, N=10 (
 });
 
 describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
-  // Targets the PANEL (data-scene-object) — the node that flips position
+  // Targets the OBJECT NODE (data-scene-object) — the node that flips position
   // mode post-split (the anchor never flips again — permanent
   // zero-footprint in flow). Originally targeted the object's own single
   // node pre-split (that WAS what flipped position mode before the anchor/
-  // panel split landed); updated once the split introduced the panel,
+  // object split landed); updated once the split introduced the object node,
   // matching the exact evolution ui#17's own zero-pixel-flip tests went
   // through when its column-level split landed.
   test("unfocus direction: object-local layout-box geometry has no discontinuity at the flip commit", async () => {
@@ -639,10 +639,10 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     await wait(600);
 
     const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middlePanelEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const middleObjectNodeEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
+    const { before, after } = await captureFlipCommit(middleObjectNodeEl, 2000, undefined, middleAnchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -674,10 +674,10 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     await wait(600);
 
     const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middlePanelEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const middleObjectNodeEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
-    const { before, after } = await captureFlipCommit(middlePanelEl, 2000, undefined, middleAnchorEl);
+    const { before, after } = await captureFlipCommit(middleObjectNodeEl, 2000, undefined, middleAnchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -694,7 +694,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   // redesign STILL stayed green under the sever) — the investigation that
   // followed (ui#o32, the D-series record) found the underlying mechanism
   // itself was never real: object-level translateZ never actually reached
-  // the panel (three flat transform-style intermediates from the nearest
+  // the object node (three flat transform-style intermediates from the nearest
   // preserve-3d ancestor), so no sever on that channel could ever have
   // produced a genuine red. Replaced with an explicit z-index channel
   // (SceneObject.tsx) that sidesteps the whole 3D-context question.
@@ -704,7 +704,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   // (focused -> sandwiched) flips unconditionally at commit, for the WHOLE
   // transition; RISING (sandwiched -> focused) stays low until its own
   // height spring settles. Both directions reduce to the SAME invariant
-  // under a single overlap-window methodology: while the two panels
+  // under a single overlap-window methodology: while the two object nodes
   // genuinely, geometrically overlap (fresh gBCRs every frame, never a
   // stale pre-click snapshot), middle must never win paint order, and its
   // own zIndex must never read a value that would let it. Design intent —
@@ -715,7 +715,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   }
 
   // Scans a Y range for a point covered by the target pair's own boxes but
-  // NEITHER of the excluded panels — needed because, in a fanned multi-
+  // NEITHER of the excluded object nodes — needed because, in a fanned multi-
   // sandwiched stack, most of any adjacent pair's shared region is ALSO
   // covered by something else shallower still (measured: even the always-
   // visible focused neighbors extend a few px into the sandwiched
@@ -742,15 +742,15 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   // belongs to some SceneObject's own subtree, rather than trusting index
   // 0 alone. Real finding (rider 5's own probe, confirmed with an
   // isolated minimal repro too — see this describe block's own dedicated
-  // test): a negative z-index panel paints BEHIND every intermediate
+  // test): a negative z-index object node paints BEHIND every intermediate
   // ancestor's own box, including plain, non-stacking-context-
   // establishing wrappers like data-column-content — not just "the
   // stacking-context root" as originally assumed. Where NOTHING else (no
   // other real object's own content) is ALSO geometrically present at a
   // sample point, such a wrapper's own (currently invisible — no
   // background set anywhere in this tree today) box wins the raw hit-test
-  // ahead of the actual panel, purely a structural CSS consequence, not a
-  // visual regression: nothing opaque is actually painted over the panel,
+  // ahead of the actual object node, purely a structural CSS consequence, not a
+  // visual regression: nothing opaque is actually painted over the object node,
   // so nothing is visibly wrong today, but it means the FIRST intermediate
   // wrapper that ever gains a background would silently occlude every
   // sandwiched card behind it. Skipping past such non-object wrappers to
@@ -767,8 +767,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     return undefined;
   }
 
-  function zIndexOf(panel: HTMLElement): string {
-    return getComputedStyle(panel).zIndex;
+  function zIndexOf(objectNode: HTMLElement): string {
+    return getComputedStyle(objectNode).zIndex;
   }
 
   function isReceded(zIndexValue: string): boolean {
@@ -798,17 +798,17 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middlePanel = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const bottomPanel = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const middleObjectNode = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const bottomObjectNode = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
-    const zIndexBefore = zIndexOf(middlePanel);
+    const zIndexBefore = zIndexOf(middleObjectNode);
     (getByTestId("toggle").element() as HTMLElement).click();
 
     // Precondition: sinking is unconditional on focus state alone — no
     // spring, no registration to wait for — so a single frame of slack for
     // React to flush is generous, not a real timing race.
     await waitForAnimationFrame();
-    const zIndexAfterCommit = zIndexOf(middlePanel);
+    const zIndexAfterCommit = zIndexOf(middleObjectNode);
     if (zIndexAfterCommit === zIndexBefore) {
       throw new Error(`zIndex never changed from its pre-click value ("${zIndexBefore}") within one frame of the click — setup bug, not a timing race`);
     }
@@ -822,9 +822,9 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const start = performance.now();
     for (let i = 0; i < 150; i++) {
       await waitForAnimationFrame();
-      if (!isReceded(zIndexOf(middlePanel))) zIndexEverNotRecededWhileUnfocused = true;
-      const mRect = middlePanel.getBoundingClientRect();
-      const bRect = bottomPanel.getBoundingClientRect();
+      if (!isReceded(zIndexOf(middleObjectNode))) zIndexEverNotRecededWhileUnfocused = true;
+      const mRect = middleObjectNode.getBoundingClientRect();
+      const bRect = bottomObjectNode.getBoundingClientRect();
       const left = Math.max(mRect.left, bRect.left);
       const right = Math.min(mRect.right, bRect.right);
       const top = Math.max(mRect.top, bRect.top);
@@ -843,7 +843,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // observed. K=10 chosen with the same margin logic as the original
     // round-5 measurement (well below any real observed window, still
     // requiring a substantial, non-accidental sample count).
-    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's object nodes — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
 
     expect(zIndexEverNotRecededWhileUnfocused, "zIndex read a non-negative/auto value at least once while sinking — it must stay receded unconditionally, for the WHOLE transition, per the design's own unconditional-sinking rule").toBe(false);
 
@@ -857,14 +857,14 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // once settled for this direction (measured, round 5) — zIndex must
     // still read receded there, not just transiently during the spring.
     await wait(1500);
-    const zIndexAtRest = zIndexOf(middlePanel);
+    const zIndexAtRest = zIndexOf(middleObjectNode);
     expect(isReceded(zIndexAtRest), `zIndex at rest was "${zIndexAtRest}", expected a negative, depth-scaled value`).toBe(true);
-    const mRectFinal = middlePanel.getBoundingClientRect();
-    const bRectFinal = bottomPanel.getBoundingClientRect();
+    const mRectFinal = middleObjectNode.getBoundingClientRect();
+    const bRectFinal = bottomObjectNode.getBoundingClientRect();
     const stillOverlaps =
       Math.max(mRectFinal.left, bRectFinal.left) < Math.min(mRectFinal.right, bRectFinal.right) &&
       Math.max(mRectFinal.top, bRectFinal.top) < Math.min(mRectFinal.bottom, bRectFinal.bottom);
-    expect(stillOverlaps, "middle and bottom panels no longer overlap at rest — setup bug or design changed").toBe(true);
+    expect(stillOverlaps, "middle and bottom object nodes no longer overlap at rest — setup bug or design changed").toBe(true);
     const finalCentroidX = (Math.max(mRectFinal.left, bRectFinal.left) + Math.min(mRectFinal.right, bRectFinal.right)) / 2;
     const finalCentroidY = (Math.max(mRectFinal.top, bRectFinal.top) + Math.min(mRectFinal.bottom, bRectFinal.bottom)) / 2;
     const ownerAtRest = ownerOf(document.elementsFromPoint(finalCentroidX, finalCentroidY)[0] ?? null);
@@ -894,10 +894,10 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middlePanel = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const bottomPanel = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const middleObjectNode = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const bottomObjectNode = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
-    const zIndexBefore = zIndexOf(middlePanel);
+    const zIndexBefore = zIndexOf(middleObjectNode);
     if (!isReceded(zIndexBefore)) {
       throw new Error(`zIndex before the rise was "${zIndexBefore}" — expected a negative, depth-scaled value for a settled sandwiched mount, not a timing race`);
     }
@@ -910,15 +910,15 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const start = performance.now();
     for (let i = 0; i < 150; i++) {
       await waitForAnimationFrame();
-      const mRect = middlePanel.getBoundingClientRect();
-      const bRect = bottomPanel.getBoundingClientRect();
+      const mRect = middleObjectNode.getBoundingClientRect();
+      const bRect = bottomObjectNode.getBoundingClientRect();
       const left = Math.max(mRect.left, bRect.left);
       const right = Math.min(mRect.right, bRect.right);
       const top = Math.max(mRect.top, bRect.top);
       const bottom = Math.min(mRect.bottom, bRect.bottom);
       if (left < right && top < bottom) {
         overlapFrames++;
-        if (!isReceded(zIndexOf(middlePanel))) zIndexEverReleasedDuringOverlap = true;
+        if (!isReceded(zIndexOf(middleObjectNode))) zIndexEverReleasedDuringOverlap = true;
         const centroidX = (left + right) / 2;
         const centroidY = (top + bottom) / 2;
         const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
@@ -932,7 +932,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // (37 frames, 3/3 runs deterministic) — well below the observed
     // window, generous margin for run-to-run variance, but still
     // requiring a substantial, non-accidental sample count.
-    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and bottom's object nodes — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
 
     expect(zIndexEverReleasedDuringOverlap, "zIndex released to a non-negative/auto value at least once while middle still genuinely overlapped bottom — it must stay receded until settle").toBe(false);
 
@@ -946,7 +946,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // half (the riser must eventually rejoin normal stacking, not stay
     // permanently receded).
     await wait(1500);
-    const zIndexAtRest = zIndexOf(middlePanel);
+    const zIndexAtRest = zIndexOf(middleObjectNode);
     expect(zIndexAtRest, `zIndex never released to "auto" after settling — read "${zIndexAtRest}"`).toBe("auto");
   });
 
@@ -964,8 +964,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
       return (
         <TestWrapper fullPage>
           {/* Large peekOffset + objectGap (defaults are 12px / 8px, both
-              tiny relative to a 150px panel height) — with the defaults,
-              every sandwiched sibling's panel overlaps every other one
+              tiny relative to a 150px object height) — with the defaults,
+              every sandwiched sibling's object node overlaps every other one
               (and the focused neighbors on both sides) almost entirely,
               leaving no region where only an adjacent pair is present to
               sample; a large peekOffset alone still lets the DEEPEST
@@ -1002,11 +1002,11 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<MultiDemo />);
     await wait(600);
 
-    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const panelA = container.querySelector('[data-scene-object="obj-a"]') as HTMLElement;
-    const panelB = container.querySelector('[data-scene-object="obj-b"]') as HTMLElement;
-    const panelC = container.querySelector('[data-scene-object="obj-c"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeA = container.querySelector('[data-scene-object="obj-a"]') as HTMLElement;
+    const objectNodeB = container.querySelector('[data-scene-object="obj-b"]') as HTMLElement;
+    const objectNodeC = container.querySelector('[data-scene-object="obj-c"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
     const depthA = container.querySelector('[data-scene-id="obj-a"]')?.getAttribute("data-within-column-depth");
     const depthB = container.querySelector('[data-scene-id="obj-b"]')?.getAttribute("data-within-column-depth");
@@ -1016,33 +1016,33 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // from them.
     expect([depthA, depthB, depthC], `depths were a=${depthA} b=${depthB} c=${depthC} — expected three distinct depths (3, 2, 1)`).toEqual(["3", "2", "1"]);
 
-    const cOverBY = findCleanSampleY(panelC, panelB, [panelTop, panelA, panelBottom]);
-    const bOverAY = findCleanSampleY(panelB, panelA, [panelTop, panelC, panelBottom]);
+    const cOverBY = findCleanSampleY(objectNodeC, objectNodeB, [objectNodeTop, objectNodeA, objectNodeBottom]);
+    const bOverAY = findCleanSampleY(objectNodeB, objectNodeA, [objectNodeTop, objectNodeC, objectNodeBottom]);
 
     expect(cOverBY, "no clean sample point found within obj-c/obj-b's shared range, excluding stack-top/obj-a/stack-bottom — setup bug or design changed").not.toBeUndefined();
     expect(bOverAY, "no clean sample point found within obj-b/obj-a's shared range, excluding stack-top/obj-c/stack-bottom — setup bug or design changed").not.toBeUndefined();
 
-    const cOverBOwner = ownerAt(cOverBY!, panelC);
-    const bOverAOwner = ownerAt(bOverAY!, panelB);
+    const cOverBOwner = ownerAt(cOverBY!, objectNodeC);
+    const bOverAOwner = ownerAt(bOverAY!, objectNodeB);
 
     expect(cOverBOwner, `owner at a clean obj-c/obj-b sample point (y=${cOverBY}) was "${cOverBOwner}", expected "obj-c" (shallower, depth 1, over obj-b, depth 2)`).toBe("obj-c");
     expect(bOverAOwner, `owner at a clean obj-b/obj-a sample point (y=${bOverAY}) was "${bOverAOwner}", expected "obj-b" (shallower, depth 2, over obj-a, depth 3)`).toBe("obj-b");
   });
 
-  test("at a sandwiched panel's exclusive peek sliver, elementsFromPoint's raw topmost hit is the panel itself — CSS hazard fixed, kept as a regression guard", async () => {
+  test("at a sandwiched object's exclusive peek sliver, elementsFromPoint's raw topmost hit is the object node itself — CSS hazard fixed, kept as a regression guard", async () => {
     // Rider 5's own probe (z-index channel adjudication): "verify, not
     // assume" that negative z-index paints behind only the stacking-
     // context ROOT's own background found this FALSE as originally
     // stated — an isolated minimal repro showed elementsFromPoint's raw
     // index-0 hit was "data-column-content", an ORDINARY, non-stacking-
     // context-establishing intermediate wrapper, not the stacking-context
-    // root and not the panel itself. That was also a real, user-facing
+    // root and not the object node itself. That was also a real, user-facing
     // click-targeting regression (a genuine hit-tested click at this same
     // sliver missed the card's own onActivate handler entirely — see the
     // "sandwiched card click-targeting" describe block below), fixed by
     // giving data-column-content `isolation: isolate` (its own comment,
     // SceneColumn.tsx): a stacking-context ROOT's own background paints
-    // FIRST, before its negative z-index descendants, so the panel now
+    // FIRST, before its negative z-index descendants, so the object node now
     // correctly wins the raw hit-test too — this test's own original
     // assertion flipped from red-if-fixed to green-if-fixed when that
     // landed (its own failure message said as much, verbatim, when this
@@ -1073,35 +1073,35 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const panelMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
-    const sliverY = findCleanSampleY(panelMiddle, panelMiddle, [panelTop, panelBottom]);
+    const sliverY = findCleanSampleY(objectNodeMiddle, objectNodeMiddle, [objectNodeTop, objectNodeBottom]);
     expect(sliverY, "no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed").not.toBeUndefined();
 
-    const mRect = panelMiddle.getBoundingClientRect();
+    const mRect = objectNodeMiddle.getBoundingClientRect();
     const sampleX = (mRect.left + mRect.right) / 2;
     const rawTopmost = document.elementsFromPoint(sampleX, sliverY!)[0];
 
-    // Regression guard: raw index-0 IS the panel itself, post-fix.
+    // Regression guard: raw index-0 IS the object node itself, post-fix.
     expect(
       rawTopmost?.getAttribute("data-scene-object"),
-      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-object=${rawTopmost?.getAttribute("data-scene-object")}", expected the panel itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
+      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-object=${rawTopmost?.getAttribute("data-scene-object")}", expected the object node itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
     ).toBe("stack-middle");
 
     // ownerAt's search-past-wrappers approach still works too (belt and
     // suspenders — it doesn't depend on this specific fix and stays
     // correct even if some OTHER, not-yet-isolated wrapper elsewhere
     // reintroduces the same class of hazard).
-    const robustOwner = ownerAt(sliverY!, panelMiddle);
+    const robustOwner = ownerAt(sliverY!, objectNodeMiddle);
     expect(robustOwner, `owner at stack-middle's own exclusive sliver (searched past non-object wrappers) was "${robustOwner}", expected "stack-middle"`).toBe("stack-middle");
   });
 });
 
 describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 escalation, real regression)", () => {
   // The z-index channel's own negative z-index values (SceneObject.tsx)
-  // place a sandwiched panel in the CSS "negative z-index" paint bucket,
+  // place a sandwiched object node in the CSS "negative z-index" paint bucket,
   // which paints BEHIND its own ancestor's box (the well-documented use
   // of negative z-index) — unlike the OLD translateZ-only approach, which
   // never carried an explicit z-index and so stayed in the "auto,
@@ -1154,14 +1154,14 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const panelMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const objectNodeMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
     const anchorMiddle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const panelTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const panelBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
 
-    const mRect = panelMiddle.getBoundingClientRect();
-    const tRect = panelTop.getBoundingClientRect();
-    const bRect = panelBottom.getBoundingClientRect();
+    const mRect = objectNodeMiddle.getBoundingClientRect();
+    const tRect = objectNodeTop.getBoundingClientRect();
+    const bRect = objectNodeBottom.getBoundingClientRect();
 
     let sliverY: number | undefined;
     for (let y = mRect.top + 1; y < mRect.bottom; y++) {
@@ -1174,7 +1174,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     }
     // Non-vacuity precondition: a genuine exclusive sliver must exist —
     // a fixture with no sliver at all can't test what a click there does.
-    expect(sliverY, `no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed (panelTop=${JSON.stringify(tRect)} panelMiddle=${JSON.stringify(mRect)} panelBottom=${JSON.stringify(bRect)})`).not.toBeUndefined();
+    expect(sliverY, `no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed (objectNodeTop=${JSON.stringify(tRect)} objectNodeMiddle=${JSON.stringify(mRect)} objectNodeBottom=${JSON.stringify(bRect)})`).not.toBeUndefined();
 
     const clickX = (mRect.left + mRect.right) / 2;
     const clickY = sliverY!;
@@ -1301,7 +1301,7 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
   // effect's own setHeightSettled(false) has had a chance to apply — this
   // lets the "keep synced" effect fire on the SAME commit, calling
   // heightMV.set(measured) directly (a synchronous overwrite, not a
-  // spring) with the panel's real DOM height. heightMV then briefly
+  // spring) with the object node's real DOM height. heightMV then briefly
   // free-falls to a near-zero measurement on the following commit before
   // climbing back to its correct target across several more frames —
   // confirmed via direct instrumentation (heightMV.get() sampled every
@@ -1387,7 +1387,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
   // anchor) at the second toggle's commit, not the full outlier-detector
   // methodology (that's Slice 3's extension of this same test, mirroring
   // exactly how ui#17's own E1 sequenced it).
-  test("a second focus change landing mid-transition does not corrupt a bystander object's panel geometry", async () => {
+  test("a second focus change landing mid-transition does not corrupt a bystander object's own geometry", async () => {
     function Demo() {
       const [midAFocused, setMidAFocused] = useState(true);
       return (
@@ -1419,7 +1419,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     await wait(500);
 
     const midBAnchorEl = container.querySelector('[data-scene-id="mid-b"]') as HTMLElement;
-    const midBPanelEl = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
+    const midBObjectNodeEl = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
     const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
     // "mid-b" (DOM order: top, mid-b, mid-a, bottom) is anchored to
@@ -1432,22 +1432,22 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     await wait(150); // deliberately mid-spring, matching ui#17's own E1 timing
 
     const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
-    const midAPanelEl = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
+    const midAObjectNodeEl = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
     const initialMidBDepth = midBAnchorEl.getAttribute("data-within-column-depth");
 
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
 
     // "mid-a" itself: position flips synchronously-in-intent but not
     // synchronously-in-commit (same registry-correction lag ui#17's own
-    // horizontal version documented) — poll for its own panel style.position
+    // horizontal version documented) — poll for its own object node style.position
     // to actually change. Layout-box geometry against mid-a's own anchor.
-    const midA = await captureFlipCommit(midAPanelEl, 2000, undefined, midAAnchorEl);
-    // "mid-b": never itself toggles, so its own panel style.position never
+    const midA = await captureFlipCommit(midAObjectNodeEl, 2000, undefined, midAAnchorEl);
+    // "mid-b": never itself toggles, so its own object node style.position never
     // changes — poll for its within-column-depth retarget instead (the
     // side-effect signal that its bystander geometry depends on). Layout-box
     // geometry against mid-b's own anchor.
     const midB = await captureFlipCommit(
-      midBPanelEl,
+      midBObjectNodeEl,
       2000,
       () => midBAnchorEl.getAttribute("data-within-column-depth") !== initialMidBDepth,
       midBAnchorEl,
@@ -1578,7 +1578,7 @@ function buildDoubleInterruptionFixture(initialMidAFocused: boolean) {
 /**
  * Mounts the double-interruption fixture, triggers mid-a's FIRST toggle
  * ONLY (no interrupt), and measures how long the transition takes to
- * settle across all 4 panels — the basis for this describe block's derived
+ * settle across all 4 object nodes — the basis for this describe block's derived
  * early/mid/late interrupt timings (25%/50%/75% of this measured
  * duration).
  */
@@ -1587,11 +1587,11 @@ async function measureDeckSettleDurationMs(initialMidAFocused: boolean): Promise
   const { getByTestId, container } = await render(<Demo />);
   await wait(500);
 
-  const panels = ["top", "mid-b", "mid-a", "bottom"].map(
+  const objectNodes = ["top", "mid-b", "mid-a", "bottom"].map(
     (name) => container.querySelector(`[data-scene-object="${name}"]`) as HTMLElement,
   );
   (getByTestId("toggle").element() as HTMLElement).click();
-  const durationMs = await measureSettleDurationMs(panels);
+  const durationMs = await measureSettleDurationMs(objectNodes);
   await cleanup();
   return durationMs;
 }
@@ -1626,10 +1626,10 @@ async function runFullInterruptionTrial(
   const { getByTestId, container } = await render(<Demo />);
   await wait(500);
 
-  const topPanel = container.querySelector('[data-scene-object="top"]') as HTMLElement;
-  const midBPanel = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
-  const midAPanel = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
-  const bottomPanel = container.querySelector('[data-scene-object="bottom"]') as HTMLElement;
+  const topObjectNode = container.querySelector('[data-scene-object="top"]') as HTMLElement;
+  const midBObjectNode = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
+  const midAObjectNode = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
+  const bottomObjectNode = container.querySelector('[data-scene-object="bottom"]') as HTMLElement;
   const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
   const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
@@ -1641,43 +1641,43 @@ async function runFullInterruptionTrial(
   toggleBtn.click(); // first toggle: starts the transition under test
   await wait(interruptDelayMs); // no sampling yet — see this function's own doc comment
 
-  const topSamples: GBCRBox[] = [sample(topPanel)];
-  const midBSamples: GBCRBox[] = [sample(midBPanel)];
-  const midASamples: GBCRBox[] = [sample(midAPanel)];
-  const bottomSamples: GBCRBox[] = [sample(bottomPanel)];
+  const topSamples: GBCRBox[] = [sample(topObjectNode)];
+  const midBSamples: GBCRBox[] = [sample(midBObjectNode)];
+  const midASamples: GBCRBox[] = [sample(midAObjectNode)];
+  const bottomSamples: GBCRBox[] = [sample(bottomObjectNode)];
   for (let i = 0; i < 3; i++) {
     await waitForAnimationFrame();
-    topSamples.push(sample(topPanel));
-    midBSamples.push(sample(midBPanel));
-    midASamples.push(sample(midAPanel));
-    bottomSamples.push(sample(bottomPanel));
+    topSamples.push(sample(topObjectNode));
+    midBSamples.push(sample(midBObjectNode));
+    midASamples.push(sample(midAObjectNode));
+    bottomSamples.push(sample(bottomObjectNode));
   }
 
-  const initialMidAPosition = midAPanel.style.position;
+  const initialMidAPosition = midAObjectNode.style.position;
   toggleBtn.click(); // interrupt: mid-a's second toggle, mid-transition
 
-  let midABefore = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+  let midABefore = new DOMRect(midAObjectNode.offsetLeft, midAObjectNode.offsetTop, midAObjectNode.offsetWidth, midAObjectNode.offsetHeight);
   let midAAfter: DOMRect | undefined;
   const start = performance.now();
   while (performance.now() - start < 1000) {
     await waitForAnimationFrame();
-    topSamples.push(sample(topPanel));
-    midBSamples.push(sample(midBPanel));
-    midASamples.push(sample(midAPanel));
-    bottomSamples.push(sample(bottomPanel));
-    if (!midAAfter && midAPanel.style.position !== initialMidAPosition) {
-      if (midAPanel.offsetParent !== midAAnchorEl) {
+    topSamples.push(sample(topObjectNode));
+    midBSamples.push(sample(midBObjectNode));
+    midASamples.push(sample(midAObjectNode));
+    bottomSamples.push(sample(bottomObjectNode));
+    if (!midAAfter && midAObjectNode.style.position !== initialMidAPosition) {
+      if (midAObjectNode.offsetParent !== midAAnchorEl) {
         throw new Error(
-          `runFullInterruptionTrial: expected mid-a panel's offsetParent to be its anchor but it was ${midAPanel.offsetParent ? `<${midAPanel.offsetParent.tagName}>` : "null"}`,
+          `runFullInterruptionTrial: expected mid-a object node's offsetParent to be its anchor but it was ${midAObjectNode.offsetParent ? `<${midAObjectNode.offsetParent.tagName}>` : "null"}`,
         );
       }
-      midAAfter = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+      midAAfter = new DOMRect(midAObjectNode.offsetLeft, midAObjectNode.offsetTop, midAObjectNode.offsetWidth, midAObjectNode.offsetHeight);
     } else if (!midAAfter) {
-      midABefore = new DOMRect(midAPanel.offsetLeft, midAPanel.offsetTop, midAPanel.offsetWidth, midAPanel.offsetHeight);
+      midABefore = new DOMRect(midAObjectNode.offsetLeft, midAObjectNode.offsetTop, midAObjectNode.offsetWidth, midAObjectNode.offsetHeight);
     }
   }
   if (!midAAfter) {
-    throw new Error("runFullInterruptionTrial: mid-a's panel position never flipped within the 1000ms post-interrupt sampling window");
+    throw new Error("runFullInterruptionTrial: mid-a's object node position never flipped within the 1000ms post-interrupt sampling window");
   }
 
   await cleanup();
@@ -1781,24 +1781,24 @@ describe("Within-column deck (ui#21): double-interruption, full methodology (for
 
 describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
   // Replaces the browser's native outline:auto (broken by this arc's own
-  // anchor/panel split — the panel, an opaque descendant always present
+  // anchor/object split — the object node, an opaque descendant always present
   // post-split, occludes roughly half of a straddling native ring; see the
-  // worker report's occlusion-vs-shrink discriminator). Panel-placement
+  // worker report's occlusion-vs-shrink discriminator). Object-node-placement
   // ruling (Michael: "on the card makes sense") moved the PAINT from the
-  // anchor to the panel — focus semantics (tabIndex, the real DOM focus
+  // anchor to the object node — focus semantics (tabIndex, the real DOM focus
   // target) stay on the anchor, via Tailwind's `group/scene-object`/
   // `group-focus-visible/scene-object:` pattern (anchor is the group,
-  // panel paints when the group is :focus-visible). Fixes a real gap
+  // object node paints when the group is :focus-visible). Fixes a real gap
   // the anchor-placed ring never solved: a SANDWICHED object's anchor
   // is a zero-footprint, invisible wrapper — a ring drawn there was
   // never visible on the actual card a keyboard user sees (see this
   // block's own third test). Drawn entirely
-  // outside the PANEL's own border edge (outline-offset:0 with a non-
+  // outside the OBJECT NODE's own border edge (outline-offset:0 with a non-
   // "auto" style is spec-guaranteed outward-only) so no further
   // descendant can ever cover it. 2px (Michael's directive, was 1px on
   // the anchor-placed original); color unchanged, measured from a fresh
   // master (pre-split) capture's own computed outline, not guessed.
-  test("a keyboard-focused object's panel shows the custom ring, not the native outline", async () => {
+  test("a keyboard-focused object's own node shows the custom ring, not the native outline", async () => {
     function Demo() {
       return (
         <TestWrapper fullPage>
@@ -1817,12 +1817,12 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 
     // Focus semantics stay on the anchor — this is the real DOM focus
-    // target, unchanged by the panel-placement move.
+    // target, unchanged by the object-node-placement move.
     expect(anchorEl).toBe(document.activeElement);
 
     // The anchor itself shows no outline — its own native outline:auto
@@ -1831,15 +1831,15 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     const anchorCs = window.getComputedStyle(anchorEl);
     expect(anchorCs.outlineStyle).toBe("none");
 
-    // The panel is where the ring now paints.
-    const panelCs = window.getComputedStyle(panelEl);
-    expect(panelCs.outlineStyle).toBe("solid");
-    expect(panelCs.outlineWidth).toBe("2px");
-    expect(panelCs.outlineColor).toBe("rgb(153, 200, 255)");
-    expect(panelCs.outlineOffset).toBe("0px");
+    // The object node is where the ring now paints.
+    const objectNodeCs = window.getComputedStyle(objectNodeEl);
+    expect(objectNodeCs.outlineStyle).toBe("solid");
+    expect(objectNodeCs.outlineWidth).toBe("2px");
+    expect(objectNodeCs.outlineColor).toBe("rgb(153, 200, 255)");
+    expect(objectNodeCs.outlineOffset).toBe("0px");
   });
 
-  test("an unfocused object's panel shows no outline", async () => {
+  test("an unfocused object's own node shows no outline", async () => {
     function Demo() {
       return (
         <TestWrapper fullPage>
@@ -1858,20 +1858,20 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     expect(anchorEl).not.toBe(document.activeElement);
-    expect(window.getComputedStyle(panelEl).outlineStyle).toBe("none");
+    expect(window.getComputedStyle(objectNodeEl).outlineStyle).toBe("none");
   });
 
   test("a sandwiched object's VISIBLE card rings when focused, not its invisible zero-footprint anchor", async () => {
-    // The whole point of the panel-placement move: the anchor-placed
+    // The whole point of the object-node-placement move: the anchor-placed
     // original could never show a ring on a sandwiched object at all —
     // its anchor is a permanently zero-footprint wrapper (settled), so a
     // ring drawn there paints on a box with no visible area. A cheap
     // assertion on the tucked state alone (e.g. "the anchor has no
     // outline") would have locked in exactly that gap without ever
     // proving the ring reaches the card a keyboard user actually sees —
-    // this test asserts the panel's own outline directly instead.
+    // this test asserts the object node's own outline directly instead.
     function Demo() {
       return (
         <TestWrapper fullPage>
@@ -1896,7 +1896,7 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await wait(600);
 
     const anchorEl = container.querySelector('[data-scene-id="middle"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-object="middle"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-scene-object="middle"]') as HTMLElement;
 
     anchorEl.focus();
     await waitForAnimationFrame();
@@ -1904,25 +1904,25 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     expect(anchorEl).toBe(document.activeElement);
 
     // Non-vacuity precondition: the anchor really is zero-footprint (the
-    // settled-sandwiched state this test exists to cover), and the panel
+    // settled-sandwiched state this test exists to cover), and the object node
     // really is a full-size, visible box — otherwise this test wouldn't
     // be exercising the gap it claims to.
     const anchorRect = anchorEl.getBoundingClientRect();
-    const panelRect = panelEl.getBoundingClientRect();
+    const objectNodeRect = objectNodeEl.getBoundingClientRect();
     expect(anchorRect.height, `anchor height was ${anchorRect.height}, expected 0 (settled sandwiched, zero-footprint) — setup bug or design changed`).toBe(0);
-    expect(panelRect.height, `panel height was ${panelRect.height}, expected > 0 (a real, visible card) — setup bug or design changed`).toBeGreaterThan(0);
+    expect(objectNodeRect.height, `object node height was ${objectNodeRect.height}, expected > 0 (a real, visible card) — setup bug or design changed`).toBeGreaterThan(0);
 
-    const panelCs = window.getComputedStyle(panelEl);
-    expect(panelCs.outlineStyle).toBe("solid");
-    expect(panelCs.outlineWidth).toBe("2px");
-    expect(panelCs.outlineColor).toBe("rgb(153, 200, 255)");
+    const objectNodeCs = window.getComputedStyle(objectNodeEl);
+    expect(objectNodeCs.outlineStyle).toBe("solid");
+    expect(objectNodeCs.outlineWidth).toBe("2px");
+    expect(objectNodeCs.outlineColor).toBe("rgb(153, 200, 255)");
   });
 
   test("consumers override the ring's color/width/offset/radius via CSS custom properties on an ancestor", async () => {
     // Michael's ring customization ruling: consumers add their own ring
     // colors and radius by overriding the four CSS custom properties the
-    // panel's outline rule (and its own borderRadius) consume as
-    // var(--x,default) — see the panel's own className/style comments for
+    // object node's outline rule (and its own borderRadius) consume as
+    // var(--x,default) — see the object node's own className/style comments for
     // the full four-var contract. Custom properties inherit down the DOM
     // tree, so a scoped wrapper ancestor is enough; no component prop.
     function Demo() {
@@ -1954,17 +1954,17 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     await waitForAnimationFrame();
 
     const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const panelEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 
     expect(anchorEl).toBe(document.activeElement);
 
-    const panelCs = window.getComputedStyle(panelEl);
-    expect(panelCs.outlineStyle).toBe("solid");
-    expect(panelCs.outlineWidth).toBe("4px");
-    expect(panelCs.outlineColor).toBe("rgb(255, 0, 0)");
-    expect(panelCs.outlineOffset).toBe("3px");
-    expect(panelCs.borderRadius).toBe("12px");
+    const objectNodeCs = window.getComputedStyle(objectNodeEl);
+    expect(objectNodeCs.outlineStyle).toBe("solid");
+    expect(objectNodeCs.outlineWidth).toBe("4px");
+    expect(objectNodeCs.outlineColor).toBe("rgb(255, 0, 0)");
+    expect(objectNodeCs.outlineOffset).toBe("3px");
+    expect(objectNodeCs.borderRadius).toBe("12px");
   });
 });

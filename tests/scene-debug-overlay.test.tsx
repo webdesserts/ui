@@ -16,7 +16,7 @@ describe("Scene debug mode", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -35,7 +35,7 @@ describe("Scene debug mode", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="debug-content" />
             </SceneObject>
           </SceneColumn>
@@ -54,7 +54,7 @@ describe("Scene debug mode", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -75,7 +75,7 @@ describe("Scene debug mode", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="my-panel" focused>
+            <SceneObject name="my-object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -87,7 +87,7 @@ describe("Scene debug mode", () => {
     const overlay = scene.querySelector("[data-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Overlay should mention the object name and focused state
-    expect(overlay?.textContent).toContain("my-panel");
+    expect(overlay?.textContent).toContain("my-object");
     expect(overlay?.textContent).toContain("focused");
   });
 });
@@ -321,7 +321,7 @@ describe("Scene debug — active springs panel", () => {
     const { rerender, getByTestId } = await render(build(true));
     const scene = getByTestId("scene").element();
     await waitForAnimationFrame();
-    // ui#21 anchor/panel split: the object-level spring key registered
+    // ui#21 anchor/object split: the object-level spring key registered
     // unconditionally (every SceneObject, regardless of sandwiched state)
     // is now `height:${name}` (the height channel), not the retired
     // `withinColumnTop:${name}` MotionValue.
@@ -339,7 +339,7 @@ describe("Scene debug — active springs panel", () => {
     // section renders without throwing and lists the always-registered keys.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100 }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100 }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -437,7 +437,7 @@ describe("Scene debug — stage bounds outline", () => {
   test("does not appear when the stage matches the focused span (no hidden content)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100 }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100 }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -454,7 +454,7 @@ describe("Scene debug — stray child flags", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -472,7 +472,7 @@ describe("Scene debug — stray child flags", () => {
   test("does not flag a legitimate SceneColumn", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100 }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100 }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -536,7 +536,7 @@ describe("Scene debug — paint-order badges", () => {
     const badge = scene.querySelector("[data-debug-paint-badge='object:obj-b']");
     expect(badge).not.toBeNull();
     // ui#21 z-index paint-order channel amendment: object-level depth cards
-    // no longer carry translateZ at all — the badge now reads the panel's
+    // no longer carry translateZ at all — the badge now reads the object's
     // discrete zIndex write (depth-1 sandwiched -> -1), not a translateZ
     // pixel value.
     expect(badge?.textContent).toBe("z:-1");
@@ -549,7 +549,7 @@ describe("Scene debug — paint-order badges", () => {
   test("no badges when nothing is in the depth deck", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100 }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100 }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -691,7 +691,7 @@ describe("Scene debug — live slowMo toggle", () => {
     // (the F4 commit-1 purity bar, unaffected by pointer-events either way).
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100 }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100 }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -816,7 +816,7 @@ describe("Scene debug — toggle", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -834,7 +834,7 @@ describe("Scene debug — toggle", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -861,7 +861,7 @@ describe("Scene debug — stage outline", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -883,7 +883,7 @@ describe("Scene debug — stage outline", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -903,7 +903,7 @@ describe("Scene debug — SceneObject outlines", () => {
   test("Debug — focused objects have green outline with name", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "my-panel", focused: true, width: 200, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "my-object", focused: true, width: 200, height: 200, testId: "content" }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
@@ -911,34 +911,34 @@ describe("Scene debug — SceneObject outlines", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     // Focused object overlay should be present
-    const focusedOverlay = scene.querySelector("[data-debug-object-outline='my-panel']") as HTMLElement;
+    const focusedOverlay = scene.querySelector("[data-debug-object-outline='my-object']") as HTMLElement;
     expect(focusedOverlay).not.toBeNull();
     // Should have green color
     const style = window.getComputedStyle(focusedOverlay);
     const borderColor = style.borderColor + style.outlineColor + style.border;
     expect(borderColor).toMatch(/green|rgb\(0,\s*128,\s*0\)|rgb\(0,\s*255,\s*0\)|#0f0/i);
     // Should display the name
-    expect(focusedOverlay.textContent).toContain("my-panel");
+    expect(focusedOverlay.textContent).toContain("my-object");
   });
 
   test("Debug — unfocused objects have gray outline with name", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "unfocused-panel", focused: false, width: 200, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "unfocused-object", focused: false, width: 200, height: 200, testId: "content" }] }],
         { duration: 0, debug: true },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const unfocusedOverlay = scene.querySelector("[data-debug-object-outline='unfocused-panel']") as HTMLElement;
+    const unfocusedOverlay = scene.querySelector("[data-debug-object-outline='unfocused-object']") as HTMLElement;
     expect(unfocusedOverlay).not.toBeNull();
     // Unfocused overlay should have gray color
     const style = window.getComputedStyle(unfocusedOverlay);
     const borderColor = style.borderColor + style.outlineColor + style.border;
     expect(borderColor).toMatch(/gray|grey|rgb\(1(28|58|88),/i);
     // Should display the name
-    expect(unfocusedOverlay.textContent).toContain("unfocused-panel");
+    expect(unfocusedOverlay.textContent).toContain("unfocused-object");
   });
 
   test("Debug — SceneObject outlines are not present when debug is off", async () => {
@@ -946,7 +946,7 @@ describe("Scene debug — SceneObject outlines", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="my-panel" focused>
+            <SceneObject name="my-object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -1043,7 +1043,7 @@ describe("Scene debug — overlay computed bounds", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="my-panel" focused style={{ width: 300, height: 200 }}>
+            <SceneObject name="my-object" focused style={{ width: 300, height: 200 }}>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -1065,7 +1065,7 @@ describe("Scene debug — Camera state in overlay", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused style={{ width: 300, height: 200 }}>
+            <SceneObject name="object" focused style={{ width: 300, height: 200 }}>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -1087,7 +1087,7 @@ describe("Scene debug — Camera state in overlay", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>
@@ -1108,7 +1108,7 @@ describe("Scene debug — per-column scroll state in overlay", () => {
       <TestWrapper fullPage>
         <Scene duration={0} debug>
           <SceneColumn name="scrollable-col">
-            <SceneObject name="tall-panel" focused style={{ width: 300, height: 2000 }}>
+            <SceneObject name="tall-object" focused style={{ width: 300, height: 2000 }}>
               <div data-testid="content" />
             </SceneObject>
           </SceneColumn>

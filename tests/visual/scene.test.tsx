@@ -19,7 +19,7 @@ describe("Scene flex layout", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -49,7 +49,7 @@ describe("Scene flex layout", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="left">
-            <SceneObject name="left-panel" focused>
+            <SceneObject name="left-object" focused>
               <div
                 style={{
                   height: 300,
@@ -67,7 +67,7 @@ describe("Scene flex layout", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="right">
-            <SceneObject name="right-panel" focused>
+            <SceneObject name="right-object" focused>
               <div
                 style={{
                   height: 300,
@@ -96,7 +96,7 @@ describe("Scene flex layout", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="visible">
-            <SceneObject name="visible-panel" focused>
+            <SceneObject name="visible-object" focused>
               <div
                 style={{
                   height: 300,
@@ -114,7 +114,7 @@ describe("Scene flex layout", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="hidden">
-            <SceneObject name="hidden-panel" focused={false}>
+            <SceneObject name="hidden-object" focused={false}>
               <div
                 style={{
                   height: 300,
@@ -256,7 +256,7 @@ describe("Scene depth deck", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="left">
-            <SceneObject name="left-panel" focused>
+            <SceneObject name="left-object" focused>
               <div
                 style={{
                   width: 200,
@@ -276,7 +276,7 @@ describe("Scene depth deck", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="middle1">
-            <SceneObject name="middle1-panel" focused={false}>
+            <SceneObject name="middle1-object" focused={false}>
               <div
                 style={{
                   width: 200,
@@ -296,7 +296,7 @@ describe("Scene depth deck", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="middle2">
-            <SceneObject name="middle2-panel" focused={false}>
+            <SceneObject name="middle2-object" focused={false}>
               <div
                 style={{
                   width: 200,
@@ -316,7 +316,7 @@ describe("Scene depth deck", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="right">
-            <SceneObject name="right-panel" focused>
+            <SceneObject name="right-object" focused>
               <div
                 style={{
                   width: 200,

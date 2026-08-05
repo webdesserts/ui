@@ -18,7 +18,7 @@ describe("Scene keyboard scroll", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }}>
                 {/* A focusable element so keyboard focus can land inside */}
                 <button data-testid="focusable-btn">click me</button>
@@ -60,7 +60,7 @@ describe("Scene keyboard scroll", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }}>
                 <button data-testid="focusable-btn">click me</button>
               </div>
@@ -92,7 +92,7 @@ describe("Scene keyboard scroll", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }}>
                 <button data-testid="focusable-btn">click me</button>
               </div>
@@ -129,7 +129,7 @@ describe("Scene keyboard scroll", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }}>
                 <button data-testid="focusable-btn">click me</button>
               </div>
@@ -170,7 +170,7 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 400, height: 1200 }}>
                 <button data-testid="action-btn">action</button>
               </div>
@@ -204,7 +204,7 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     // D2), breaking the tab-to-region-then-arrow-scroll keyboard path.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -237,7 +237,7 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 400, height: 1200 }}>
                 <div data-testid="widget" tabIndex={0}>widget</div>
               </div>
@@ -283,7 +283,7 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -328,7 +328,7 @@ describe("Scene scroll position management", () => {
     // (It has never been focused before, so there's no saved position.)
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -348,7 +348,7 @@ describe("Scene scroll position management", () => {
     // maxScroll decreases, scrollOffset should be clamped to the new maxScroll.
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -381,7 +381,7 @@ describe("Scene scroll position management", () => {
     // Shrink content so maxScroll drops to 100px (content height 900px in 800px viewport)
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 900, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 900, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -410,12 +410,12 @@ describe("Scene scroll edge cases", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col1">
-            <SceneObject name="panel1" focused>
+            <SceneObject name="object1" focused>
               <div data-testid="content1" style={{ minWidth: 800, height: 1200 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused>
+            <SceneObject name="object2" focused>
               <div data-testid="content2" style={{ minWidth: 800, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -471,7 +471,7 @@ describe("Scene scroll edge cases", () => {
     const { rerender, getByTestId } = await render(
       // Tall content — overflows 800px viewport
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -486,7 +486,7 @@ describe("Scene scroll edge cases", () => {
     await rerender(
       // Short content — fits within 800px viewport
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -505,7 +505,7 @@ describe("Scene wheel input controller (S5)", () => {
   test("ctrl+wheel (pinch-zoom) does not scroll and does not preventDefault", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -536,7 +536,7 @@ describe("Scene wheel input controller (S5)", () => {
   test("deltaMode=LINE scales deltaY by 16px per line (3 lines -> 48px)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -774,7 +774,7 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowX: "auto" }}
@@ -1121,7 +1121,7 @@ describe("Scene keyboard scroll — wheel cliff detector must not intercept (ui#
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div style={{ width: 400, height: 43000 }}>
                   <button data-testid="focusable-btn">click me</button>
                 </div>
@@ -1166,7 +1166,7 @@ describe("Scene keyboard scroll — wheel cliff detector must not intercept (ui#
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div style={{ width: 400, height: 43000 }} />
               </SceneObject>
             </SceneColumn>

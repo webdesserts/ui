@@ -44,7 +44,7 @@ describe("Scene wheel input coalescing (F17 commit 2)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 4000 }} />
               </SceneObject>
             </SceneColumn>
@@ -106,7 +106,7 @@ describe("Scene wheel catch-stop detection (ui#27)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene {...(instant ? { duration: 0 } : {})}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div style={{ width: 400, height: 43000 }} />
               </SceneObject>
             </SceneColumn>

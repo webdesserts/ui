@@ -112,7 +112,7 @@ describe("Scene spring-chase — bounded under a real wheel stream (F17 commit 1
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 1882 }} />
               </SceneObject>
             </SceneColumn>

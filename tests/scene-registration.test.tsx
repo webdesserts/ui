@@ -44,7 +44,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -56,7 +56,7 @@ describe("SceneObject", () => {
     const content = getByTestId("content").element() as HTMLElement;
     const outer = content.closest("[data-scene-id]");
     expect(outer).not.toBeNull();
-    expect(outer?.getAttribute("data-scene-id")).toBe("panel");
+    expect(outer?.getAttribute("data-scene-id")).toBe("object");
   });
 
   test("renders with data-focused=true when focused", async () => {
@@ -64,7 +64,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -82,7 +82,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -100,7 +100,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -120,7 +120,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -144,7 +144,7 @@ describe("SceneColumn", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -163,7 +163,7 @@ describe("SceneColumn", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -181,7 +181,7 @@ describe("SceneColumn", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -204,7 +204,7 @@ describe("Scene auto-wrapping", () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
-          <SceneObject name="panel" focused>
+          <SceneObject name="object" focused>
             <div data-testid="content">content</div>
           </SceneObject>
         </Scene>
@@ -216,7 +216,7 @@ describe("Scene auto-wrapping", () => {
     const column = content.closest("[data-column]");
     expect(column).not.toBeNull();
     // The implicit column should use the SceneObject's name.
-    expect(column?.getAttribute("data-column")).toBe("panel");
+    expect(column?.getAttribute("data-column")).toBe("object");
   });
 
   test("SceneColumns pass through without wrapping", async () => {
@@ -224,7 +224,7 @@ describe("Scene auto-wrapping", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -479,7 +479,7 @@ describe("Scene registration architecture (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 100, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -508,7 +508,7 @@ describe("Scene registration architecture (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 100, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -540,7 +540,7 @@ describe("SceneColumn flex layout", () => {
   test("focused column has flex: 0 1 auto and position: relative", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -560,7 +560,7 @@ describe("SceneColumn flex layout", () => {
     // The Camera viewport clips its visibility, not opacity:0.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -658,7 +658,7 @@ describe("SceneColumn unfocused freeze", () => {
     // non-zero width and height (the frozen dimensions).
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 300, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 300, height: 200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -674,7 +674,7 @@ describe("SceneColumn unfocused freeze", () => {
     // Lose focus — the column should freeze at its last size
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 300, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 300, height: 200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -691,7 +691,7 @@ describe("SceneColumn unfocused freeze", () => {
   test("unfocused column stays in DOM", async () => {
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -699,7 +699,7 @@ describe("SceneColumn unfocused freeze", () => {
 
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -714,7 +714,7 @@ describe("SceneColumn unfocused freeze", () => {
   test("re-focusing column returns it to flex layout (position: relative)", async () => {
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -723,7 +723,7 @@ describe("SceneColumn unfocused freeze", () => {
     // Lose focus
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -732,7 +732,7 @@ describe("SceneColumn unfocused freeze", () => {
     // Regain focus
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -844,13 +844,13 @@ describe("SceneColumn unfocused freeze", () => {
           </button>
           <Scene>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused style={{ width: 160, height: "100%" }}>
+              <SceneObject name="nav-object" focused style={{ width: 160, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
               <SceneObject
-                name="article-panel"
+                name="article-object"
                 focused={articleFocused}
                 style={{ width: 480, height: "100%" }}
                 onActivate={() => setArticleFocused(true)}
@@ -859,7 +859,7 @@ describe("SceneColumn unfocused freeze", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="sidebar">
-              <SceneObject name="sidebar-panel" focused style={{ width: 160, height: "100%" }}>
+              <SceneObject name="sidebar-object" focused style={{ width: 160, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
@@ -897,12 +897,12 @@ describe("SceneColumn unfocused freeze", () => {
     // Rendered height is the true size projected ONCE by the depth deck's
     // own perspective (800 * 800/900 ≈ 711.1), not projected TWICE (a buggy
     // ~711px frozen size projected again would render ~632px). ui#17
-    // anchor/panel split: the z/perspective projection paints on the panel
+    // anchor/column split: the z/perspective projection paints on the column
     // node now, not the zero-footprint anchor `articleCol` itself (which
     // carries the un-projected frozen height checked above) — see the
-    // panel's own JSX comment for why.
-    const articlePanel = articleCol.querySelector("[data-scene-column]") as HTMLElement;
+    // column's own JSX comment for why.
+    const articleColumnNode = articleCol.querySelector("[data-scene-column]") as HTMLElement;
     const projectedOnce = 800 * (800 / 900);
-    expect(articlePanel.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
+    expect(articleColumnNode.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
   });
 });

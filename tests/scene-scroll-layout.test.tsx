@@ -17,7 +17,7 @@ describe("Scene alignment & centering (S7 coverage)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -49,7 +49,7 @@ describe("Scene alignment & centering (S7 coverage)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* 1000px tall overflows the 800px viewport; 300px wide fits */}
               <div data-testid="content" style={{ minWidth: 300, height: 1000 }} />
             </SceneObject>
@@ -115,7 +115,7 @@ describe("Scene alignment & centering (S7 coverage)", () => {
     const { getByTestId } = await render(
       // 1500px wide and 1000px tall overflow both the 1280x800 viewport.
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 1500, height: 1000, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 1500, height: 1000, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -303,7 +303,7 @@ describe("Scene gaps and padding", () => {
       <TestWrapper fullPage>
         <Scene duration={0} padding={32}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -327,7 +327,7 @@ describe("Scene gaps and padding", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -614,7 +614,7 @@ describe("Scene vertical scroll", () => {
             name: "col",
             objects: [
               // Taller than the 800px viewport.
-              { name: "panel", focused: true, width: 400, height: 1200, testId: "content" },
+              { name: "object", focused: true, width: 400, height: 1200, testId: "content" },
             ],
           },
         ],
@@ -639,7 +639,7 @@ describe("Scene vertical scroll", () => {
             name: "col",
             objects: [
               // Shorter than the 800px viewport.
-              { name: "panel", focused: true, width: 400, height: 200, testId: "content" },
+              { name: "object", focused: true, width: 400, height: 200, testId: "content" },
             ],
           },
         ],
@@ -660,7 +660,7 @@ describe("Scene vertical scroll", () => {
     // showing that scroll range > 0.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -709,7 +709,7 @@ describe("Scene vertical scroll", () => {
     // should move its top offset by -100 (content slides up by 100px).
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -757,8 +757,8 @@ describe("Scene vertical scroll", () => {
     const { getByTestId } = await render(
       buildScene(
         [
-          { name: "tall-col", objects: [{ name: "tall-panel", focused: true, width: 400, height: 1200, testId: "tall-content" }] },
-          { name: "short-col", objects: [{ name: "short-panel", focused: true, width: 400, height: 200, testId: "short-content" }] },
+          { name: "tall-col", objects: [{ name: "tall-object", focused: true, width: 400, height: 1200, testId: "tall-content" }] },
+          { name: "short-col", objects: [{ name: "short-object", focused: true, width: 400, height: 200, testId: "short-content" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -813,7 +813,7 @@ describe("Scene vertical scroll", () => {
     // this up on its own.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 300, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 300, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),

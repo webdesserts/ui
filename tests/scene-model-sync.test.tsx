@@ -89,7 +89,7 @@ async function mountAndFling() {
       <MotionSeamContext.Provider value={recorder}>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 4000 }} />
             </SceneObject>
           </SceneColumn>
@@ -260,7 +260,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 6000 }} />
               </SceneObject>
             </SceneColumn>

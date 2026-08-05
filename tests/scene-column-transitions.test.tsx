@@ -337,7 +337,7 @@ describe("SceneColumn vertical swap", () => {
 // preventScroll — so a plain DOM .click() swap trigger (not a
 // Playwright-actionability-checked locator click, which scrolls its
 // target into view first) does not risk a native focus-scroll rescuing
-// the panel and masking the bug under master's overflow-y:hidden.
+// the object and masking the bug under master's overflow-y:hidden.
 // ---------------------------------------------------------------------------
 
 describe("Scene entrance geometry — newly-mounted focus swap", () => {
@@ -597,7 +597,7 @@ describe("Scene centering", () => {
         <Scene duration={0}>
           {/* Column with a 300px min-width — smaller than the 1280px viewport */}
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="content"
                 style={{ minWidth: 300, height: 100 }}
@@ -660,7 +660,7 @@ describe("Scene centering", () => {
     const { getByTestId } = await render(
       // Short content: 100px in an 800px viewport
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 100, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 100, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -689,7 +689,7 @@ describe("Scene centering", () => {
     const { getByTestId } = await render(
       // Taller than 800px viewport
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 1000, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 1000, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -714,7 +714,7 @@ describe("Scene centering", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* Short content — fits 800px viewport */}
               <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
@@ -740,7 +740,7 @@ describe("Scene centering", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* Tall content — exceeds 800px viewport */}
               <div data-testid="content" style={{ minWidth: 200, height: 1000 }} />
             </SceneObject>
@@ -765,7 +765,7 @@ describe("Scene centering", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ minWidth: 200, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -1364,10 +1364,10 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
     // the observed disposition-4 snap rate (~57-71px/ms measured this
     // session on this exact fixture).
     //
-    // Passing (ui#17 Slice 1, anchor/panel restructure): disposition 4
+    // Passing (ui#17 Slice 1, anchor/object restructure): disposition 4
     // (the depth-deck flex<->absolute position-mode transition) is fixed —
     // the anchor stays a permanent zero-footprint in-flow node (never
-    // leaves flex), and the visible glass PANEL's own position-mode flip
+    // leaves flex), and the visible glass OBJECT's own position-mode flip
     // is provably zero-pixel by construction (the shared-origin geometric
     // argument this file's own zero-pixel-flip tests establish), so
     // there's no snap for this assertion to catch anymore.
@@ -1424,13 +1424,13 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
           </button>
           <Scene>
             <SceneColumn name="list">
-              <SceneObject name="list-panel" focused style={{ width: 200, height: "100%" }}>
+              <SceneObject name="list-object" focused style={{ width: 200, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="detail">
               <SceneObject
-                name="detail-panel"
+                name="detail-object"
                 focused={detailFocused}
                 style={{ width: 300, height: "100%" }}
               >
@@ -1438,7 +1438,7 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="chat">
-              <SceneObject name="chat-panel" focused style={{ width: 300, height: "100%" }}>
+              <SceneObject name="chat-object" focused style={{ width: 300, height: "100%" }}>
                 <div data-testid="chat-content" style={{ width: "100%", height: "100%" }}>
                   <button
                     data-testid="chat-target"
@@ -1536,13 +1536,13 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
           </button>
           <Scene>
             <SceneColumn name="list">
-              <SceneObject name="list-panel" focused style={{ width: 200, height: "100%" }}>
+              <SceneObject name="list-object" focused style={{ width: 200, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="detail">
               <SceneObject
-                name="detail-panel"
+                name="detail-object"
                 focused={detailFocused}
                 style={{ width: 300, height: "100%" }}
               >
@@ -1550,7 +1550,7 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="chat">
-              <SceneObject name="chat-panel" focused style={{ width: 300, height: "100%" }}>
+              <SceneObject name="chat-object" focused style={{ width: 300, height: "100%" }}>
                 <div data-testid="chat-content" style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>

@@ -20,25 +20,25 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
-              <button data-testid="btn-in-panel">action</button>
+            <SceneObject name="object" focused={false}>
+              <button data-testid="btn-in-object">action</button>
             </SceneObject>
           </SceneColumn>
         </Scene>
       </TestWrapper>,
     );
 
-    // Panel is not focused — button should not have keyboard focus.
-    const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+    // Object is not focused — button should not have keyboard focus.
+    const btn = getByTestId("btn-in-object").element() as HTMLElement;
     expect(document.activeElement).not.toBe(btn);
 
-    // Transition: make the panel focused.
+    // Transition: make the object focused.
     await rerender(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
-              <button data-testid="btn-in-panel">action</button>
+            <SceneObject name="object" focused>
+              <button data-testid="btn-in-object">action</button>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -56,7 +56,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div>no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -69,7 +69,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div>no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -83,7 +83,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -95,7 +95,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -114,8 +114,8 @@ describe("SceneObject keyboard focus management", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused={false}>
-                <button data-testid="btn-in-panel">action</button>
+              <SceneObject name="object" focused={false}>
+                <button data-testid="btn-in-object">action</button>
               </SceneObject>
             </SceneColumn>
           </Scene>
@@ -127,15 +127,15 @@ describe("SceneObject keyboard focus management", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
-                <button data-testid="btn-in-panel">action</button>
+              <SceneObject name="object" focused>
+                <button data-testid="btn-in-object">action</button>
               </SceneObject>
             </SceneColumn>
           </Scene>
         </TestWrapper>,
       );
 
-      const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+      const btn = getByTestId("btn-in-object").element() as HTMLElement;
       expect(document.activeElement).toBe(btn);
       // ui#20 remap: two-phase focus (F2) now calls .focus() TWICE on a
       // focus-gain — phase 1 lands on the anchor immediately (mid-
@@ -169,7 +169,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -192,7 +192,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 1200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -212,7 +212,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -232,7 +232,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -252,7 +252,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -272,7 +272,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -411,7 +411,7 @@ describe("Scene reduced motion", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -439,7 +439,7 @@ describe("Scene reduced motion", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -460,7 +460,7 @@ describe("Scene reduced motion", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -484,7 +484,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -522,7 +522,7 @@ describe("useCamera", () => {
           <TestWrapper fullPage>
             <Scene duration={0}>
               <SceneColumn name="col">
-                <SceneObject name="panel" focused>
+                <SceneObject name="object" focused>
                   <div data-testid="content" style={{ width: 200, height: 150 }} />
                 </SceneObject>
               </SceneColumn>
@@ -549,7 +549,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0} padding={24}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -581,7 +581,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -713,7 +713,7 @@ describe("Scene className (S6)", () => {
         <style>{`.scene-column-test-override { flex-basis: 333px !important; }`}</style>
         <Scene duration={0}>
           <SceneColumn name="col" className="scene-column-test-override">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>

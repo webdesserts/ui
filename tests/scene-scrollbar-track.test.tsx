@@ -60,7 +60,7 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 4000 }} />
             </SceneObject>
           </SceneColumn>
@@ -164,7 +164,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -187,7 +187,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -227,7 +227,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -300,7 +300,7 @@ describe("Scene scrollbar — thumb-drag is unaffected by the wheel cliff detect
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div style={{ width: 400, height: 4000 }} />
               </SceneObject>
             </SceneColumn>

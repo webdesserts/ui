@@ -60,7 +60,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -98,7 +98,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -127,7 +127,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -174,7 +174,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -203,7 +203,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene slowMo>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -269,7 +269,7 @@ describe("camera pan mid-capture", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused>
+            <SceneObject name="nav-object" focused>
               <div
                 style={{
                   width: 160,
@@ -289,7 +289,7 @@ describe("camera pan mid-capture", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
+            <SceneObject name="article-object" focused>
               <div
                 style={{
                   width: 400,
@@ -345,7 +345,7 @@ describe("camera pan mid-capture", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused>
+              <SceneObject name="nav-object" focused>
                 <div
                   style={{
                     width: 160,
@@ -365,7 +365,7 @@ describe("camera pan mid-capture", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
-              <SceneObject name="article-panel" focused>
+              <SceneObject name="article-object" focused>
                 <div
                   style={{
                     width: 400,
@@ -398,7 +398,7 @@ describe("camera pan mid-capture", () => {
         <TestWrapper fullPage>
           <Scene>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused={false}>
+              <SceneObject name="nav-object" focused={false}>
                 <div
                   style={{
                     width: 160,
@@ -418,7 +418,7 @@ describe("camera pan mid-capture", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
-              <SceneObject name="article-panel" focused>
+              <SceneObject name="article-object" focused>
                 <div
                   style={{
                     width: 400,
@@ -477,7 +477,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -538,7 +538,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -567,7 +567,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -594,7 +594,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
     await waitForAnimationFrame();
 
     // Freeze all WAAPI animations at 50% — captures the FLIP correction mid-way.
-    // If motion's layout FLIP uses WAAPI for this transition, the panel will
+    // If motion's layout FLIP uses WAAPI for this transition, the object will
     // appear halfway through its positional correction (between off-screen and
     // centered). If no WAAPI animations are found, frozen is empty and the
     // screenshot shows the fully-settled state — that's a finding too.
@@ -626,7 +626,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -655,7 +655,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene slowMo>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -698,7 +698,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 // and animated in from the right.
 //
 // Captured with duration=0 so the test is fast, but the resting-state assertion
-// is the same either way — what matters is that the panel is centered at rest,
+// is the same either way — what matters is that the column is centered at rest,
 // not partially offscreen or at position 0.
 // ---------------------------------------------------------------------------
 
@@ -720,7 +720,7 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
     // Three objects in one focused column: top and bottom focused, middle in
     // the within-column depth deck at depth-1. Snapshots the resting state.
     // Locks in the peek-offset position, zIndex, opacity, and grayscale for
-    // the middle object's panel (ui#21 — translateZ was removed entirely
+    // the middle object's own object node (ui#21 — translateZ was removed entirely
     // for object-level depth cards, see the z-index paint-order channel
     // amendment; this baseline predates that split and needs a designer's
     // eyes before regenerating, not touched here).
@@ -960,7 +960,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     // intermediate values on the way — a plain-div snap would jump straight
     // to 0.8 on the very first sampled frame.
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 300,
       height: 150,
       display: "flex",
@@ -975,16 +975,16 @@ describe("within-column depth-deck spring regressions (H8)", () => {
         <Scene duration={slow ? undefined : 0} slowMo={slow}>
           <SceneColumn name="content">
             <SceneObject name="a" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+              <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
             </SceneObject>
             <SceneObject name="x" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+              <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
             </SceneObject>
             <SceneObject name="m" focused={mFocused}>
-              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+              <div style={{ ...objectStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
             </SceneObject>
             <SceneObject name="y" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+              <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -993,8 +993,8 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     const { container, rerender } = await render(scene(false, false));
     await waitForAnimationFrame();
 
-    // ui#21 anchor/panel split: the depth-card opacity treatment lives on
-    // the PANEL now, not the zero-footprint anchor `data-scene-id` used
+    // ui#21 anchor/object split: the depth-card opacity treatment lives on
+    // the OBJECT NODE now, not the zero-footprint anchor `data-scene-id` used
     // to carry it.
     const xEl = () => container.querySelector('[data-scene-object="x"]') as HTMLElement;
     // Sanity: starts at depth-2 (opacity 0.6, per depth.ts's formula).
@@ -1049,10 +1049,10 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   // red-before/green-after pin for the objectDepthAnimate fix specifically
   // — defeat-checked (objectDepthAnimate forced to undefined, back when
   // that was the object-level depth-treatment mechanism, before the
-  // height/margin channel + panel peek-transform rework) and it stayed
+  // height/margin channel + object peek-transform rework) and it stayed
   // green: with no z differentiation at all, every object sits at z:0
   // (browser default), so DOM order alone already keeps paint order
-  // consistent (X's own height/margin channels and its panel's
+  // consistent (X's own height/margin channels and its object node's
   // depth-scaled peek-offset transform still spring independently of any
   // depth-treatment mechanism, so X still moves through the same overlap
   // geometry — it just isn't visually dimmed/receded while doing so; the
@@ -1065,7 +1065,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   // it happens to be provably load-bearing against today's specific bug.
   it("depth-reshape-paint-order-invariant", async () => {
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 300,
       height: 150,
       display: "flex",
@@ -1080,16 +1080,16 @@ describe("within-column depth-deck spring regressions (H8)", () => {
         <Scene duration={slow ? undefined : 0} slowMo={slow}>
           <SceneColumn name="content">
             <SceneObject name="a" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+              <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
             </SceneObject>
             <SceneObject name="x" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+              <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
             </SceneObject>
             <SceneObject name="m" focused={mFocused}>
-              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+              <div style={{ ...objectStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
             </SceneObject>
             <SceneObject name="y" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+              <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -1100,8 +1100,8 @@ describe("within-column depth-deck spring regressions (H8)", () => {
 
     await rerender(scene(true, true));
 
-    // ui#21 anchor/panel split: overlap geometry and paint order are
-    // driven by the PANEL now (position:absolute, the peek-offset
+    // ui#21 anchor/object split: overlap geometry and paint order are
+    // driven by the OBJECT NODE now (position:absolute, the peek-offset
     // transform, and the zIndex channel) — the zero-footprint anchor
     // `data-scene-id` collapses to zero height once sandwiched and no
     // longer reflects what's actually painted/overlapping on screen.
@@ -1252,10 +1252,10 @@ describe("depth-deck bug-fix regressions", () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
     // Then refocus Middle A with slowMo springs, freeze at 30% to capture a
-    // mid-spring frame. The panel should be between its deck transform and the
+    // mid-spring frame. The object should be between its deck transform and the
     // focused row center — NOT starting from Right's left edge (bug 2a).
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1272,21 +1272,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused={false}>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (deck)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1311,21 +1311,21 @@ describe("depth-deck bug-fix regressions", () => {
             <Scene slowMo>
               <SceneColumn name="left">
                 <SceneObject name="left-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                     Left (focused)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="middle-a">
                 <SceneObject name="middle-a-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                     Middle A (refocusing)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
                 <SceneObject name="right-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                     Right (focused)
                   </div>
                 </SceneObject>
@@ -1385,7 +1385,7 @@ describe("depth-deck bug-fix regressions", () => {
   // trade-off. See SceneColumn.tsx's zMV comment for the full writeup.
   it("refocus-from-depth-deck-paint-order-invariant", async () => {
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1402,21 +1402,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused={false}>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (deck)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1433,21 +1433,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene slowMo>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (refocusing)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1493,7 +1493,7 @@ describe("depth-deck bug-fix regressions", () => {
     // grayscale(0.25), proving bug 2b is fixed — if filter still snapped
     // instantly it would already be at grayscale(0.25).
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1510,21 +1510,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1550,21 +1550,21 @@ describe("depth-deck bug-fix regressions", () => {
             <Scene>
               <SceneColumn name="left">
                 <SceneObject name="left-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                     Left (focused)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="middle-a">
                 <SceneObject name="middle-a-obj" focused={false}>
-                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                     Middle A (unfocusing)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
                 <SceneObject name="right-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                     Right (focused)
                   </div>
                 </SceneObject>
@@ -1609,7 +1609,7 @@ describe("first-paint resting state", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,

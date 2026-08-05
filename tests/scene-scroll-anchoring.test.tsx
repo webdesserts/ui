@@ -346,7 +346,7 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: contentHeight }} />
               </SceneObject>
             </SceneColumn>
@@ -1226,7 +1226,7 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" anchor="end">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }} />
             </SceneObject>
           </SceneColumn>
@@ -1249,7 +1249,7 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col" anchor="end">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: contentHeight }} />
               </SceneObject>
             </SceneColumn>
@@ -1281,7 +1281,7 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" anchor="end">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: contentHeight }} />
             </SceneObject>
           </SceneColumn>
@@ -1320,7 +1320,7 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" anchor="end">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: contentHeight }} />
             </SceneObject>
           </SceneColumn>
@@ -1431,7 +1431,7 @@ describe("Scene follow-the-end pin (anchor=\"end\", F9 commit 2)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" anchor="end">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: contentHeight }} />
             </SceneObject>
           </SceneColumn>
@@ -1482,7 +1482,7 @@ describe("Scene onScroll metrics (F9 commit 3)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }} />
             </SceneObject>
           </SceneColumn>
@@ -1559,7 +1559,7 @@ describe("Scene onScroll metrics (F9 commit 3)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" anchor="end" onScroll={(m) => calls.push(m)}>
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: contentHeight }} />
             </SceneObject>
           </SceneColumn>
@@ -1605,7 +1605,7 @@ describe("Scene onScroll metrics (F9 commit 3)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }} />
             </SceneObject>
           </SceneColumn>
@@ -1640,7 +1640,7 @@ describe("Scene onScroll metrics (F9 commit 3)", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col" onScroll={(m) => calls.push(m)}>
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1200 }} />
             </SceneObject>
           </SceneColumn>

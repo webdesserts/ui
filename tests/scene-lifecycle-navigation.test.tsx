@@ -15,7 +15,7 @@ describe("Scene initial layout", () => {
     const { getByTestId } = await render(
       // All columns should be in the flex row at position: relative with
       // opacity: 1 even when nothing is focused — the scene is a real
-      // space, not hidden panels.
+      // space, not hidden objects.
       buildScene(
         [
           { name: "col-a", objects: [{ name: "obj-a", focused: false, width: 200, height: 100, testId: "content-a" }] },
@@ -46,7 +46,7 @@ describe("Scene initial layout", () => {
     // With flex: 0 1 auto, the column doesn't stretch to fill available space.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 100, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 100, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -69,7 +69,7 @@ describe("Scene initial layout", () => {
             name: "col",
             objects: [
               // Explicit 600px width — column should match.
-              { name: "panel", focused: true, width: 600, height: 100, testId: "content" },
+              { name: "object", focused: true, width: 600, height: 100, testId: "content" },
             ],
           },
         ],
@@ -158,7 +158,7 @@ describe("Scene initial layout", () => {
     // cqw/cqh units to size columns relative to the viewport dimensions.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 100, height: 100, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 100, height: 100, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -318,7 +318,7 @@ describe("Scene dynamic mount/unmount", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* Start with 200px min-width */}
               <div data-testid="content" style={{ minWidth: 200, height: 200 }} />
             </SceneObject>
@@ -338,7 +338,7 @@ describe("Scene dynamic mount/unmount", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ minWidth: 600, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -413,8 +413,8 @@ describe("Scene navigation depth", () => {
     const { rerender, getByTestId } = await render(
       buildScene(
         [
-          { name: "nav", objects: [{ name: "nav-panel", focused: false, width: 300, height: 200, testId: "content-nav" }] },
-          { name: "article", objects: [{ name: "article-panel", focused: true, width: 300, height: 200, testId: "content-article" }] },
+          { name: "nav", objects: [{ name: "nav-object", focused: false, width: 300, height: 200, testId: "content-nav" }] },
+          { name: "article", objects: [{ name: "article-object", focused: true, width: 300, height: 200, testId: "content-article" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -429,8 +429,8 @@ describe("Scene navigation depth", () => {
     await rerender(
       buildScene(
         [
-          { name: "nav", objects: [{ name: "nav-panel", focused: true, width: 300, height: 200, testId: "content-nav" }] },
-          { name: "article", objects: [{ name: "article-panel", focused: true, width: 300, height: 200, testId: "content-article" }] },
+          { name: "nav", objects: [{ name: "nav-object", focused: true, width: 300, height: 200, testId: "content-nav" }] },
+          { name: "article", objects: [{ name: "article-object", focused: true, width: 300, height: 200, testId: "content-article" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -555,12 +555,12 @@ describe("Scene navigation animation", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused={false}>
+            <SceneObject name="nav-object" focused={false}>
               <div data-testid="content-nav" style={{ minWidth: 300, height: 200 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
+            <SceneObject name="article-object" focused>
               <div data-testid="content-article" style={{ minWidth: 300, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -578,12 +578,12 @@ describe("Scene navigation animation", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused>
+            <SceneObject name="nav-object" focused>
               <div data-testid="content-nav" style={{ minWidth: 300, height: 200 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
+            <SceneObject name="article-object" focused>
               <div data-testid="content-article" style={{ minWidth: 300, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -612,7 +612,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+            <SceneObject name="object" focused={false} onActivate={() => { activated = true; }}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -631,7 +631,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused onActivate={() => { activateCount++; }}>
+            <SceneObject name="object" focused onActivate={() => { activateCount++; }}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -653,7 +653,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <button data-testid="child-btn">click me</button>
             </SceneObject>
           </SceneColumn>
@@ -676,7 +676,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -697,7 +697,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false} onActivate={() => {}}>
+            <SceneObject name="object" focused={false} onActivate={() => {}}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -715,7 +715,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -734,7 +734,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+            <SceneObject name="object" focused={false} onActivate={() => { activated = true; }}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -753,7 +753,7 @@ describe("SceneObject click-to-focus", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false} onActivate={() => { activated = true; }}>
+            <SceneObject name="object" focused={false} onActivate={() => { activated = true; }}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>

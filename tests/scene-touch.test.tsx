@@ -117,7 +117,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -158,7 +158,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1000 }} />
             </SceneObject>
           </SceneColumn>
@@ -196,7 +196,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -378,7 +378,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -394,7 +394,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -455,7 +455,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -468,7 +468,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -538,7 +538,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -551,7 +551,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -637,7 +637,7 @@ describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene touchPower={touchPower} touchTimeConstant={touchTimeConstant}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 6000 }} />
               </SceneObject>
             </SceneColumn>
@@ -948,7 +948,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 300 }} />
             </SceneObject>
           </SceneColumn>
@@ -977,7 +977,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -995,7 +995,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1018,7 +1018,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1045,7 +1045,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1076,7 +1076,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1114,7 +1114,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1154,7 +1154,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* Content fits the viewport — maxScroll is 0, isScrollable is false. */}
               <div data-testid="content" style={{ width: 400, height: 100 }} />
             </SceneObject>
@@ -1333,7 +1333,7 @@ describe("Scene touch — scrollbar thumb drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
