@@ -578,7 +578,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     // second `outerRef.current.focus()` call needed here, unlike the
     // pre-ui#20 single-phase version).
     focusable?.focus({ preventScroll: true });
-  }, [focused, transitionPending]);
+  }, [focused, transitionPending, transitionPendingRef]);
 
   // The anchor is ALWAYS in flow (position:relative) — no more flip to
   // position:absolute here (ui#21: that flip moves to the object below).

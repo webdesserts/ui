@@ -88,6 +88,7 @@ export function PaintOrderBadges({
   stageRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [cards, setCards] = useState<DeckCardKey[]>([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberate every-render effect (no dependency array by design) — adding one changes it from per-render to per-dep-change, a real behavior change to a documented remeasure/correction idiom.
   useLayoutEffect(() => {
     const stage = stageRef.current;
     const fresh = stage ? findDeckCardKeys(stage) : [];
@@ -130,7 +131,7 @@ export function PaintOrderBadges({
         badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
       }
     }
-  }, [cards]);
+  }, [cards, stageRef, viewportRef]);
 
   // Paint-synchronous pass so the first frame isn't blank before the first
   // rAF tick (mirrors ActiveSpringsSection/SceneObjectOutlines).

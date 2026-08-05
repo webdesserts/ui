@@ -24,6 +24,7 @@ import type { DebugMotionRecorder } from "./motionRecorder";
  */
 export function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
   const [keys, setKeys] = useState<string[]>([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberate every-render effect (no dependency array by design) — adding one changes it from per-render to per-dep-change, a real behavior change to a documented remeasure/correction idiom.
   useLayoutEffect(() => {
     const fresh = Array.from(recorder.values.keys());
     setKeys((prev) => {
