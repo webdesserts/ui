@@ -2731,37 +2731,13 @@ export function SceneColumn({
   // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
   // objects overlapping in 2D screen space must never change relative paint
   // order — a z-crossing (moving from "behind" toward "in front") is only
-  // legal once the pair is disjoint.
-  //
-  // ATTEMPTED AND REVERTED (F2): promoted z to a real MotionValue (zMV,
-  // still in place below) and gated a front-ward retarget behind a
-  // requestAnimationFrame poll against every other registered column's live
-  // getBoundingClientRect (via a ColumnElementsContext read side on the S6
-  // registry), releasing the spring once disjoint — the shape the plan
-  // specified. VERIFIED NOT SAFE TO SHIP: the poll's resolution takes a
-  // variable number of REAL animation frames (for the exact scenario this
-  // exists to protect, the FIRST check — one synchronous tick after
-  // retarget, before x/y have moved at all — sees the column still
-  // overlapping its anchor by definition, so the slow multi-frame path is
-  // the COMMON case, not a corner case). This fundamentally races this
-  // suite's synchronous single-frame test-pinning methodology
-  // (pinAllRegisteredAnimations silently skips a key that hasn't
-  // registered yet — see its own doc comment): under isolated runs the poll
-  // reliably resolved before the test's one waitForAnimationFrame + freeze
-  // call (10/10 identical), but under full-suite load it consistently did
-  // not (3/3 runs, ~4% pixel mismatch on refocus-from-depth-deck-mid-spring
-  // — a real regression, not noise). Also could not construct a scenario
-  // (2 attempts, including a 4-column leapfrog probe) where skipping the
-  // gate entails an actual invariant violation on today's F1-fixed
-  // codebase — this codebase's DOM-order convention (consumers declare
-  // columns in left-to-right visual intent order) plus every
-  // depth-treated value sharing one spring transition already keeps paint
-  // order consistent in every case tried. Reverted the gating; kept the
-  // zMV promotion itself (harmless, and gives z the same
-  // pinnable/observable motion-seam treatment topOffset/scrollY/cameraX
-  // already have). Documenting per this branch's own established fallback
-  // (see B14/H11-site-2, 7ca9eab) rather than shipping either a fabricated
-  // defeat-check or a mechanism proven to break test determinism.
+  // legal once the pair is disjoint. The invariant is enforced structurally
+  // by DOM order today (see computeStackDepths), not by any gating here —
+  // an RAF-poll-based front-ward-retarget gate was tried and reverted:
+  // unsafe under concurrent test-suite load (see commit history for the
+  // full investigation). zMV below is kept only for its debug-observability
+  // value (pinnable/observable motion-seam treatment, same as
+  // topOffset/scrollY/cameraX).
   const zMV = useMotionValue(depthZ);
   // F4 active-springs debug panel: register the MotionValue itself, same
   // rationale as topOffsetMV/scrollY above.
