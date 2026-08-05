@@ -20,7 +20,7 @@ import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneColumn, SceneObject } from "../src";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame } from "./utils/animation";
+import { wait, waitForAnimationFrame, createMotionSeamRecorder } from "./utils/animation";
 import { MotionSeamContext, type MotionSeamRegistration } from "../src/components/scene/motionSeam";
 
 function createCountingRecorder(): MotionSeamRegistration & { scrollYRetargetCount: () => number } {
@@ -83,5 +83,187 @@ describe("Scene wheel input coalescing (F17 commit 2)", () => {
 
     // One flush, one retarget — not five.
     expect(recorder.scrollYRetargetCount()).toBe(before + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#27: wheel catch-stop detection. A trackpad catch (finger presses down
+// mid-momentum) emits no event of its own — the stream just stops — so the
+// existing spring pays off the accumulated debt as if the catch never
+// happened, continuing to travel for hundreds of ms/px after input ended.
+// The fix detects "silence following a stream whose last delta was still
+// large" and jumps live position to the target immediately, reusing
+// SceneColumn's touch-arrest idiom (handleContentPointerDown's scrollY.jump).
+// See src/components/scene/inputController.ts's WHEEL_CLIFF_* constants for
+// the calibration this synthesis targets.
+// ---------------------------------------------------------------------------
+
+describe("Scene wheel catch-stop detection (ui#27)", () => {
+  async function mount() {
+    const recorder = createMotionSeamRecorder();
+    const tree = (instant: boolean) => (
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene {...(instant ? { duration: 0 } : {})}>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div style={{ width: 400, height: 43000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>
+    );
+    const { getByTestId, rerender } = await render(tree(true));
+    await waitForAnimationFrame();
+    await rerender(tree(false));
+    await waitForAnimationFrame();
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const contentWrapper = (scene.querySelector("[data-column]") as HTMLElement).querySelector(
+      "[data-column-content]",
+    ) as HTMLElement;
+    const rect = contentWrapper.getBoundingClientRect();
+    const sy = recorder.values.get("scrollY:col")!;
+    const fire = (deltaY: number) =>
+      contentWrapper.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY,
+          deltaMode: 0,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    return { sy, fire };
+  }
+
+  /**
+   * Polls real animation frames (not a MutationObserver — the hunt's own
+   * "no tracer" acceptance discipline applies to on-device/ship-report
+   * numbers, but this low-rate, once-per-real-frame poll is the same
+   * mechanism this suite already uses elsewhere, e.g.
+   * scene-wheel-coalescing's own settle helpers in the hunt clone) until
+   * `getValue()` stops moving for 12 consecutive frames (<0.05px delta,
+   * matching the hunt's own settle threshold), or 400 frames elapse.
+   */
+  async function settle(getValue: () => number) {
+    let quiet = 0;
+    let prev = getValue();
+    let frames = 0;
+    const start = performance.now();
+    while (quiet < 12 && frames < 400) {
+      await waitForAnimationFrame();
+      frames++;
+      const value = getValue();
+      quiet = Math.abs(value - prev) < 0.05 ? quiet + 1 : 0;
+      prev = value;
+    }
+    return { ms: performance.now() - start, final: getValue() };
+  }
+
+  /**
+   * Dispatches a decaying wheel stream at a fixed cadence, stopping
+   * abruptly after `events` deltas — the "caught mid-decay" shape a real
+   * trackpad catch produces (finger lifts; momentum just stops mid-stream,
+   * with a still-large last delta). Calibrated against the hunt's row2
+   * analog (19 events, 15ms spacing, 0.94 decay from 163px — last delta
+   * ~53.5px, comfortably over WHEEL_CLIFF_DELTA_FLOOR_PX).
+   */
+  async function fireCaughtStream(fire: (d: number) => void) {
+    let delta = 163;
+    for (let i = 0; i < 19; i++) {
+      fire(delta);
+      await wait(15);
+      delta *= 0.94;
+    }
+  }
+
+  /**
+   * Dispatches the same decaying cadence to natural exhaustion (fades below
+   * 0.5px before stopping, well under WHEEL_CLIFF_DELTA_FLOOR_PX) — the
+   * uncaught control: the detector must not intervene, and the stream's
+   * full momentum payoff must be preserved exactly as before this fix.
+   */
+  async function fireNaturalDecayStream(fire: (d: number) => void) {
+    let delta = 163;
+    while (delta > 0.5) {
+      fire(delta);
+      await wait(15);
+      delta *= 0.94;
+    }
+  }
+
+  test("criterion 1: a caught stream's post-input travel is arrested to a small residual, quickly", async () => {
+    const { sy, fire } = await mount();
+    await fireCaughtStream(fire);
+    const atCutoff = sy.get();
+    const { ms, final } = await settle(() => sy.get());
+    const residualPx = Math.abs(final - atCutoff);
+    expect(residualPx).toBeLessThanOrEqual(350);
+    expect(ms).toBeLessThanOrEqual(250);
+  });
+
+  test("criterion 2 (negative control): a natural decay stream's momentum payoff is preserved — the detector must not fire on a last delta under the floor", async () => {
+    const { sy, fire } = await mount();
+    const start = sy.get();
+    await fireNaturalDecayStream(fire);
+    const atCutoff = sy.get();
+    const { final } = await settle(() => sy.get());
+    // A genuinely uncaught, fully-decayed stream's own physics already
+    // leaves very little post-input travel (the spring has had the whole
+    // long fade-out to converge) — the detector's job is to leave that
+    // alone, not shrink it further or otherwise disturb it. ≤5px matches
+    // the plan's own calibration for this shape (diagnostic-confirmed
+    // against current source: ~3-5px, well under the outstanding floor).
+    expect(Math.abs(final - atCutoff)).toBeLessThanOrEqual(5);
+    // Full momentum payoff across the whole stream must still land close
+    // to the undisturbed geometric-decay sum (~2709px for this shape) —
+    // proves nothing upstream of the cutoff got truncated either.
+    expect(final - start).toBeGreaterThan(2000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Orchestrator-ruled plan amendment (post-forecast-gate, caught by the full
+  // regression sweep — see inputController.ts's WHEEL_STREAM_PAIRING_MS doc
+  // comment): the two floors above alone can't distinguish a caught STREAM
+  // from an ordinary, uncaught SINGLE wheel command whose spring simply
+  // takes its own natural time to settle — measured against current source,
+  // a lone 80px event left 35px of outstanding debt at the 100ms mark (over
+  // the 30px floor) with nothing ever having been caught. The pairing gate
+  // requires >=2 wheel-tagged commands within WHEEL_STREAM_PAIRING_MS of
+  // each other before the detector may arm at all.
+  // -------------------------------------------------------------------------
+
+  test("pairing gate: a single 80px wheel event gets its full natural spring settle, zero truncation", async () => {
+    const { sy, fire } = await mount();
+    const start = sy.get();
+    fire(80);
+    const { final } = await settle(() => sy.get());
+    // The exact magnitude that caught this gap pre-fix (35px outstanding at
+    // the 100ms mark, over the floor) — a wrongly-firing detector would
+    // truncate this well short of 80.
+    expect(final - start).toBeCloseTo(80, 0);
+  });
+
+  test("pairing gate: a single 150px wheel event gets its full natural spring settle, zero truncation", async () => {
+    const { sy, fire } = await mount();
+    const start = sy.get();
+    fire(150);
+    const { final } = await settle(() => sy.get());
+    expect(final - start).toBeCloseTo(150, 0);
+  });
+
+  test("pairing gate: two wheel events 200ms apart (a slow discrete-notch shape, not a stream) never arm the detector — full natural settle each time", async () => {
+    const { sy, fire } = await mount();
+    const start = sy.get();
+    fire(150);
+    // Comfortably longer than WHEEL_STREAM_PAIRING_MS (50ms) — this second
+    // event does NOT pair with the first, so the stream never gets
+    // confirmed and the detector never arms for either event.
+    await wait(200);
+    fire(150);
+    const { final } = await settle(() => sy.get());
+    expect(final - start).toBeCloseTo(300, 0);
   });
 });

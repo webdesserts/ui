@@ -30,6 +30,10 @@ import {
   TOUCH_VELOCITY_STALE_MS,
   clampSpringRetargetVelocity,
   MAX_SPRING_RETARGET_VELOCITY,
+  shouldCliffStop,
+  WHEEL_CLIFF_DELTA_FLOOR_PX,
+  WHEEL_CLIFF_OUTSTANDING_FLOOR_PX,
+  opposesOutstandingDebt,
   type AnchorCandidate,
   type AnchorGeometry,
   type VelocitySample,
@@ -1278,5 +1282,75 @@ describe("clampSpringRetargetVelocity", () => {
   test("a velocity exactly at the ceiling passes through unclamped", () => {
     expect(clampSpringRetargetVelocity(MAX_SPRING_RETARGET_VELOCITY)).toBe(MAX_SPRING_RETARGET_VELOCITY);
     expect(clampSpringRetargetVelocity(-MAX_SPRING_RETARGET_VELOCITY)).toBe(-MAX_SPRING_RETARGET_VELOCITY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#27: wheel catch-stop (cliff) detection
+// ---------------------------------------------------------------------------
+
+describe("shouldCliffStop", () => {
+  const thresholds = {
+    deltaFloorPx: WHEEL_CLIFF_DELTA_FLOOR_PX,
+    outstandingFloorPx: WHEEL_CLIFF_OUTSTANDING_FLOOR_PX,
+  };
+
+  test("fires when both the last-delta and outstanding-debt floors are cleared", () => {
+    expect(shouldCliffStop({ lastDeltaAbsPx: 53.5, outstandingPx: 70 }, thresholds)).toBe(true);
+  });
+
+  test("does not fire when the last delta is under its floor, even with large outstanding debt", () => {
+    // The exact shape a natural fade-out's own final delta should never
+    // trip, regardless of how much debt a fast-arriving stream left behind.
+    expect(shouldCliffStop({ lastDeltaAbsPx: 0.5, outstandingPx: 200 }, thresholds)).toBe(false);
+  });
+
+  test("does not fire when outstanding debt is under its floor, even with a large last delta", () => {
+    // Nothing meaningful to catch — the spring has already all but caught up.
+    expect(shouldCliffStop({ lastDeltaAbsPx: 53.5, outstandingPx: 3 }, thresholds)).toBe(false);
+  });
+
+  test("does not fire when both floors are uncleared", () => {
+    expect(shouldCliffStop({ lastDeltaAbsPx: 0.5, outstandingPx: 3 }, thresholds)).toBe(false);
+  });
+
+  test("boundary: exactly at both floors fires (>=, not >)", () => {
+    expect(
+      shouldCliffStop(
+        { lastDeltaAbsPx: WHEEL_CLIFF_DELTA_FLOOR_PX, outstandingPx: WHEEL_CLIFF_OUTSTANDING_FLOOR_PX },
+        thresholds,
+      ),
+    ).toBe(true);
+  });
+
+  test("the delta floor is load-bearing: with it disabled (0), the same outstanding debt that correctly fires above would wrongly fire on a near-zero last delta too", () => {
+    // The outstanding-debt floor alone can't tell a catch from a natural
+    // fade — this is what proves the delta floor is doing real work, not
+    // just redundant with the outstanding floor.
+    const disabledFloor = { deltaFloorPx: 0, outstandingFloorPx: WHEEL_CLIFF_OUTSTANDING_FLOOR_PX };
+    expect(shouldCliffStop({ lastDeltaAbsPx: 0.5, outstandingPx: 70 }, disabledFloor)).toBe(true);
+    // The real, shipped threshold correctly declines the identical inputs.
+    expect(shouldCliffStop({ lastDeltaAbsPx: 0.5, outstandingPx: 70 }, thresholds)).toBe(false);
+  });
+});
+
+describe("opposesOutstandingDebt", () => {
+  test("a positive delta against negative outstanding debt opposes", () => {
+    expect(opposesOutstandingDebt(1, -1)).toBe(true);
+  });
+
+  test("a negative delta against positive outstanding debt opposes", () => {
+    expect(opposesOutstandingDebt(-1, 1)).toBe(true);
+  });
+
+  test("same-sign delta and debt do not oppose", () => {
+    expect(opposesOutstandingDebt(1, 1)).toBe(false);
+    expect(opposesOutstandingDebt(-1, -1)).toBe(false);
+  });
+
+  test("a zero delta or zero outstanding debt never opposes", () => {
+    expect(opposesOutstandingDebt(0, 1)).toBe(false);
+    expect(opposesOutstandingDebt(1, 0)).toBe(false);
+    expect(opposesOutstandingDebt(0, 0)).toBe(false);
   });
 });
