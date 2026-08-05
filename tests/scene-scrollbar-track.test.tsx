@@ -30,7 +30,8 @@ import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneColumn, SceneObject } from "../src";
 import { TestWrapper } from "./test-wrapper";
-import { wait, waitForAnimationFrame } from "./utils/animation";
+import { wait, waitForAnimationFrame, createMotionSeamRecorder } from "./utils/animation";
+import { MotionSeamContext } from "../src/components/scene/motionSeam";
 
 /** Dispatches a synthetic touch PointerEvent on `el` — mirrors this
  * suite's established helper (scene-touch.test.tsx, scene-model-sync.test.tsx). */
@@ -264,5 +265,77 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     const measuredTop = parseFloat(thumb.style.top || "0");
 
     expect(Math.abs(measuredTop - expectedTop)).toBeLessThan(1);
+  });
+});
+
+/**
+ * ui#27: RESOLVED (product call, not open) — the wheel cliff detector
+ * scopes to wheel-sourced commands only (`source: "wheel"`, set exclusively
+ * at Scene.tsx's wheel-flush call site). Michael's ruling was specifically
+ * about trackpad catches; thumb-drag is direct manipulation with different
+ * feel expectations, and widening the detector to cover it buys nothing
+ * the ruling asked for. This pins that the exclusion holds — a guard
+ * against a future regression, not an open fork.
+ */
+describe("Scene scrollbar — thumb-drag is unaffected by the wheel cliff detector (ui#27)", () => {
+  async function settle(getValue: () => number) {
+    let quiet = 0;
+    let prev = getValue();
+    let frames = 0;
+    const start = performance.now();
+    while (quiet < 12 && frames < 400) {
+      await waitForAnimationFrame();
+      frames++;
+      const value = getValue();
+      quiet = Math.abs(value - prev) < 0.05 ? quiet + 1 : 0;
+      prev = value;
+    }
+    return { ms: performance.now() - start, final: getValue() };
+  }
+
+  test("a rapid thumb drag keeps springing at its normal pace, past the wheel-cliff silence window", async () => {
+    const recorder = createMotionSeamRecorder();
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div style={{ width: 400, height: 4000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+    await waitForAnimationFrame();
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
+    const thumbRect = thumb.getBoundingClientRect();
+    const startX = thumbRect.left + thumbRect.width / 2;
+    const startY = thumbRect.top + thumbRect.height / 2;
+
+    const sy = recorder.values.get("scrollY:col")!;
+
+    // Six drag moves, 15ms apart, 10px steps — the same cadence this
+    // suite's wheel/keyboard cliff-detector calibrations use, a real
+    // sustained drag rather than a single move. Thumb-drag's own onScroll
+    // bridge (SceneColumn) routes through applyScrollCommand as a plain
+    // scrollBy with no `source` tag — same allowlist exclusion as keyboard.
+    firePointer(thumb, "pointerdown", startX, startY);
+    for (let i = 1; i <= 6; i++) {
+      firePointer(thumb, "pointermove", startX, startY + i * 10);
+      await wait(15);
+    }
+    firePointer(thumb, "pointerup", startX, startY + 6 * 10);
+
+    const { ms } = await settle(() => sy.get());
+    // A wrongly-scoped cliff detector would snap this to its target within
+    // ~100-120ms of the last move (a jump). The real spring takes
+    // meaningfully longer — this suite's own wheel/keyboard calibrations
+    // put an equivalent-magnitude natural settle in the several-hundred-ms
+    // range, well clear of this floor.
+    expect(ms).toBeGreaterThan(300);
   });
 });

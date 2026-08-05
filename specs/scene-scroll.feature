@@ -379,6 +379,18 @@ Feature: Scene Scroll
     viewportHeight, and whether the follow-the-end pin is currently
     engaged). It fires at the same per-tick cadence as the scroll offset
     itself, not once per React render.
+    Note: two silent exceptions override the spring behavior above, both
+    reusing the same instant jump primitive. A wheel/trackpad stream that
+    goes quiet for 100ms following a still-large last delta, with real
+    outstanding spring debt, is treated as a caught (not a completed)
+    scroll — the position jumps straight to the target rather than
+    continuing to visibly pay off the debt after input has already
+    stopped (keyboard and scrollbar-thumb scrolling are unaffected — only
+    a genuine wheel/trackpad stream is ever treated this way). Separately,
+    a touch drag's own re-grab (pressing down again mid-coast or
+    mid-spring) jumps the position to wherever it currently is, freezing
+    it there so 1:1 finger tracking begins from the exact visual position
+    rather than continuing to animate underneath the finger.
 
   Scenario: A declarative scrollTo brings a target element fully into view (F11)
     Given a column's `scrollTo` prop changes to a non-null string
