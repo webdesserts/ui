@@ -340,10 +340,10 @@ function SceneViewport({
   // is the canonical/default camera target; ui#19's panOffset layer (below)
   // composes on top of it for user-driven panning.
   const [stageLeft, setStageLeft] = useState(0);
-  // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx
-  // maxScrollRef/contentHeightRef, ~793-794) — stable event-listener/input-
-  // handler closures need the CURRENT canonical camera target at invocation
-  // time, not whatever was captured when an effect last (re-)subscribed.
+  // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx's
+  // maxScrollRef/contentHeightRef) — stable event-listener/input-handler
+  // closures need the CURRENT canonical camera target at invocation time,
+  // not whatever was captured when an effect last (re-)subscribed.
   const stageLeftRef = useRef(stageLeft);
   stageLeftRef.current = stageLeft;
   // ui#19 single-writer horizontal channel: panOffset is the user-driven pan
@@ -447,36 +447,20 @@ function SceneViewport({
   // width/height source in the ResizeObserver callback (content-box,
   // excluding border/padding) — unchanged from before this reshape.
   //
-  // F5 item 5 fix (H10 wobble, root cause found): width/height must be
-  // CONTENT-BOX (matching the ResizeObserver callback below), not
-  // getBoundingClientRect()'s BORDER-BOX. This viewport element toggles its
-  // own `overflowX` between "auto"/"hidden" (see the stageLeft effect
-  // below) — when a horizontal scrollbar is showing, border-box height
-  // stays the element's full CSS height (a scrollbar doesn't shrink the
-  // border box), while content-box height shrinks by the scrollbar's
-  // thickness. This effect runs on EVERY render (no deps, by design, so a
-  // dynamic resize is picked up as fast as possible) — probe-confirmed
-  // (real classic/space-reserving scrollbars, which headless Chromium
-  // normally suppresses via Playwright's own `--hide-scrollbars` default
-  // arg): the ResizeObserver below correctly detects the scrollbar's
-  // content-box shrinkage and calls setViewportSize with the smaller
-  // (correct) height, but that state update itself triggers a re-render,
-  // and THIS effect — reading the unchanged, scrollbar-oblivious
-  // border-box height on every render — immediately overwrote the
-  // correction back to the larger (wrong) value within the same commit
-  // pair. The two measurement paths were fighting over two different box
-  // models faster than any per-frame sampling could catch, and the
-  // scrollbar-oblivious value always won (this effect runs on every
-  // subsequent render; the observer only fires again on a genuine future
-  // resize) — silently miscentering content (marginTop, maxScroll, and any
-  // other effectiveViewportHeight-derived value) by the scrollbar's
-  // thickness whenever one is showing. clientWidth/clientHeight are
-  // content-box by definition (matching contentRect) — computed here as
+  // F5 item 5 (H10 wobble): width/height must be CONTENT-BOX (matching the
+  // ResizeObserver callback below), not getBoundingClientRect()'s
+  // BORDER-BOX — this viewport toggles its own `overflowX` between
+  // "auto"/"hidden" (see the stageLeft effect below), and a showing
+  // horizontal scrollbar shrinks content-box height but not border-box.
+  // Reading border-box here on every render (no deps, by design) used to
+  // fight the ResizeObserver's correct content-box measurement and always
+  // win, silently miscentering content by the scrollbar's thickness. Full
+  // regression history: tests/scene-column-transitions.test.tsx's
+  // "content-box, not scrollbar-oblivious border-box" test. Computed as
   // the border-box rect's own float-precise width/height minus the
   // (integer) offset-vs-client delta, rather than clientWidth/clientHeight
-  // directly, to avoid introducing a NEW, smaller oscillation from
-  // clientHeight's own integer rounding disagreeing with contentRect's
-  // subpixel-precise float on every render.
+  // directly, to avoid a NEW oscillation from clientHeight's integer
+  // rounding disagreeing with contentRect's subpixel float on every render.
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -748,28 +732,13 @@ function SceneViewport({
       if (registered === undefined || registered.widthTarget === undefined) {
         // Past the last focused column (see the pre-pass's own invariant
         // above): this column's own resolution status can never affect
-        // targetLeft/targetRight, so stop silently — no fallback needed.
-        // AT OR BEFORE it: this column (or a later one still to come)
-        // could still be the span's own left/right edge, so an unresolved
-        // target here forces the fallback. A prior version of this line
-        // fell back (or didn't) based only on whether targetRight already
-        // happened to be defined, which breaks when a LATER column is
-        // ALSO focused and hasn't been walked yet (delta claim review,
-        // 2026-07-31 — reproduced on a plain 3-column left/middle/right
-        // toggle, unfocus direction: "right" stays focused throughout, but
-        // "middle"'s own widthTarget is transiently unresolved the render
-        // its focus state changes; the old shortcut broke immediately
-        // after "left," computing targetRight=200 instead of the true
-        // 416 — a 108px wrong first aim, self-correcting one render later
-        // once "middle" resolves). A version that fell back UNCONDITIONALLY
-        // on any unresolved target fixed that, but over-triggered the
-        // fallback for an unresolved-but-irrelevant column past the last
-        // focused one (e.g. an unfocused sibling with nothing focused
-        // after it) — reintroducing the gBCR-measurement sub-pixel
-        // discrepancy the already-regenerated visual baselines don't
-        // expect, on fixtures that never needed the fallback for
-        // correctness in the first place. The last-focused-index check is
-        // exact: fall back only when it could possibly matter.
+        // targetLeft/targetRight, so stop silently — no fallback needed. AT
+        // OR BEFORE it: this column (or a later one still to come) could
+        // still be the span's own left/right edge, so an unresolved target
+        // here forces the fallback — exact, not over- or under-triggered.
+        // Full regression history (two related bugs this exact gate fixes):
+        // tests/scene-glass-stack-deck.test.tsx's "camera-recentering
+        // commit-aim pins" describe block header.
         if (i > lastFocusedIndex) break;
         missingTargetColumn = colName;
         break;
@@ -779,9 +748,8 @@ function SceneViewport({
       // Every focused column keeps extending targetRight — a contiguous
       // multi-column focused span (or, matching the fallback's own
       // first-to-last semantics, a non-contiguous one) needs its RIGHTMOST
-      // focused column's cursor, not its first. Fixed 2026-07-31: an
-      // earlier version broke immediately after the FIRST focused column,
-      // silently dropping every subsequent column of a multi-focus span.
+      // focused column's cursor, not its first (full regression history:
+      // same test header as the fallback gate's comment above).
       if (registered.focused) targetRight = cursor;
       cursor += registered.marginTarget;
       if (i < allColumnEls.length - 1) cursor += columnGap;
@@ -876,18 +844,11 @@ function SceneViewport({
     // between renders; the camera's own immediate positioning this render
     // uses live geometry, matching how newStageLeft itself is never
     // latch-gated). Range must include `2 * padding`, not just the raw
-    // overflow (focusedWidth - vpWidth) — probe-caught while restoring the
-    // padding-cluster inset tests: at panOffset=0, newStageLeft's own
-    // `+padding` already insets the LEFT edge by padding (leftInset =
-    // padding, independent of range); reaching the symmetric RIGHT-edge
-    // inset at full pan needs panOffset to travel the raw overflow amount
-    // PLUS both paddings (the left inset the camera starts already holding,
-    // and the right inset it still needs to gain) — omitting `2 * padding`
-    // overshot the right inset by exactly that amount (measured: -4px
-    // instead of +4px at padding=4, an 8px = 2×4 error; padding=0 masked it
-    // entirely, which is why that case alone passed before this fix). 0
-    // when content fits (no pan range at all). Sign convention documented
-    // at panOffsetRef's declaration.
+    // overflow (focusedWidth - vpWidth) — see the "both edges are inset by
+    // exactly padding" test in tests/scene-scroll-restore.test.tsx for the
+    // full derivation and the regression this formula fixes. 0 when
+    // content fits (no pan range at all). Sign convention documented at
+    // panOffsetRef's declaration.
     const range = contentOverflows ? Math.max(0, focusedWidth - vpWidth + 2 * padding) : 0;
     const bounds = { min: -range, max: 0 };
     if (vpWidthWasSettled) {

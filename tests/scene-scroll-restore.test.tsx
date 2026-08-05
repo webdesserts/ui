@@ -733,7 +733,16 @@ describe("Scene padding cluster (S6)", () => {
       // was subtracted away by `newStageLeft = -focusedNaturalLeft`, while
       // the right side already got it right via the stage's own CSS
       // padding surviving into scrollWidth — a flush-left/padding-right
-      // mix).
+      // mix). This also exercises the pan RANGE formula (Scene.tsx's
+      // `range = focusedWidth - vpWidth + 2 * padding`): reaching the
+      // symmetric right-edge inset needs panOffset to travel the raw
+      // overflow amount plus BOTH paddings (the left inset newStageLeft's
+      // own `+padding` already holds at panOffset=0, and the right inset
+      // still to gain) — a version missing the `2 *` (single `padding`
+      // instead) overshot the right inset by exactly one extra `padding`
+      // (measured: -4px instead of +4px at padding=4, an 8px = 2×4 error;
+      // padding=0 masked it entirely, which is why that case alone passed
+      // before the fix — the reason this test is parameterized).
       scene.dispatchEvent(
         new WheelEvent("wheel", {
           deltaX: 5000,
