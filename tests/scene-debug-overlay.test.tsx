@@ -26,7 +26,7 @@ describe("Scene debug mode", () => {
 
     const scene = getByTestId("scene").element();
     // No debug overlay should be present when debug is not enabled
-    expect(scene.querySelector("[data-debug-overlay]")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-overlay]")).toBeNull();
   });
 
   test("debug does not affect layout", async () => {
@@ -43,7 +43,7 @@ describe("Scene debug mode", () => {
       </TestWrapper>,
     );
 
-    const colDebug = withDebug("debug-content").element().closest("[data-column]") as HTMLElement;
+    const colDebug = withDebug("debug-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const styleDebug = window.getComputedStyle(colDebug);
     expect(styleDebug.position).toBe("relative");
     expect(styleDebug.flexGrow).toBe("0");
@@ -84,7 +84,7 @@ describe("Scene debug mode", () => {
     );
 
     const scene = getByTestId("scene").element();
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Overlay should mention the object name and focused state
     expect(overlay?.textContent).toContain("my-object");
@@ -238,10 +238,10 @@ describe("Scene debug — layout purity (scrollWidth/scrollHeight identical on/o
       const { rerender, getByTestId } = await render(mountJsx(true));
       await rerender(mountJsx(false));
       await waitForAnimationFrame();
-      const midCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+      const midCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
       // Sanity-check the fixture actually exercises the depth-deck
       // classification this test claims to cover.
-      expect(midCol.getAttribute("data-column-position")).toBe("in-between");
+      expect(midCol.getAttribute("data-ui-scene-column-position")).toBe("in-between");
       return measureScrollMetrics(getByTestId("scene").element() as HTMLElement);
     }
 
@@ -283,11 +283,11 @@ describe("Scene debug — active springs panel", () => {
     await rerender(mountJsx(false));
 
     const scene = getByTestId("scene").element();
-    const cameraRow = scene.querySelector("[data-debug-spring='cameraX']");
+    const cameraRow = scene.querySelector("[data-ui-scene-debug-spring='cameraX']");
     expect(cameraRow).not.toBeNull();
-    const valueEl = cameraRow?.querySelector("[data-debug-spring-value]");
-    const targetEl = cameraRow?.querySelector("[data-debug-spring-target]");
-    const velocityEl = cameraRow?.querySelector("[data-debug-spring-velocity]");
+    const valueEl = cameraRow?.querySelector("[data-ui-scene-debug-spring-value]");
+    const targetEl = cameraRow?.querySelector("[data-ui-scene-debug-spring-target]");
+    const velocityEl = cameraRow?.querySelector("[data-ui-scene-debug-spring-velocity]");
     // A real animate() call registered a target — unlike the inertia/fling
     // case, this should never read the "—" placeholder.
     expect(valueEl?.textContent).toMatch(/^-?\d+\.\d$/);
@@ -325,11 +325,11 @@ describe("Scene debug — active springs panel", () => {
     // unconditionally (every SceneObject, regardless of sandwiched state)
     // is now `height:${name}` (the height channel), not the retired
     // `withinColumnTop:${name}` MotionValue.
-    expect(scene.querySelector("[data-debug-spring='height:second']")).not.toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-spring='height:second']")).not.toBeNull();
 
     await rerender(build(false));
     await waitForAnimationFrame();
-    expect(scene.querySelector("[data-debug-spring='height:second']")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-spring='height:second']")).toBeNull();
   });
 
   test("no springs section when nothing has registered (debug on, duration=0, no motion in flight)", async () => {
@@ -346,9 +346,9 @@ describe("Scene debug — active springs panel", () => {
     );
     const scene = getByTestId("scene").element();
     await waitForAnimationFrame();
-    const cameraRow = scene.querySelector("[data-debug-spring='cameraX']");
+    const cameraRow = scene.querySelector("[data-ui-scene-debug-spring='cameraX']");
     expect(cameraRow).not.toBeNull();
-    expect(cameraRow?.querySelector("[data-debug-spring-target]")?.textContent).toBe("—");
+    expect(cameraRow?.querySelector("[data-ui-scene-debug-spring-target]")?.textContent).toBe("—");
   });
 });
 
@@ -420,7 +420,7 @@ describe("Scene debug — stage bounds outline", () => {
       // settle wait after a rerender that changes frozen-size geometry.
       await waitForAnimationFrame();
       const scene = getByTestId("scene").element();
-      return { scrollWidth: scene.scrollWidth, clientWidth: scene.clientWidth, outline: scene.querySelector("[data-debug-stage-bounds]") };
+      return { scrollWidth: scene.scrollWidth, clientWidth: scene.clientWidth, outline: scene.querySelector("[data-ui-scene-debug-stage-bounds]") };
     }
 
     const off = await build(false);
@@ -443,7 +443,7 @@ describe("Scene debug — stage bounds outline", () => {
       ),
     );
     const scene = getByTestId("scene").element();
-    expect(scene.querySelector("[data-debug-stage-bounds]")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-stage-bounds]")).toBeNull();
   });
 });
 
@@ -463,7 +463,7 @@ describe("Scene debug — stray child flags", () => {
       </TestWrapper>,
     );
     const scene = getByTestId("scene").element();
-    const flag = scene.querySelector("[data-debug-stray-child='p']");
+    const flag = scene.querySelector("[data-ui-scene-debug-stray-child='p']");
     expect(flag).not.toBeNull();
     expect(flag?.textContent).toContain("stray <p>");
     warnSpy.mockRestore();
@@ -478,7 +478,7 @@ describe("Scene debug — stray child flags", () => {
       ),
     );
     const scene = getByTestId("scene").element();
-    expect(scene.querySelectorAll("[data-debug-stray-child]").length).toBe(0);
+    expect(scene.querySelectorAll("[data-ui-scene-debug-stray-child]").length).toBe(0);
   });
 });
 
@@ -504,13 +504,13 @@ describe("Scene debug — paint-order badges", () => {
 
     const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
     await waitForAnimationFrame();
-    const badge = scene.querySelector("[data-debug-paint-badge='column:middle']");
+    const badge = scene.querySelector("[data-ui-scene-debug-paint-badge='column:middle']");
     expect(badge).not.toBeNull();
     expect(badge?.textContent).toBe("z:-100");
 
     // Focused columns are not deck cards — no badge for either.
-    expect(scene.querySelector("[data-debug-paint-badge='column:left']")).toBeNull();
-    expect(scene.querySelector("[data-debug-paint-badge='column:right']")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-paint-badge='column:left']")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-paint-badge='column:right']")).toBeNull();
   });
 
   test("within-column: an object sandwiched between two focused siblings gets a badge", async () => {
@@ -533,7 +533,7 @@ describe("Scene debug — paint-order badges", () => {
 
     const scene = getByTestId("content-a").element().closest("[data-testid='scene']") as HTMLElement;
     await waitForAnimationFrame();
-    const badge = scene.querySelector("[data-debug-paint-badge='object:obj-b']");
+    const badge = scene.querySelector("[data-ui-scene-debug-paint-badge='object:obj-b']");
     expect(badge).not.toBeNull();
     // ui#21 z-index paint-order channel amendment: object-level depth cards
     // no longer carry translateZ at all — the badge now reads the object's
@@ -542,8 +542,8 @@ describe("Scene debug — paint-order badges", () => {
     expect(badge?.textContent).toBe("z:-1");
 
     // Focused objects are not deck cards.
-    expect(scene.querySelector("[data-debug-paint-badge='object:obj-a']")).toBeNull();
-    expect(scene.querySelector("[data-debug-paint-badge='object:obj-c']")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-paint-badge='object:obj-a']")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-paint-badge='object:obj-c']")).toBeNull();
   });
 
   test("no badges when nothing is in the depth deck", async () => {
@@ -555,7 +555,7 @@ describe("Scene debug — paint-order badges", () => {
       ),
     );
     const scene = getByTestId("scene").element();
-    expect(scene.querySelectorAll("[data-debug-paint-badge]").length).toBe(0);
+    expect(scene.querySelectorAll("[data-ui-scene-debug-paint-badge]").length).toBe(0);
   });
 });
 
@@ -582,24 +582,24 @@ describe("Scene debug — geometry store inspector", () => {
     );
 
     const scene = getByTestId("content-a").element().closest("[data-testid='scene']") as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     expect(overlay?.textContent).toContain("Geometry store");
 
-    const columnSection = scene.querySelector("[data-debug-geometry-column='col']");
+    const columnSection = scene.querySelector("[data-ui-scene-debug-geometry-column='col']");
     expect(columnSection).not.toBeNull();
 
     // obj-a is focused, so its offsetTop should be 0 (it's the visible
     // top of the content wrapper) and its height should match the 150px
     // content.
-    const objA = scene.querySelector("[data-debug-geometry-object='obj-a']");
+    const objA = scene.querySelector("[data-ui-scene-debug-geometry-object='obj-a']");
     expect(objA?.textContent).toContain("top=0");
     expect(objA?.textContent).toContain("h=150");
 
     // obj-b is unfocused (not a depth card here — nothing focused after
     // it), still registered and measured — the geometry store tracks every
     // registered object, not just focused ones.
-    const objB = scene.querySelector("[data-debug-geometry-object='obj-b']");
+    const objB = scene.querySelector("[data-ui-scene-debug-geometry-object='obj-b']");
     expect(objB).not.toBeNull();
     expect(objB?.textContent).toContain("h=80");
   });
@@ -615,8 +615,8 @@ describe("Scene debug — geometry store inspector", () => {
       </TestWrapper>,
     );
     const scene = getByTestId("scene").element();
-    expect(scene.querySelector("[data-debug-overlay]")).not.toBeNull();
-    expect(scene.querySelectorAll("[data-debug-geometry-column]").length).toBe(0);
+    expect(scene.querySelector("[data-ui-scene-debug-overlay]")).not.toBeNull();
+    expect(scene.querySelectorAll("[data-ui-scene-debug-geometry-column]").length).toBe(0);
   });
 });
 
@@ -655,7 +655,7 @@ describe("Scene debug — live slowMo toggle", () => {
     const { rerender, getByTestId } = await render(mountJsx(true));
     const scene = getByTestId("scene").element();
 
-    const checkbox = scene.querySelector("[data-debug-slowmo-toggle] input") as HTMLInputElement;
+    const checkbox = scene.querySelector("[data-ui-scene-debug-slowmo-toggle] input") as HTMLInputElement;
     expect(checkbox).not.toBeNull();
     expect(checkbox.checked).toBe(false); // slowMo prop defaults to false
 
@@ -697,10 +697,10 @@ describe("Scene debug — live slowMo toggle", () => {
       ),
     );
     const scene = getByTestId("scene").element() as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]") as HTMLElement;
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]") as HTMLElement;
     expect(window.getComputedStyle(overlay).pointerEvents).toBe("auto");
 
-    const outline = scene.querySelector("[data-debug-object-outline]") as HTMLElement;
+    const outline = scene.querySelector("[data-ui-scene-debug-object-outline]") as HTMLElement;
     expect(window.getComputedStyle(outline).pointerEvents).toBe("none");
 
     expect(scene.scrollWidth).toBe(scene.clientWidth);
@@ -728,7 +728,7 @@ describe("Scene debug — stacking depth", () => {
     );
 
     const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Overlay should list the middle column with its classification and depth.
     expect(overlay?.textContent).toContain("middle");
@@ -751,7 +751,7 @@ describe("Scene debug — stacking depth", () => {
     );
 
     const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Both in-between columns should appear with depth info.
     expect(overlay?.textContent).toContain("mid1");
@@ -775,7 +775,7 @@ describe("Scene debug — stacking depth", () => {
     );
 
     const scene = getByTestId("left-content").element().closest("[data-testid='scene']") as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     expect(overlay?.textContent).toContain("outer-left");
     expect(overlay?.textContent).toContain("outer-right");
@@ -803,7 +803,7 @@ describe("Scene debug — offsetParent warning", () => {
     );
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // The overlay should show a warning about the offsetParent issue.
     expect(overlay?.textContent).toMatch(/warn|offsetParent|positioned ancestor/i);
@@ -827,7 +827,7 @@ describe("Scene debug — toggle", () => {
     const scene = getByTestId("scene").element();
 
     // Debug on: overlay should be present
-    expect(scene.querySelector("[data-debug-overlay]")).not.toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-overlay]")).not.toBeNull();
 
     // Disable debug
     await rerender(
@@ -843,7 +843,7 @@ describe("Scene debug — toggle", () => {
     );
 
     // Debug off: overlay removed and no debug outlines
-    expect(scene.querySelector("[data-debug-overlay]")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-debug-overlay]")).toBeNull();
     const style = window.getComputedStyle(scene);
     // Outline should be gone or transparent when debug is off.
     const outline = style.outline + style.outlineColor;
@@ -870,7 +870,7 @@ describe("Scene debug — stage outline", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     expect(stage).not.toBeNull();
     const style = window.getComputedStyle(stage);
     // Debug mode adds a magenta outline to the stage.
@@ -892,7 +892,7 @@ describe("Scene debug — stage outline", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const style = window.getComputedStyle(stage);
     const outline = style.outline + style.outlineColor;
     expect(outline).not.toMatch(/magenta|rgb\(255,\s*0,\s*255\)/);
@@ -911,7 +911,7 @@ describe("Scene debug — SceneObject outlines", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     // Focused object overlay should be present
-    const focusedOverlay = scene.querySelector("[data-debug-object-outline='my-object']") as HTMLElement;
+    const focusedOverlay = scene.querySelector("[data-ui-scene-debug-object-outline='my-object']") as HTMLElement;
     expect(focusedOverlay).not.toBeNull();
     // Should have green color
     const style = window.getComputedStyle(focusedOverlay);
@@ -931,7 +931,7 @@ describe("Scene debug — SceneObject outlines", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const unfocusedOverlay = scene.querySelector("[data-debug-object-outline='unfocused-object']") as HTMLElement;
+    const unfocusedOverlay = scene.querySelector("[data-ui-scene-debug-object-outline='unfocused-object']") as HTMLElement;
     expect(unfocusedOverlay).not.toBeNull();
     // Unfocused overlay should have gray color
     const style = window.getComputedStyle(unfocusedOverlay);
@@ -955,7 +955,7 @@ describe("Scene debug — SceneObject outlines", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const outlines = scene.querySelectorAll("[data-debug-object-outline]");
+    const outlines = scene.querySelectorAll("[data-ui-scene-debug-object-outline]");
     expect(outlines.length).toBe(0);
   });
 
@@ -1052,7 +1052,7 @@ describe("Scene debug — overlay computed bounds", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Overlay should show dimensions (width × height) for the object
     expect(overlay?.textContent).toMatch(/\d+\s*[×x]\s*\d+/);
@@ -1074,7 +1074,7 @@ describe("Scene debug — Camera state in overlay", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // Should show a "Camera" or "viewport" section
     expect(overlay?.textContent).toMatch(/camera|viewport/i);
@@ -1096,7 +1096,7 @@ describe("Scene debug — Camera state in overlay", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const cameraSection = scene.querySelector("[data-debug-camera]");
+    const cameraSection = scene.querySelector("[data-ui-scene-debug-camera]");
     expect(cameraSection).not.toBeNull();
   });
 });
@@ -1117,10 +1117,10 @@ describe("Scene debug — per-column scroll state in overlay", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const overlay = scene.querySelector("[data-debug-overlay]");
+    const overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay).not.toBeNull();
     // The overlay should show scroll state for the scrollable column
-    const scrollSection = scene.querySelector("[data-debug-scroll-column='scrollable-col']");
+    const scrollSection = scene.querySelector("[data-ui-scene-debug-scroll-column='scrollable-col']");
     expect(scrollSection).not.toBeNull();
   });
 });
@@ -1156,7 +1156,7 @@ describe("Scene debug overlay object-list staleness (S6 gate fix)", () => {
     const { rerender, getByTestId } = await render(build(false));
     const scene = getByTestId("scene").element();
 
-    let overlay = scene.querySelector("[data-debug-overlay]");
+    let overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay?.textContent).not.toContain("second");
 
     // Mount — no waitForAnimationFrame()/extra tick between this and the
@@ -1164,12 +1164,12 @@ describe("Scene debug overlay object-list staleness (S6 gate fix)", () => {
     // trigger"): if this needs an extra frame to settle, the bug is still
     // present in a milder form.
     await rerender(build(true));
-    overlay = scene.querySelector("[data-debug-overlay]");
+    overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay?.textContent).toContain("second");
 
     // Unmount.
     await rerender(build(false));
-    overlay = scene.querySelector("[data-debug-overlay]");
+    overlay = scene.querySelector("[data-ui-scene-debug-overlay]");
     expect(overlay?.textContent).not.toContain("second");
   });
 });

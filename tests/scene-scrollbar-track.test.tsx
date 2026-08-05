@@ -22,7 +22,7 @@
  * scene test files already read via `.style.top`) — this file samples
  * `thumb.style.top` directly at multiple points during a real coast to
  * prove continuous, per-frame movement rather than inferring it from
- * data-scroll-offset (which was never part of this bug — it has its own,
+ * data-ui-scene-scroll-offset (which was never part of this bug — it has its own,
  * separately-correct scrollY.on("change", ...) subscription).
  */
 
@@ -70,8 +70,8 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
@@ -91,9 +91,9 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
     // Confirm a real fling actually started (still coasting shortly after
     // release) before trusting the samples below mean anything — same
     // confirmation scene-touch.test.tsx's own fling tests use.
-    const offsetAtRelease = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAtRelease = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     await wait(30);
-    const offsetSoonAfter = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetSoonAfter = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(offsetSoonAfter).not.toBe(offsetAtRelease);
 
     // Sample the thumb's OWN rendered top three times across the coast,
@@ -130,11 +130,11 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
  */
 describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
   /**
-   * Polls the thumb's rendered `top` and the column's `data-scroll-offset`
+   * Polls the thumb's rendered `top` and the column's `data-ui-scene-scroll-offset`
    * until both are stable for 3 consecutive real frames AND the offset
    * matches `expectedOffset` — mirrors this suite's `waitForAnimationsToSettle`
    * poll-to-convergence discipline rather than guessing a fixed frame count,
-   * since a target-based command's React state flush (data-scroll-offset)
+   * since a target-based command's React state flush (data-ui-scene-scroll-offset)
    * and the thumb's own useTransform-driven style write aren't guaranteed to
    * land on the exact same frame.
    */
@@ -148,7 +148,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     for (let i = 0; i < 60; i++) {
       await waitForAnimationFrame();
       const top = thumb.style.top;
-      const atOffset = column.getAttribute("data-scroll-offset") === String(expectedOffset);
+      const atOffset = column.getAttribute("data-ui-scene-scroll-offset") === String(expectedOffset);
       if (top === lastTop && atOffset) {
         stableFrames++;
         if (stableFrames >= 3) return;
@@ -174,7 +174,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const track = scene.querySelector("[data-ui-scene-scrollbar]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
 
     const trackRect = track.getBoundingClientRect();
@@ -197,8 +197,8 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const track = scene.querySelector("[data-ui-scene-scrollbar]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
     const maxScroll = Number(thumb.getAttribute("aria-valuemax"));
 
@@ -237,8 +237,8 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const track = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const track = scene.querySelector("[data-ui-scene-scrollbar]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
 
     // 5 x ArrowDown = 5 x scrollBy(40) = a known mid-range target offset
@@ -256,7 +256,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
     // hardcoded viewport number — only the target offset above is a known
     // constant of this test's own command sequence.
     const maxScroll = Number(thumb.getAttribute("aria-valuemax"));
-    const offset = Number(column.getAttribute("data-scroll-offset"));
+    const offset = Number(column.getAttribute("data-ui-scene-scroll-offset"));
     expect(offset).toBe(200);
 
     const trackH = track.getBoundingClientRect().height;

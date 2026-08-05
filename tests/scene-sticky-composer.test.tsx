@@ -88,8 +88,8 @@ async function driveStreamAndSample(scene: HTMLElement, column: HTMLElement, fra
   const samples: Sample[] = [];
 
   const sampleOnce = (frame: number) => {
-    const off = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
-    const max = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const off = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
+    const max = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     // Mirrors ScenePage.tsx's checkComposer inOverscroll guard exactly.
     const inOverscroll = max > 0 && (off > max || off < 0);
     const sceneBottom = scene.getBoundingClientRect().bottom;
@@ -131,8 +131,8 @@ describe("Scene sticky composer — tracks the scene's bottom edge under a real 
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     expect(maxScroll).toBeGreaterThan(0);
 
     const samples = await driveStreamAndSample(scene, column, 72);

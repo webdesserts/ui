@@ -6,7 +6,7 @@
  * framing).
  */
 export interface SceneScrollMetrics {
-  /** Current scroll offset (px), same value data-scroll-offset reflects. */
+  /** Current scroll offset (px), same value data-ui-scene-scroll-offset reflects. */
   offset: number;
   /** Current scrollable range: contentHeight - viewportHeight, clamped to 0. */
   maxScroll: number;

@@ -52,7 +52,7 @@ describe("SceneObject Tailwind group namespace (ui#26): consumer bare-group isol
     // Non-vacuity precondition: the anchor actually carries the named
     // group — proves the rename landed, so a false pass can't happen
     // simply because the group class vanished entirely.
-    const anchor = scene.querySelector('[data-scene-id="host"]') as HTMLElement;
+    const anchor = scene.querySelector('[data-ui-scene-id="host"]') as HTMLElement;
     expect(anchor.className).toContain("group/scene-object");
 
     const target = getByTestId("consumer-target").element() as HTMLElement;

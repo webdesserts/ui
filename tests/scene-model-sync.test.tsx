@@ -37,7 +37,7 @@
  * while the wheel test went red — proving onUpdate is independently
  * load-bearing, not redundant with the grab-site fix.
  *
- * `data-scroll-offset` (mirrored from scrollY via its own,
+ * `data-ui-scene-scroll-offset` (mirrored from scrollY via its own,
  * SEPARATELY-correct `scrollY.on("change", ...)` subscription — never
  * gated on any command type) stays accurate throughout a coast regardless
  * of this bug. It's the one ground-truth observable this file uses to
@@ -100,8 +100,8 @@ async function mountAndFling() {
   await waitForAnimationFrame();
 
   const scene = getByTestId("scene").element() as HTMLElement;
-  const column = scene.querySelector("[data-column]") as HTMLElement;
-  const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+  const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+  const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
   const rect = contentWrapper.getBoundingClientRect();
   const startX = rect.left + rect.width / 2;
   const startY = rect.top + 50;
@@ -126,7 +126,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     // own "grabbing and immediately releasing during an active fling" test
     // uses ("Let the fling coast for a bit — genuinely in flight").
     await wait(80);
-    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // Grab at the SAME clientY the finger released at (a natural re-grab —
     // the gesture's own geometry implies no offset change on its own), then
@@ -142,7 +142,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     firePointer(contentWrapper, "pointerdown", startX, releaseY);
     firePointer(contentWrapper, "pointermove", startX, releaseY + 20);
 
-    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(Math.abs(offsetAfterTinyMove - trueOffsetBeforeGrab)).toBeLessThan(30);
 
     firePointer(contentWrapper, "pointerup", startX, releaseY + 20);
@@ -159,12 +159,12 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     expect(controls).toBeDefined();
     await wait(controls!.duration * 1000 + 500);
 
-    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     firePointer(contentWrapper, "pointerdown", startX, releaseY);
     firePointer(contentWrapper, "pointermove", startX, releaseY + 20);
 
-    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(Math.abs(offsetAfterTinyMove - trueOffsetBeforeGrab)).toBeLessThan(30);
 
     firePointer(contentWrapper, "pointerup", startX, releaseY + 20);
@@ -184,7 +184,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     const { column, scene, contentWrapper } = await mountAndFling();
 
     await wait(80);
-    const trueOffsetBeforeWheel = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const trueOffsetBeforeWheel = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // A small wheel tick — established scene.test.tsx convention
     // (wheelScroll/scrollColumnTo): deltaY maps 1:1 to the resulting
@@ -213,7 +213,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     // a tight tolerance for reasons unrelated to what it's testing.
     await wait(2500);
 
-    const offsetAfterWheel = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAfterWheel = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     // Settled: trueOffsetBeforeWheel + 15 (the wheel tick itself) — NOT
     // anywhere near the stale release offset + 15.
     //
@@ -271,8 +271,8 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const columnRect = contentWrapper.getBoundingClientRect();
     const grabX = columnRect.left + columnRect.width / 2;
     const grabY = columnRect.top + 50;
@@ -307,7 +307,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     expect(controls).toBeDefined();
     await wait(controls!.duration * 1000 * 0.15);
 
-    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const trueOffsetBeforeGrab = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     // Confirm this is genuinely mid-flight — comfortably short of the
     // 3000 target — so the assertion below is actually discriminating
     // against a real remaining distance, not a coincidentally-small one.
@@ -319,7 +319,7 @@ describe("Scene touch — model stays synced with scrollY during a coasting flin
     firePointer(contentWrapper, "pointerdown", grabX, grabY);
     firePointer(contentWrapper, "pointermove", grabX, grabY + 20);
 
-    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAfterTinyMove = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     // Continuous with where the spring actually was, not a forward jump
     // toward the 3000 target.
     expect(Math.abs(offsetAfterTinyMove - trueOffsetBeforeGrab)).toBeLessThan(30);

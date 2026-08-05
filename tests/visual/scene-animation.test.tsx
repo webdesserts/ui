@@ -1002,9 +1002,9 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     await waitForAnimationFrame();
 
     // ui#21 anchor/object split: the depth-card opacity treatment lives on
-    // the OBJECT NODE now, not the zero-footprint anchor `data-scene-id` used
+    // the OBJECT NODE now, not the zero-footprint anchor `data-ui-scene-id` used
     // to carry it.
-    const xEl = () => container.querySelector('[data-scene-object="x"]') as HTMLElement;
+    const xEl = () => container.querySelector('[data-ui-scene-object="x"]') as HTMLElement;
     // Sanity: starts at depth-2 (opacity 0.6, per depth.ts's formula).
     expect(Number(getComputedStyle(xEl()).opacity)).toBeCloseTo(0.6, 2);
 
@@ -1111,12 +1111,12 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     // ui#21 anchor/object split: overlap geometry and paint order are
     // driven by the OBJECT NODE now (position:absolute, the peek-offset
     // transform, and the zIndex channel) — the zero-footprint anchor
-    // `data-scene-id` collapses to zero height once sandwiched and no
+    // `data-ui-scene-id` collapses to zero height once sandwiched and no
     // longer reflects what's actually painted/overlapping on screen.
-    const xEl = container.querySelector('[data-scene-object="x"]') as HTMLElement;
-    const aEl = container.querySelector('[data-scene-object="a"]') as HTMLElement;
-    const mEl = container.querySelector('[data-scene-object="m"]') as HTMLElement;
-    const yEl = container.querySelector('[data-scene-object="y"]') as HTMLElement;
+    const xEl = container.querySelector('[data-ui-scene-object="x"]') as HTMLElement;
+    const aEl = container.querySelector('[data-ui-scene-object="a"]') as HTMLElement;
+    const mEl = container.querySelector('[data-ui-scene-object="m"]') as HTMLElement;
+    const yEl = container.querySelector('[data-ui-scene-object="y"]') as HTMLElement;
 
     const [vsA, vsM, vsY] = await Promise.all([
       sampleLivePaintOrder(xEl, aEl, 90),
@@ -1470,9 +1470,9 @@ describe("depth-deck bug-fix regressions", () => {
     );
     await waitForAnimationFrame();
 
-    const midA = container.querySelector('[data-column="middle-a"]') as HTMLElement;
-    const left = container.querySelector('[data-column="left"]') as HTMLElement;
-    const right = container.querySelector('[data-column="right"]') as HTMLElement;
+    const midA = container.querySelector('[data-ui-scene-column-anchor="middle-a"]') as HTMLElement;
+    const left = container.querySelector('[data-ui-scene-column-anchor="left"]') as HTMLElement;
+    const right = container.querySelector('[data-ui-scene-column-anchor="right"]') as HTMLElement;
 
     const fractions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
     const vsLeft = samplePaintOrder(container as HTMLElement, midA, left, fractions, recorder);

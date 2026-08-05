@@ -431,7 +431,7 @@ export interface SceneColumnProps {
    * (wheel/keyboard/scrollbar/touch) AND content-driven (F9 commit 1's
    * anchoring compensation, commit 2's pin-follow) alike, since both flow
    * through the same underlying scroll value. rAF-batched, matching
-   * data-scroll-offset's own write cadence (a scrollY.on("change", ...)
+   * data-ui-scene-scroll-offset's own write cadence (a scrollY.on("change", ...)
    * subscription — NOT a new rAF loop, and never forces a React
    * re-render on its own). See SceneScrollMetrics' own doc comment for
    * the cadence-staleness contract on maxScroll/contentHeight.
@@ -1645,15 +1645,15 @@ export function SceneColumn({
       // entries to the debug overlay's geometry-store inspector without
       // giving it a live React-level handle into this column's internal
       // ref. Imperative attribute write (not React-rendered), same
-      // rationale as data-scroll-offset's own writer below — this runs on
+      // rationale as data-ui-scene-scroll-offset's own writer below — this runs on
       // every remeasure pass (potentially every ResizeObserver tick), and
       // React-rendering it would force a re-render on every tick just to
       // keep a debug-only number current. Unconditional (not gated on
-      // `debug`), matching data-scroll-offset's own precedent — a plain
+      // `debug`), matching data-ui-scene-scroll-offset's own precedent — a plain
       // attribute write doesn't affect layout either way.
-      el.setAttribute("data-geometry-offset-top", String(Math.round(offsetTop)));
-      el.setAttribute("data-geometry-height", String(Math.round(height)));
-      el.setAttribute("data-geometry-width", String(Math.round(width)));
+      el.setAttribute("data-ui-scene-debug-geometry-offset-top", String(Math.round(offsetTop)));
+      el.setAttribute("data-ui-scene-debug-geometry-height", String(Math.round(height)));
+      el.setAttribute("data-ui-scene-debug-geometry-width", String(Math.round(width)));
     }
     const fingerprint = Array.from(geometryStore.current.entries())
       .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.heightTarget ?? g.height)}:${Math.round(g.width)}`)
@@ -2145,7 +2145,7 @@ export function SceneColumn({
   // click dispatched outside act(), a `flushSync`-wrapped state update, and
   // a truly async `setTimeout`-triggered update polled every rAF) — all
   // four show frozenSize already correctly populated on the very first
-  // frame where `data-column-position` resolves to "in-between"/outer, with
+  // frame where `data-ui-scene-column-position` resolves to "in-between"/outer, with
   // useEffect reverted (DEFEAT-CHECK SEVER'd during this verification and
   // restored after). Cross-checked the technique itself is sound with a
   // Scene-independent minimal component (plain useEffect + flushSync), which
@@ -2231,7 +2231,7 @@ export function SceneColumn({
       // compensation here directly, synchronously inside this callback,
       // before any state update — ResizeObserver callbacks run pre-paint
       // in the SAME rendering pass as the layout change that triggered
-      // them (same guarantee data-scroll-offset's writer already relies
+      // them (same guarantee data-ui-scene-scroll-offset's writer already relies
       // on), so a synchronous scrollY write here lands before that frame
       // paints, matching the "same-frame, no visible motion" contract.
       const changed = remeasureGeometryWithAnchorCompensation();
@@ -2355,7 +2355,7 @@ export function SceneColumn({
         // this swap-reset decision is a useLayoutEffect (runs pre-paint).
         // Without this clamp, the DOM commits and paints one real frame at
         // the raw unclamped offset before the passive effect corrects it —
-        // verified via a MutationObserver on data-scroll-offset showing the
+        // verified via a MutationObserver on data-ui-scene-scroll-offset showing the
         // commit sequence null→0→380→200 with this clamp removed, vs
         // null→0→200 with it present (380 was the saved pre-resize offset,
         // 200 the correct post-resize maxScroll). Do not remove this as a
@@ -2415,7 +2415,7 @@ export function SceneColumn({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused, focusedObjectKey]);
 
-  // Imperative data-scroll-offset attribute writer (forecast-gate adjudication
+  // Imperative data-ui-scene-scroll-offset attribute writer (forecast-gate adjudication
   // #2): mirrors SceneObjectOutlines' direct-DOM-mutation pattern rather than
   // React-rendering the attribute from scrollOffset state — scrollY changes
   // per-frame during a fling/wheel chase and must not force a re-render on
@@ -2428,9 +2428,9 @@ export function SceneColumn({
 
     const sync = (latest: number) => {
       if (columnFocused) {
-        el.setAttribute("data-scroll-offset", String(latest));
+        el.setAttribute("data-ui-scene-scroll-offset", String(latest));
       } else {
-        el.removeAttribute("data-scroll-offset");
+        el.removeAttribute("data-ui-scene-scroll-offset");
       }
     };
 
@@ -2439,7 +2439,7 @@ export function SceneColumn({
   }, [columnFocused, scrollY]);
 
   // F9 commit 3: onScroll fires SceneScrollMetrics on every scrollY change
-  // — reuses the SAME subscription cadence as data-scroll-offset above
+  // — reuses the SAME subscription cadence as data-ui-scene-scroll-offset above
   // (scrollY.on("change", ...), not a new rAF loop — per-tick, without
   // forcing a React re-render). Fires uniformly for BOTH user-initiated
   // writes (wheel/keyboard/scrollbar/touch) AND content-driven ones (F9
@@ -3427,16 +3427,16 @@ export function SceneColumn({
       <motion.div
         ref={colRef}
         {...(mountInitial ? { initial: mountInitial } : firstPaintRef.current ? { initial: false } : {})}
-        data-column={name}
-        data-column-focused={String(columnFocused)}
-        data-column-position={position ?? undefined}
-        data-stack-depth={isInBetween ? String(stackDepth) : undefined}
-        data-max-scroll={isScrollable ? String(maxScroll) : undefined}
-        /* data-scroll-offset is written imperatively via the scrollY
+        data-ui-scene-column-anchor={name}
+        data-ui-scene-column-focused={String(columnFocused)}
+        data-ui-scene-column-position={position ?? undefined}
+        data-ui-scene-stack-depth={isInBetween ? String(stackDepth) : undefined}
+        data-ui-scene-max-scroll={isScrollable ? String(maxScroll) : undefined}
+        /* data-ui-scene-scroll-offset is written imperatively via the scrollY
            subscription effect below (forecast-gate adjudication #2), not
            React-rendered — per-tick MotionValue changes during a fling must
            not force a re-render just to update this attribute. */
-        data-content-height={columnFocused ? String(contentHeight) : undefined}
+        data-ui-scene-content-height={columnFocused ? String(contentHeight) : undefined}
         animate={{
           x: 0,
         }}
@@ -3485,7 +3485,7 @@ export function SceneColumn({
             sibling-width changes reach the column via pure CSS reflow of
             the anchor — zero JS re-measurement. */}
         <motion.div
-          data-scene-column
+          data-ui-scene-column
           animate={{
             opacity: depthOpacity,
             // z is NOT here, see zMV's declaration above (z-clearance
@@ -3580,7 +3580,7 @@ export function SceneColumn({
             (D4's aria-controls target) regardless of focus/scrollability. */}
         <motion.div
           ref={contentWrapperRef}
-          data-column-content
+          data-ui-scene-column-content
           id={contentWrapperId}
           {...(columnFocused
             ? { role: "region" as const, "aria-label": `${name} content${isScrollable ? ", scrollable" : ""}` }

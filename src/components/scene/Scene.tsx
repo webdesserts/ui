@@ -206,14 +206,14 @@ export interface SceneProps {
    * Fires exactly once per settled FOCUS transition (ui#20) — a change to
    * which SceneObjects are focused (including a within-column swap), once
    * the scene has genuinely gone quiet (the settle counter reaches zero
-   * post-commit — the same crossing `data-scene-settled` flips true on).
+   * post-commit — the same crossing `data-ui-scene-settled` flips true on).
    * Payload is the settled focus arrangement: every registered SceneObject
    * across every column, in DOM order, with its final `focused` state.
    *
    * Does NOT fire on the initial mount's pure-entrance settle (no focus
    * change occurred), and does NOT fire for a non-focus-driven settle
    * (e.g. an unrelated content-resize spring quieting down) — narrower
-   * than `data-scene-settled`, which is mechanism-broad (see its own doc
+   * than `data-ui-scene-settled`, which is mechanism-broad (see its own doc
    * comment). Reduced-motion / `duration={0}` focus changes DO fire
    * (synchronously, before the browser's next paint) — a silent no-fire
    * there would break every consumer on the accessibility path.
@@ -381,7 +381,7 @@ function wrapChild(child: React.ReactNode): React.ReactNode {
 
 /**
  * Reads the debug overlay's object list straight from the DOM — every
- * `[data-scene-id]` element under the viewport, with its `data-focused`
+ * `[data-ui-scene-id]` element under the viewport, with its `data-ui-scene-focused`
  * attribute — rather than walking Scene's `children` prop tree. DOM truth is
  * immune by construction to Fragment wrapping, custom components that return
  * a SceneObject/SceneColumn, or any other composition that a shallow prop
@@ -389,9 +389,9 @@ function wrapChild(child: React.ReactNode): React.ReactNode {
  * below), and it's what actually rendered — the only thing worth debugging.
  */
 function queryDebugObjects(viewport: HTMLElement): DebugObjectEntry[] {
-  return Array.from(viewport.querySelectorAll<HTMLElement>("[data-scene-id]")).map((el) => ({
-    name: el.getAttribute("data-scene-id") ?? "",
-    focused: el.getAttribute("data-focused") === "true",
+  return Array.from(viewport.querySelectorAll<HTMLElement>("[data-ui-scene-id]")).map((el) => ({
+    name: el.getAttribute("data-ui-scene-id") ?? "",
+    focused: el.getAttribute("data-ui-scene-focused") === "true",
   }));
 }
 
@@ -431,7 +431,7 @@ interface StageBoundsInfo {
  * the stage beyond what's focused).
  */
 function measureStageBounds(viewport: HTMLElement, stage: HTMLElement): StageBoundsInfo | null {
-  const focusedCols = Array.from(stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"));
+  const focusedCols = Array.from(stage.querySelectorAll<HTMLElement>("[data-ui-scene-column-focused='true']"));
   if (focusedCols.length === 0) return null;
 
   const focusedUnion = focusedCols.reduce(
@@ -531,7 +531,7 @@ function StageBoundsOutline({
 
   return (
     <div
-      data-debug-stage-bounds
+      data-ui-scene-debug-stage-bounds
       style={{
         position: "absolute",
         left: bounds.left,
@@ -574,10 +574,10 @@ interface StrayChildEntry {
 }
 
 /**
- * Finds every DIRECT DOM child of the stage lacking `data-column` — the
+ * Finds every DIRECT DOM child of the stage lacking `data-ui-scene-column-anchor` — the
  * attribute every legitimately-rendered SceneColumn carries. wrapChild
  * (below) already folds bare SceneObjects into an implicit SceneColumn, so
- * anything reaching the stage without `data-column` is exactly
+ * anything reaching the stage without `data-ui-scene-column-anchor` is exactly
  * warnStrayChild's trigger condition: a child that is neither a SceneColumn
  * nor a SceneObject, silently joining the flex row unchanged.
  */
@@ -586,7 +586,7 @@ function measureStrayChildren(viewport: HTMLElement, stage: HTMLElement): StrayC
   const entries: StrayChildEntry[] = [];
   Array.from(stage.children).forEach((child, i) => {
     if (!(child instanceof HTMLElement)) return;
-    if (child.hasAttribute("data-column")) return;
+    if (child.hasAttribute("data-ui-scene-column-anchor")) return;
     const rect = child.getBoundingClientRect();
     entries.push({
       key: `stray-${i}-${child.tagName}`,
@@ -659,7 +659,7 @@ function StrayChildFlags({
       {entries.map((entry) => (
         <div
           key={entry.key}
-          data-debug-stray-child={entry.typeName}
+          data-ui-scene-debug-stray-child={entry.typeName}
           style={{
             position: "absolute",
             left: entry.left,
@@ -698,15 +698,15 @@ interface DeckCardKey {
   /** React key + badge-ref key. */
   key: string;
   kind: "column" | "object";
-  /** The data-column name (kind "column") or data-scene-id name (kind
+  /** The data-ui-scene-column-anchor name (kind "column") or data-ui-scene-id name (kind
    *  "object") used to re-find the live DOM element on every frame. */
   domId: string;
 }
 
 /**
  * Finds every current deck card: columns classified in-between (F1/H8's
- * `data-stack-depth`, only ever set for in-between columns) and
- * within-column depth-deck objects (`data-within-column-depth`, only ever
+ * `data-ui-scene-stack-depth`, only ever set for in-between columns) and
+ * within-column depth-deck objects (`data-ui-scene-within-column-depth`, only ever
  * set when an object is sandwiched between two focused siblings — see
  * SceneObject's withinDepthInfo). Focused cards and outer-left/outer-right
  * columns carry neither attribute and are correctly excluded — badges are
@@ -717,12 +717,12 @@ interface DeckCardKey {
  */
 function findDeckCardKeys(stage: HTMLElement): DeckCardKey[] {
   const keys: DeckCardKey[] = [];
-  stage.querySelectorAll<HTMLElement>("[data-stack-depth]").forEach((el) => {
-    const name = el.getAttribute("data-column") ?? "";
+  stage.querySelectorAll<HTMLElement>("[data-ui-scene-stack-depth]").forEach((el) => {
+    const name = el.getAttribute("data-ui-scene-column-anchor") ?? "";
     keys.push({ key: `column:${name}`, kind: "column", domId: name });
   });
-  stage.querySelectorAll<HTMLElement>("[data-within-column-depth]").forEach((el) => {
-    const name = el.getAttribute("data-scene-id") ?? "";
+  stage.querySelectorAll<HTMLElement>("[data-ui-scene-within-column-depth]").forEach((el) => {
+    const name = el.getAttribute("data-ui-scene-id") ?? "";
     keys.push({ key: `object:${name}`, kind: "object", domId: name });
   });
   return keys;
@@ -797,8 +797,8 @@ function PaintOrderBadges({
     for (const card of cards) {
       const el =
         card.kind === "column"
-          ? stage.querySelector<HTMLElement>(`[data-column='${card.domId}']`)
-          : stage.querySelector<HTMLElement>(`[data-scene-id='${card.domId}']`);
+          ? stage.querySelector<HTMLElement>(`[data-ui-scene-column-anchor='${card.domId}']`)
+          : stage.querySelector<HTMLElement>(`[data-ui-scene-id='${card.domId}']`);
       const badge = badgeRefs.current.get(card.key);
       if (!el || !badge) continue;
       const rect = el.getBoundingClientRect();
@@ -810,7 +810,7 @@ function PaintOrderBadges({
         // z from the column node when one exists (every column has one; this
         // falls back to `el` defensively, which has no column child to begin
         // with).
-        const zSource = el.querySelector<HTMLElement>("[data-scene-column]") ?? el;
+        const zSource = el.querySelector<HTMLElement>("[data-ui-scene-column]") ?? el;
         const z = parseTranslateZ(getComputedStyle(zSource).transform);
         badge.textContent = `z:${Math.round(z)}`;
       } else {
@@ -819,7 +819,7 @@ function PaintOrderBadges({
         // SceneObject's own zIndex comment) — paint order is a discrete
         // zIndex write on the object instead. parseTranslateZ would always
         // read 0 here now; read the real channel directly.
-        const zSource = el.querySelector<HTMLElement>("[data-scene-object]") ?? el;
+        const zSource = el.querySelector<HTMLElement>("[data-ui-scene-object]") ?? el;
         badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
       }
     }
@@ -848,7 +848,7 @@ function PaintOrderBadges({
             if (el) badgeRefs.current.set(card.key, el);
             else badgeRefs.current.delete(card.key);
           }}
-          data-debug-paint-badge={card.key}
+          data-ui-scene-debug-paint-badge={card.key}
           style={{
             position: "absolute",
             left: 0,
@@ -935,7 +935,7 @@ function SceneObjectOutlines({
     const vpRect = viewport.getBoundingClientRect();
 
     for (const obj of queryDebugObjects(viewport)) {
-      const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
+      const el = viewport.querySelector<HTMLElement>(`[data-ui-scene-id='${obj.name}']`);
       const outlineDiv = outlineRefs.current.get(obj.name);
       if (!el || !outlineDiv) continue;
 
@@ -982,7 +982,7 @@ function SceneObjectOutlines({
                 outlineRefs.current.delete(name);
               }
             }}
-            data-debug-object-outline={name}
+            data-ui-scene-debug-object-outline={name}
             style={{
               position: "absolute",
               left: 0,
@@ -1090,7 +1090,7 @@ function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
         Active springs
       </div>
       {keys.map((key) => (
-        <div key={key} data-debug-spring={key}>
+        <div key={key} data-ui-scene-debug-spring={key}>
           <span style={{ color: "#fbbf24" }}>{key}</span>
           {": "}
           <span
@@ -1098,7 +1098,7 @@ function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
               if (el) valueRefs.current.set(key, el);
               else valueRefs.current.delete(key);
             }}
-            data-debug-spring-value
+            data-ui-scene-debug-spring-value
           />
           {" → "}
           <span
@@ -1106,7 +1106,7 @@ function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
               if (el) targetRefs.current.set(key, el);
               else targetRefs.current.delete(key);
             }}
-            data-debug-spring-target
+            data-ui-scene-debug-spring-target
           />
           {" (v="}
           <span
@@ -1114,7 +1114,7 @@ function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
               if (el) velocityRefs.current.set(key, el);
               else velocityRefs.current.delete(key);
             }}
-            data-debug-spring-velocity
+            data-ui-scene-debug-spring-velocity
           />
           {")"}
         </div>
@@ -1187,14 +1187,14 @@ function SceneDebugOverlay({
   const columnScrollStates: DebugColumnScroll[] = [];
   const viewport = viewportRef.current;
   if (viewport) {
-    const columns = viewport.querySelectorAll("[data-column]");
+    const columns = viewport.querySelectorAll("[data-ui-scene-column-anchor]");
     columns.forEach((col) => {
-      const name = col.getAttribute("data-column") ?? "?";
-      const focused = col.getAttribute("data-column-focused") === "true";
+      const name = col.getAttribute("data-ui-scene-column-anchor") ?? "?";
+      const focused = col.getAttribute("data-ui-scene-column-focused") === "true";
       if (!focused) return;
-      const scrollOffset = parseFloat(col.getAttribute("data-scroll-offset") ?? "0");
-      const contentHeight = parseFloat(col.getAttribute("data-content-height") ?? "0");
-      const maxScroll = parseFloat(col.getAttribute("data-max-scroll") ?? "0");
+      const scrollOffset = parseFloat(col.getAttribute("data-ui-scene-scroll-offset") ?? "0");
+      const contentHeight = parseFloat(col.getAttribute("data-ui-scene-content-height") ?? "0");
+      const maxScroll = parseFloat(col.getAttribute("data-ui-scene-max-scroll") ?? "0");
       const viewportHeight = contentHeight - maxScroll; // viewport = content - maxScroll
       columnScrollStates.push({
         name,
@@ -1217,11 +1217,11 @@ function SceneDebugOverlay({
   const stage = stageRef.current;
   const offsetParentWarnings: string[] = [];
   if (stage && viewport) {
-    const columns = viewport.querySelectorAll<HTMLElement>("[data-column]");
+    const columns = viewport.querySelectorAll<HTMLElement>("[data-ui-scene-column-anchor]");
     columns.forEach((col) => {
       const op = col.offsetParent;
       if (op && op !== stage) {
-        const name = col.getAttribute("data-column") ?? "?";
+        const name = col.getAttribute("data-ui-scene-column-anchor") ?? "?";
         offsetParentWarnings.push(name);
       }
     });
@@ -1232,7 +1232,7 @@ function SceneDebugOverlay({
   if (viewport) {
     const vpRect = viewport.getBoundingClientRect();
     for (const obj of objects) {
-      const el = viewport.querySelector<HTMLElement>(`[data-scene-id='${obj.name}']`);
+      const el = viewport.querySelector<HTMLElement>(`[data-ui-scene-id='${obj.name}']`);
       if (!el) continue;
       const rect = el.getBoundingClientRect();
       objectBounds.push({
@@ -1246,7 +1246,7 @@ function SceneDebugOverlay({
   }
 
   // F4 feature (c) geometry-store inspector: reads SceneColumn's per-object
-  // data-geometry-offset-top/height mirror (written by remeasureGeometry —
+  // data-ui-scene-debug-geometry-offset-top/height mirror (written by remeasureGeometry —
   // see SceneColumn.tsx), grouped by parent column. No provenance tag
   // (seeded-at-registration vs remeasured, as originally scoped) — SceneColumn
   // has exactly ONE write site into its geometryStore (remeasureGeometry's
@@ -1254,14 +1254,14 @@ function SceneDebugOverlay({
   // exists), so a provenance boolean would have nothing real to distinguish.
   const geometryByColumn = new Map<string, Array<{ name: string; offsetTop: number; height: number }>>();
   if (viewport) {
-    viewport.querySelectorAll<HTMLElement>("[data-geometry-offset-top]").forEach((el) => {
-      const name = el.getAttribute("data-scene-id") ?? "?";
-      const columnName = el.closest<HTMLElement>("[data-column]")?.getAttribute("data-column") ?? "?";
+    viewport.querySelectorAll<HTMLElement>("[data-ui-scene-debug-geometry-offset-top]").forEach((el) => {
+      const name = el.getAttribute("data-ui-scene-id") ?? "?";
+      const columnName = el.closest<HTMLElement>("[data-ui-scene-column-anchor]")?.getAttribute("data-ui-scene-column-anchor") ?? "?";
       const entries = geometryByColumn.get(columnName) ?? [];
       entries.push({
         name,
-        offsetTop: parseFloat(el.getAttribute("data-geometry-offset-top") ?? "0"),
-        height: parseFloat(el.getAttribute("data-geometry-height") ?? "0"),
+        offsetTop: parseFloat(el.getAttribute("data-ui-scene-debug-geometry-offset-top") ?? "0"),
+        height: parseFloat(el.getAttribute("data-ui-scene-debug-geometry-height") ?? "0"),
       });
       geometryByColumn.set(columnName, entries);
     });
@@ -1269,7 +1269,7 @@ function SceneDebugOverlay({
 
   return (
     <div
-      data-debug-overlay
+      data-ui-scene-debug-overlay
       style={{
         position: "fixed",
         bottom: 8,
@@ -1300,7 +1300,7 @@ function SceneDebugOverlay({
       }}
     >
       <label
-        data-debug-slowmo-toggle
+        data-ui-scene-debug-slowmo-toggle
         style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, cursor: "pointer" }}
       >
         <input type="checkbox" checked={slowMo} onChange={onToggleSlowMo} />
@@ -1366,7 +1366,7 @@ function SceneDebugOverlay({
             Vertical scroll
           </div>
           {columnScrollStates.map((col) => (
-            <div key={col.name} data-debug-scroll-column={col.name}>
+            <div key={col.name} data-ui-scene-debug-scroll-column={col.name}>
               <span style={{ color: col.scrollable ? "#facc15" : "#9ca3af" }}>
                 {col.name}
               </span>
@@ -1386,10 +1386,10 @@ function SceneDebugOverlay({
             Geometry store
           </div>
           {Array.from(geometryByColumn.entries()).map(([columnName, entries]) => (
-            <div key={columnName} data-debug-geometry-column={columnName}>
+            <div key={columnName} data-ui-scene-debug-geometry-column={columnName}>
               <span style={{ color: "#c4b5fd" }}>{columnName}</span>
               {entries.map((entry) => (
-                <div key={entry.name} style={{ paddingLeft: 8 }} data-debug-geometry-object={entry.name}>
+                <div key={entry.name} style={{ paddingLeft: 8 }} data-ui-scene-debug-geometry-object={entry.name}>
                   <span style={{ color: "#9ca3af" }}>{entry.name}</span>
                   {": top="}
                   {Math.round(entry.offsetTop)}
@@ -1405,7 +1405,7 @@ function SceneDebugOverlay({
       <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
         Horizontal scroll
       </div>
-      <div data-debug-h-scroll>
+      <div data-ui-scene-debug-h-scroll>
         {Math.round(scrollLeft)} / {Math.round(scrollWidth - clientWidth)} (vp:{" "}
         {Math.round(clientWidth)})
       </div>
@@ -1413,7 +1413,7 @@ function SceneDebugOverlay({
       <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
         Camera
       </div>
-      <div data-debug-camera>
+      <div data-ui-scene-debug-camera>
         <span style={{ color: "#93c5fd" }}>viewport</span>
         {": "}
         {Math.round(clientWidth)} × {Math.round(viewport?.clientHeight ?? 0)}
@@ -1481,7 +1481,7 @@ function SceneViewport({
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
-  /** ui#20: renders as `data-scene-settled` on the viewport element — see
+  /** ui#20: renders as `data-ui-scene-settled` on the viewport element — see
    *  Scene's own `settled` state doc comment for the full mechanism. */
   settled: boolean;
   /** F4 feature (e): flips Scene's internal slowMo override (debug overlay
@@ -1904,7 +1904,7 @@ function SceneViewport({
     if (!viewport || !stage) return;
 
     const focusedCols = Array.from(
-      stage.querySelectorAll<HTMLElement>("[data-column-focused='true']"),
+      stage.querySelectorAll<HTMLElement>("[data-ui-scene-column-focused='true']"),
     );
 
     // Single camera owner also owns the pan reset: any time the SET of
@@ -1920,7 +1920,7 @@ function SceneViewport({
     // content (B1). Runs even when transitioning to/from "nothing focused"
     // so a later return to the same set isn't mistaken for "unchanged".
     const focusedNames = focusedCols
-      .map((col) => col.getAttribute("data-column") ?? "")
+      .map((col) => col.getAttribute("data-ui-scene-column-anchor") ?? "")
       .join(",");
     if (focusedNames !== prevFocusedNamesRef.current) {
       prevFocusedNamesRef.current = focusedNames;
@@ -1951,7 +1951,7 @@ function SceneViewport({
     // per commit, aimed at the truth from the start, instead of a wrong
     // early measurement corrected later by the zero-crossing re-measure
     // below (which stays as the verification pass, not the primary aim).
-    const allColumnEls = Array.from(stage.querySelectorAll<HTMLElement>("[data-column]"));
+    const allColumnEls = Array.from(stage.querySelectorAll<HTMLElement>("[data-ui-scene-column-anchor]"));
     const registry = columnRegistryRef.current;
 
     // Pre-pass (delta claim review, 2026-07-31): the index of the LAST
@@ -1965,7 +1965,7 @@ function SceneViewport({
     // widthTarget to be resolved, only `.focused`.
     let lastFocusedIndex = -1;
     for (let i = 0; i < allColumnEls.length; i++) {
-      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      const colName = allColumnEls[i]!.getAttribute("data-ui-scene-column-anchor") ?? "";
       if (registry.get(colName)?.focused) lastFocusedIndex = i;
     }
 
@@ -1974,7 +1974,7 @@ function SceneViewport({
     let targetRight: number | undefined;
     let missingTargetColumn: string | undefined;
     for (let i = 0; i < allColumnEls.length; i++) {
-      const colName = allColumnEls[i]!.getAttribute("data-column") ?? "";
+      const colName = allColumnEls[i]!.getAttribute("data-ui-scene-column-anchor") ?? "";
       const registered = registry.get(colName);
       if (registered === undefined || registered.widthTarget === undefined) {
         // Past the last focused column (see the pre-pass's own invariant
@@ -2275,12 +2275,12 @@ function SceneViewport({
           // e.target is already the innermost element (the listener
           // bubbles from the viewport), so no elementFromPoint hit-test is
           // needed here.
-          const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
+          const eventColumn = (e.target as Element | null)?.closest("[data-ui-scene-column-anchor]") ?? null;
           const yConsumedByInterior =
             eventColumn && interiorCanConsume(e.target as Element, eventColumn, "y", scaledDeltaY);
           if (!yConsumedByInterior) {
             const column = decideWheelTargetColumn(el, e.clientX, e.clientY);
-            const name = column?.getAttribute("data-column");
+            const name = column?.getAttribute("data-ui-scene-column-anchor");
             const applyScrollCommand = name ? scrollCommandRegistry.get(name) : undefined;
             if (name && applyScrollCommand) {
               claimedAnyAxis = true;
@@ -2302,7 +2302,7 @@ function SceneViewport({
           // as deltaY, on the same eventColumn boundary — a consumer's own
           // overflow-x: auto island (e.g. a wide table/code block) gets to
           // consume its own horizontal wheel input before the camera does.
-          const eventColumn = (e.target as Element | null)?.closest("[data-column]") ?? null;
+          const eventColumn = (e.target as Element | null)?.closest("[data-ui-scene-column-anchor]") ?? null;
           const xConsumedByInterior =
             eventColumn && interiorCanConsume(e.target as Element, eventColumn, "x", scaledDeltaX);
           if (!xConsumedByInterior) {
@@ -2549,8 +2549,8 @@ function SceneViewport({
       <div
         ref={viewportRef}
         data-testid="scene"
-        data-reduced-motion={reducedMotion ? "" : undefined}
-        data-scene-settled={String(settled)}
+        data-ui-scene-reduced-motion={reducedMotion ? "" : undefined}
+        data-ui-scene-settled={String(settled)}
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={handleViewportPointerUp}
@@ -2573,7 +2573,7 @@ function SceneViewport({
           // wheel bug). "auto" here means this element imposes nothing;
           // the vertical-pan exclusion that used to live here now lives
           // on each column's own content wrapper (SceneColumn.tsx,
-          // [data-column-content]), scoped to that column being
+          // [data-ui-scene-column-content]), scoped to that column being
           // Scene-scrollable — so it restricts only the column that
           // needs to own vertical drag, never anything else in the tree.
           // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
@@ -2622,7 +2622,7 @@ function SceneViewport({
             3D context lives on the viewport div above, not here. */}
         <motion.div
           ref={stageRef}
-          data-stage
+          data-ui-scene-stage
           initial={false}
           // onTransitionStart/onTransitionComplete (useCamera()
           // `transitioning`) are wired directly to the cameraX animate()
@@ -2703,7 +2703,7 @@ function SceneViewport({
           </div>
         )}
         {/* Overlay is inside the scene div so tests can find it via
-            scene.querySelector('[data-debug-overlay]'). position:fixed
+            scene.querySelector('[data-ui-scene-debug-overlay]'). position:fixed
             ensures it doesn't participate in flex layout. */}
         {debug && (
           <SceneDebugOverlay
@@ -2801,7 +2801,7 @@ export function Scene({
   // it, avoiding a spurious re-provide on every unrelated Scene render.
   const activeAnimationCountRef = useRef(0);
   const [, bumpSettleSignal] = useState(0);
-  // `data-scene-settled` (ui#20, criterion 1): true iff no owned animation
+  // `data-ui-scene-settled` (ui#20, criterion 1): true iff no owned animation
   // is currently active — genuine React state (not just the ref above),
   // flipping false the instant a channel claims (the ref's 0->1 crossing)
   // and true again on the existing zero-crossing. Mechanism-broad by
@@ -3008,7 +3008,7 @@ export function Scene({
   // fingerprint possible without a DOM query.
   //
   // ACCEPTED TRADEOFF (F4 REVISION v3): transitionPending's CLEAR condition
-  // is the RAW GLOBAL zero-crossing, shared with `data-scene-settled` —
+  // is the RAW GLOBAL zero-crossing, shared with `data-ui-scene-settled` —
   // NOT a per-transition claim tag. A focus change landing while an
   // unrelated ambient channel (e.g. a sibling's content-growth spring) is
   // still mid-flight extends the pending window until the true global

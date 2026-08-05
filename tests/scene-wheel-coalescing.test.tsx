@@ -55,7 +55,7 @@ describe("Scene wheel input coalescing (F17 commit 2)", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
     const colRect = column.getBoundingClientRect();
     const x = colRect.left + colRect.width / 2;
     const y = colRect.top + 100;
@@ -119,8 +119,8 @@ describe("Scene wheel catch-stop detection (ui#27)", () => {
     await rerender(tree(false));
     await waitForAnimationFrame();
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = (scene.querySelector("[data-column]") as HTMLElement).querySelector(
-      "[data-column-content]",
+    const contentWrapper = (scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement).querySelector(
+      "[data-ui-scene-column-content]",
     ) as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const sy = recorder.values.get("scrollY:col")!;

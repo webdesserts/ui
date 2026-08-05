@@ -165,7 +165,7 @@ export function Scrollbar({
   return (
     <div
       ref={trackRef}
-      data-scrollbar
+      data-ui-scene-scrollbar
       onPointerDown={handleTrackPointerDown}
       style={{
         position: "absolute",

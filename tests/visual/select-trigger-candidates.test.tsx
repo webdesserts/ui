@@ -66,11 +66,11 @@ async function captureHover(container: Element) {
 
 /**
  * Tab to the trigger — a real keyboard interaction that natively triggers
- * :focus-visible. NOT text-input's data-focus-source mechanism: that hack
+ * :focus-visible. NOT text-input's data-ui-focus-source mechanism: that hack
  * exists only because <input> is a replaced element the browser forces
  * :focus-visible on regardless of modality — these candidates are real
  * <button>s riding interactiveRing's highlight: variant (plain
- * :focus-visible), which ignores data-focus-source entirely, and a bare
+ * :focus-visible), which ignores data-ui-focus-source entirely, and a bare
  * .focus() doesn't reliably trip Chromium's :focus-visible heuristic.
  *
  * Parks the pointer first: userEvent.tab() doesn't move the mouse, so a

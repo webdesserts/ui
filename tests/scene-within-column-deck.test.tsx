@@ -47,14 +47,14 @@ describe("SceneColumn within-column depth deck", () => {
     // commit catch up before reading computed style.
     await waitForAnimationFrame();
 
-    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const anchorB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     // ui#21 anchor/object split: the depth-card visual treatment (opacity,
     // visibility) lives on the OBJECT NODE now, not the zero-footprint anchor —
-    // the anchor only carries the `data-within-column-depth` marker.
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    // the anchor only carries the `data-ui-scene-within-column-depth` marker.
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement;
 
     // B is between two focused objects — it should have depth treatment (data attribute)
-    expect(anchorB.getAttribute("data-within-column-depth")).toBe("1");
+    expect(anchorB.getAttribute("data-ui-scene-within-column-depth")).toBe("1");
 
     // B's object node should be visible (not visibility: hidden — it peeks as a depth card)
     expect(window.getComputedStyle(objectNodeB).visibility).not.toBe("hidden");
@@ -90,16 +90,16 @@ describe("SceneColumn within-column depth deck", () => {
     // Same load-dependent settling precondition as the sibling test above.
     await waitForAnimationFrame();
 
-    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    const anchorC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
+    const anchorB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const anchorC = getByTestId("content-c").element().closest("[data-ui-scene-id]") as HTMLElement;
     // ui#21 anchor/object split: opacity lives on the OBJECT NODE now, not the
     // zero-footprint anchor (see the sibling test above for the same fix).
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
-    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement;
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement;
+    const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement;
 
     // C is depth-1 (adjacent to lower focused D), B is depth-2
-    expect(anchorC.getAttribute("data-within-column-depth")).toBe("1");
-    expect(anchorB.getAttribute("data-within-column-depth")).toBe("2");
+    expect(anchorC.getAttribute("data-ui-scene-within-column-depth")).toBe("1");
+    expect(anchorB.getAttribute("data-ui-scene-within-column-depth")).toBe("2");
 
     // C (depth-1) has higher opacity than B (depth-2) — less treatment = more visible
     const opacityB = parseFloat(window.getComputedStyle(objectNodeB).opacity);
@@ -125,10 +125,10 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     // B is not between two focused objects — no depth attribute
-    expect(objB.getAttribute("data-within-column-depth")).toBeNull();
+    expect(objB.getAttribute("data-ui-scene-within-column-depth")).toBeNull();
 
     // B stays visible and in flow (position: relative), just inert
     expect(window.getComputedStyle(objB).position).toBe("relative");
@@ -170,8 +170,8 @@ describe("SceneColumn within-column depth deck", () => {
     // file already wait a frame for.
     await waitForAnimationFrame();
 
-    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
+    const anchorB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement;
 
     // B's object node escapes its zero-footprint anchor via position:absolute.
     expect(window.getComputedStyle(objectNodeB).position).toBe("absolute");
@@ -227,8 +227,8 @@ describe("SceneColumn within-column depth deck", () => {
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, matching this file's established idiom, not the
     // retired inline `style.top`.
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-1
 
     // C (depth-1) peeks up by 12px, B (depth-2) by 24px (default peekOffset).
     expect(parseTranslateY(objectNodeC.style.transform)).toBeCloseTo(-12, 0);
@@ -265,8 +265,8 @@ describe("SceneColumn within-column depth deck", () => {
     // ui#21 anchor/object split: peek offset lives in the object node's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, not the retired `style.top`.
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-1
 
     // With peekOffset=20, C (depth-1) peeks up by 20px and B (depth-2) by
     // 2*20=40px.
@@ -298,8 +298,8 @@ describe("SceneColumn within-column depth deck", () => {
 
     // ui#21 anchor/object split: peek offset lives in the object node's own
     // y-transform now — read rendered geometry, not the retired `style.top`.
-    const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement; // depth-2
-    const objectNodeC = getByTestId("content-c").element().closest("[data-scene-object]") as HTMLElement; // depth-1
+    const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-2
+    const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-1
 
     // With no peek offset, both depths anchor flush at their shared local
     // origin (200) — the pre-A5 behavior, where only zIndex (not a manual
@@ -356,9 +356,9 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    const middle = getByTestId("content-middle").element().closest("[data-scene-id]") as HTMLElement;
+    const middle = getByTestId("content-middle").element().closest("[data-ui-scene-id]") as HTMLElement;
     // Sanity: Middle starts sandwiched in the depth deck.
-    expect(middle.getAttribute("data-within-column-depth")).not.toBeNull();
+    expect(middle.getAttribute("data-ui-scene-within-column-depth")).not.toBeNull();
 
     // Grow Top with a REAL spring (no duration override) — Middle's anchor
     // (Bottom's offsetTop) shifts a lot, starting a genuine in-flight
@@ -409,11 +409,11 @@ describe("SceneColumn within-column depth deck", () => {
     // within a few hundred ms — 1000ms leaves a wide margin).
     await wait(1000);
 
-    const top = getByTestId("content-top").element().closest("[data-scene-id]") as HTMLElement;
-    const bottom = getByTestId("content-bottom").element().closest("[data-scene-id]") as HTMLElement;
+    const top = getByTestId("content-top").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const bottom = getByTestId("content-bottom").element().closest("[data-ui-scene-id]") as HTMLElement;
 
-    expect(middle.getAttribute("data-focused")).toBe("true");
-    expect(middle.getAttribute("data-within-column-depth")).toBeNull();
+    expect(middle.getAttribute("data-ui-scene-focused")).toBe("true");
+    expect(middle.getAttribute("data-ui-scene-within-column-depth")).toBeNull();
 
     const topRect = top.getBoundingClientRect();
     const middleRect = middle.getBoundingClientRect();
@@ -557,9 +557,9 @@ async function runUI21DeckTrigger(direction: "unfocus" | "focus"): Promise<{
   const { getByTestId, container } = await render(<Demo />);
   await wait(600); // full initial settle, before the toggle under test
 
-  const top = container.querySelector('[data-scene-id="stack-top"]') as HTMLElement;
-  const middle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-  const bottom = container.querySelector('[data-scene-id="stack-bottom"]') as HTMLElement;
+  const top = container.querySelector('[data-ui-scene-id="stack-top"]') as HTMLElement;
+  const middle = container.querySelector('[data-ui-scene-id="stack-middle"]') as HTMLElement;
+  const bottom = container.querySelector('[data-ui-scene-id="stack-bottom"]') as HTMLElement;
 
   const sample = (el: HTMLElement): GBCRBox => {
     const r = el.getBoundingClientRect();
@@ -626,7 +626,7 @@ describe("Within-column deck (ui#21): instant flow snap / teleport repro, N=10 (
 });
 
 describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
-  // Targets the OBJECT NODE (data-scene-object) — the node that flips position
+  // Targets the OBJECT NODE (data-ui-scene-object) — the node that flips position
   // mode post-split (the anchor never flips again — permanent
   // zero-footprint in flow). Originally targeted the object's own single
   // node pre-split (that WAS what flipped position mode before the anchor/
@@ -656,8 +656,8 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middleObjectNodeEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const middleAnchorEl = container.querySelector('[data-ui-scene-id="stack-middle"]') as HTMLElement;
+    const middleObjectNodeEl = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     const { before, after } = await captureFlipCommit(middleObjectNodeEl, 2000, undefined, middleAnchorEl);
@@ -691,8 +691,8 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleAnchorEl = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const middleObjectNodeEl = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
+    const middleAnchorEl = container.querySelector('[data-ui-scene-id="stack-middle"]') as HTMLElement;
+    const middleObjectNodeEl = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     const { before, after } = await captureFlipCommit(middleObjectNodeEl, 2000, undefined, middleAnchorEl);
@@ -729,7 +729,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   // not any internal signal the sever could also corrupt — anchors the
   // expectation.
   function ownerOf(el: Element | null): string | undefined {
-    return el?.closest("[data-scene-id]")?.getAttribute("data-scene-id") ?? undefined;
+    return el?.closest("[data-ui-scene-id]")?.getAttribute("data-ui-scene-id") ?? undefined;
   }
 
   // Scans a Y range for a point covered by the target pair's own boxes but
@@ -762,7 +762,7 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
   // isolated minimal repro too — see this describe block's own dedicated
   // test): a negative z-index object node paints BEHIND every intermediate
   // ancestor's own box, including plain, non-stacking-context-
-  // establishing wrappers like data-column-content — not just "the
+  // establishing wrappers like data-ui-scene-column-content — not just "the
   // stacking-context root" as originally assumed. Where NOTHING else (no
   // other real object's own content) is ALSO geometrically present at a
   // sample point, such a wrapper's own (currently invisible — no
@@ -808,8 +808,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleObjectNode = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const bottomObjectNode = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const middleObjectNode = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
+    const bottomObjectNode = container.querySelector('[data-ui-scene-object="stack-bottom"]') as HTMLElement;
 
     const zIndexBefore = zIndexOf(middleObjectNode);
     (getByTestId("toggle").element() as HTMLElement).click();
@@ -904,8 +904,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { getByTestId, container } = await render(<Demo />);
     await wait(600);
 
-    const middleObjectNode = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const bottomObjectNode = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const middleObjectNode = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
+    const bottomObjectNode = container.querySelector('[data-ui-scene-object="stack-bottom"]') as HTMLElement;
 
     const zIndexBefore = zIndexOf(middleObjectNode);
     if (!isReceded(zIndexBefore)) {
@@ -1012,15 +1012,15 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<MultiDemo />);
     await wait(600);
 
-    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const objectNodeA = container.querySelector('[data-scene-object="obj-a"]') as HTMLElement;
-    const objectNodeB = container.querySelector('[data-scene-object="obj-b"]') as HTMLElement;
-    const objectNodeC = container.querySelector('[data-scene-object="obj-c"]') as HTMLElement;
-    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-ui-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeA = container.querySelector('[data-ui-scene-object="obj-a"]') as HTMLElement;
+    const objectNodeB = container.querySelector('[data-ui-scene-object="obj-b"]') as HTMLElement;
+    const objectNodeC = container.querySelector('[data-ui-scene-object="obj-c"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-ui-scene-object="stack-bottom"]') as HTMLElement;
 
-    const depthA = container.querySelector('[data-scene-id="obj-a"]')?.getAttribute("data-within-column-depth");
-    const depthB = container.querySelector('[data-scene-id="obj-b"]')?.getAttribute("data-within-column-depth");
-    const depthC = container.querySelector('[data-scene-id="obj-c"]')?.getAttribute("data-within-column-depth");
+    const depthA = container.querySelector('[data-ui-scene-id="obj-a"]')?.getAttribute("data-ui-scene-within-column-depth");
+    const depthB = container.querySelector('[data-ui-scene-id="obj-b"]')?.getAttribute("data-ui-scene-within-column-depth");
+    const depthC = container.querySelector('[data-ui-scene-id="obj-c"]')?.getAttribute("data-ui-scene-within-column-depth");
     // Non-vacuity precondition: confirms the fixture genuinely produced 3
     // distinct depths before trusting any paint-order conclusion drawn
     // from them.
@@ -1044,13 +1044,13 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     // assume" that negative z-index paints behind only the stacking-
     // context ROOT's own background found this FALSE as originally
     // stated — an isolated minimal repro showed elementsFromPoint's raw
-    // index-0 hit was "data-column-content", an ORDINARY, non-stacking-
+    // index-0 hit was "data-ui-scene-column-content", an ORDINARY, non-stacking-
     // context-establishing intermediate wrapper, not the stacking-context
     // root and not the object node itself. That was also a real, user-facing
     // click-targeting regression (a genuine hit-tested click at this same
     // sliver missed the card's own onActivate handler entirely — see the
     // "sandwiched card click-targeting" describe block below), fixed by
-    // giving data-column-content `isolation: isolate` (its own comment,
+    // giving data-ui-scene-column-content `isolation: isolate` (its own comment,
     // SceneColumn.tsx): a stacking-context ROOT's own background paints
     // FIRST, before its negative z-index descendants, so the object node now
     // correctly wins the raw hit-test too — this test's own original
@@ -1083,9 +1083,9 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const objectNodeMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeMiddle = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-ui-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-ui-scene-object="stack-bottom"]') as HTMLElement;
 
     const sliverY = findCleanSampleY(objectNodeMiddle, objectNodeMiddle, [objectNodeTop, objectNodeBottom]);
     expect(sliverY, "no exclusive sliver found for stack-middle, clear of stack-top and stack-bottom — setup bug or design changed").not.toBeUndefined();
@@ -1096,8 +1096,8 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
 
     // Regression guard: raw index-0 IS the object node itself, post-fix.
     expect(
-      rawTopmost?.getAttribute("data-scene-object"),
-      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-scene-object=${rawTopmost?.getAttribute("data-scene-object")}", expected the object node itself — the isolation fix (SceneColumn.tsx data-column-content) may have regressed`,
+      rawTopmost?.getAttribute("data-ui-scene-object"),
+      `raw elementsFromPoint index-0 at stack-middle's own exclusive sliver was "${rawTopmost?.tagName} data-ui-scene-object=${rawTopmost?.getAttribute("data-ui-scene-object")}", expected the object node itself — the isolation fix (SceneColumn.tsx data-ui-scene-column-content) may have regressed`,
     ).toBe("stack-middle");
 
     // ownerAt's search-past-wrappers approach still works too (belt and
@@ -1121,7 +1121,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
   // with the SAME unmodified fixture: pre-channel, a real hit-tested
   // click at a sandwiched card's own exclusive peek sliver (a point
   // covered by NEITHER focused neighbor) lands on the card itself and
-  // fires its onActivate handler; at tip, it lands on data-column-content
+  // fires its onActivate handler; at tip, it lands on data-ui-scene-column-content
   // (an intermediate structural wrapper) instead, and onActivate never
   // fires — a real, user-facing regression the channel introduced,
   // invisible to every paint-order-only test in the criterion-6 block
@@ -1164,10 +1164,10 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const objectNodeMiddle = container.querySelector('[data-scene-object="stack-middle"]') as HTMLElement;
-    const anchorMiddle = container.querySelector('[data-scene-id="stack-middle"]') as HTMLElement;
-    const objectNodeTop = container.querySelector('[data-scene-object="stack-top"]') as HTMLElement;
-    const objectNodeBottom = container.querySelector('[data-scene-object="stack-bottom"]') as HTMLElement;
+    const objectNodeMiddle = container.querySelector('[data-ui-scene-object="stack-middle"]') as HTMLElement;
+    const anchorMiddle = container.querySelector('[data-ui-scene-id="stack-middle"]') as HTMLElement;
+    const objectNodeTop = container.querySelector('[data-ui-scene-object="stack-top"]') as HTMLElement;
+    const objectNodeBottom = container.querySelector('[data-ui-scene-object="stack-bottom"]') as HTMLElement;
 
     const mRect = objectNodeMiddle.getBoundingClientRect();
     const tRect = objectNodeTop.getBoundingClientRect();
@@ -1195,7 +1195,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     let landedOn = "none";
     const listener = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
-      landedOn = t ? `${t.tagName} data-scene-object=${t.getAttribute("data-scene-object")} data-column-content=${t.getAttribute("data-column-content")}` : "null";
+      landedOn = t ? `${t.tagName} data-ui-scene-object=${t.getAttribute("data-ui-scene-object")} data-ui-scene-column-content=${t.getAttribute("data-ui-scene-column-content")}` : "null";
     };
     document.addEventListener("click", listener, true);
 
@@ -1368,8 +1368,8 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
     (getByTestId("toggle").element() as HTMLElement).click();
     await wait(600);
 
-    const topRect = (container.querySelector('[data-scene-id="stack-top"]') as HTMLElement).getBoundingClientRect();
-    const bottomRect = (container.querySelector('[data-scene-id="stack-bottom"]') as HTMLElement).getBoundingClientRect();
+    const topRect = (container.querySelector('[data-ui-scene-id="stack-top"]') as HTMLElement).getBoundingClientRect();
+    const bottomRect = (container.querySelector('[data-ui-scene-id="stack-bottom"]') as HTMLElement).getBoundingClientRect();
 
     // UI21MultiFocusFixture's own objectGap={8}. Without gap compensation
     // this would read 16 (two gaps: one on either side of the zero-height
@@ -1428,8 +1428,8 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     const { getByTestId, container } = await render(<Demo />);
     await wait(500);
 
-    const midBAnchorEl = container.querySelector('[data-scene-id="mid-b"]') as HTMLElement;
-    const midBObjectNodeEl = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
+    const midBAnchorEl = container.querySelector('[data-ui-scene-id="mid-b"]') as HTMLElement;
+    const midBObjectNodeEl = container.querySelector('[data-ui-scene-object="mid-b"]') as HTMLElement;
     const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
     // "mid-b" (DOM order: top, mid-b, mid-a, bottom) is anchored to
@@ -1441,9 +1441,9 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     toggleBtn.click(); // mid-a starts unfocusing -> mid-b's depth changes too
     await wait(150); // deliberately mid-spring, matching ui#17's own E1 timing
 
-    const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
-    const midAObjectNodeEl = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
-    const initialMidBDepth = midBAnchorEl.getAttribute("data-within-column-depth");
+    const midAAnchorEl = container.querySelector('[data-ui-scene-id="mid-a"]') as HTMLElement;
+    const midAObjectNodeEl = container.querySelector('[data-ui-scene-object="mid-a"]') as HTMLElement;
+    const initialMidBDepth = midBAnchorEl.getAttribute("data-ui-scene-within-column-depth");
 
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
 
@@ -1459,7 +1459,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     const midB = await captureFlipCommit(
       midBObjectNodeEl,
       2000,
-      () => midBAnchorEl.getAttribute("data-within-column-depth") !== initialMidBDepth,
+      () => midBAnchorEl.getAttribute("data-ui-scene-within-column-depth") !== initialMidBDepth,
       midBAnchorEl,
     );
 
@@ -1598,7 +1598,7 @@ async function measureDeckSettleDurationMs(initialMidAFocused: boolean): Promise
   await wait(500);
 
   const objectNodes = ["top", "mid-b", "mid-a", "bottom"].map(
-    (name) => container.querySelector(`[data-scene-object="${name}"]`) as HTMLElement,
+    (name) => container.querySelector(`[data-ui-scene-object="${name}"]`) as HTMLElement,
   );
   (getByTestId("toggle").element() as HTMLElement).click();
   const durationMs = await measureSettleDurationMs(objectNodes);
@@ -1636,11 +1636,11 @@ async function runFullInterruptionTrial(
   const { getByTestId, container } = await render(<Demo />);
   await wait(500);
 
-  const topObjectNode = container.querySelector('[data-scene-object="top"]') as HTMLElement;
-  const midBObjectNode = container.querySelector('[data-scene-object="mid-b"]') as HTMLElement;
-  const midAObjectNode = container.querySelector('[data-scene-object="mid-a"]') as HTMLElement;
-  const bottomObjectNode = container.querySelector('[data-scene-object="bottom"]') as HTMLElement;
-  const midAAnchorEl = container.querySelector('[data-scene-id="mid-a"]') as HTMLElement;
+  const topObjectNode = container.querySelector('[data-ui-scene-object="top"]') as HTMLElement;
+  const midBObjectNode = container.querySelector('[data-ui-scene-object="mid-b"]') as HTMLElement;
+  const midAObjectNode = container.querySelector('[data-ui-scene-object="mid-a"]') as HTMLElement;
+  const bottomObjectNode = container.querySelector('[data-ui-scene-object="bottom"]') as HTMLElement;
+  const midAAnchorEl = container.querySelector('[data-ui-scene-id="mid-a"]') as HTMLElement;
   const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
   const sample = (el: HTMLElement): GBCRBox => {
@@ -1826,8 +1826,8 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     const { container } = await render(<Demo />);
     await waitForAnimationFrame();
 
-    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const anchorEl = container.querySelector('[data-ui-scene-id="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-ui-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 
@@ -1867,8 +1867,8 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     const { container } = await render(<Demo />);
     await waitForAnimationFrame();
 
-    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const anchorEl = container.querySelector('[data-ui-scene-id="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-ui-scene-object="only"]') as HTMLElement;
     expect(anchorEl).not.toBe(document.activeElement);
     expect(window.getComputedStyle(objectNodeEl).outlineStyle).toBe("none");
   });
@@ -1905,8 +1905,8 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     const { container } = await render(<Demo />);
     await wait(600);
 
-    const anchorEl = container.querySelector('[data-scene-id="middle"]') as HTMLElement;
-    const objectNodeEl = container.querySelector('[data-scene-object="middle"]') as HTMLElement;
+    const anchorEl = container.querySelector('[data-ui-scene-id="middle"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-ui-scene-object="middle"]') as HTMLElement;
 
     anchorEl.focus();
     await waitForAnimationFrame();
@@ -1963,8 +1963,8 @@ describe("Within-column deck (ui#21): author-drawn focus-visible ring", () => {
     const { container } = await render(<Demo />);
     await waitForAnimationFrame();
 
-    const anchorEl = container.querySelector('[data-scene-id="only"]') as HTMLElement;
-    const objectNodeEl = container.querySelector('[data-scene-object="only"]') as HTMLElement;
+    const anchorEl = container.querySelector('[data-ui-scene-id="only"]') as HTMLElement;
+    const objectNodeEl = container.querySelector('[data-ui-scene-object="only"]') as HTMLElement;
     anchorEl.focus();
     await waitForAnimationFrame();
 

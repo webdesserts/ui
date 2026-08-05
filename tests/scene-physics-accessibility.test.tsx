@@ -103,7 +103,7 @@ describe("SceneObject keyboard focus management", () => {
       </TestWrapper>,
     );
 
-    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    const outer = getByTestId("content").element().closest("[data-ui-scene-id]") as HTMLElement;
     expect(document.activeElement).toBe(outer);
   });
 
@@ -178,7 +178,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper).not.toBeNull();
     expect(contentWrapper.getAttribute("role")).toBe("region");
   });
@@ -201,7 +201,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("tabindex")).toBe("0");
   });
 
@@ -221,7 +221,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.hasAttribute("tabindex")).toBe(false);
   });
 
@@ -241,7 +241,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.hasAttribute("role")).toBe(false);
     expect(contentWrapper.hasAttribute("aria-label")).toBe(false);
   });
@@ -261,7 +261,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("aria-label")).toBe("nav content");
   });
 
@@ -281,7 +281,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.id).toBe("scene-column-content-nav");
   });
 });
@@ -349,18 +349,18 @@ describe("Scene spring physics", () => {
     await waitForAnimationFrame();
 
     // After all changes, only obj-c should be focused — column must be focused
-    // (position: relative) and obj-c must have data-focused=true.
-    const colEl = getByTestId("content-c").element().closest("[data-column]") as HTMLElement;
-    expect(colEl.getAttribute("data-column-focused")).toBe("true");
+    // (position: relative) and obj-c must have data-ui-scene-focused=true.
+    const colEl = getByTestId("content-c").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(colEl.getAttribute("data-ui-scene-column-focused")).toBe("true");
 
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objC.getAttribute("data-focused")).toBe("true");
+    const objC = getByTestId("content-c").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objC.getAttribute("data-ui-scene-focused")).toBe("true");
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objA.getAttribute("data-focused")).toBe("false");
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objA.getAttribute("data-ui-scene-focused")).toBe("false");
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objB.getAttribute("data-focused")).toBe("false");
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objB.getAttribute("data-ui-scene-focused")).toBe("false");
   });
 });
 
@@ -420,18 +420,18 @@ describe("Scene reduced motion", () => {
     );
 
     // The column should still be correctly focused regardless of reduced motion.
-    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
-    expect(col.getAttribute("data-column-focused")).toBe("true");
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(col.getAttribute("data-ui-scene-column-focused")).toBe("true");
 
-    const obj = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
-    expect(obj.getAttribute("data-focused")).toBe("true");
+    const obj = getByTestId("content").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(obj.getAttribute("data-ui-scene-focused")).toBe("true");
 
     restore();
   });
 
-  test("reduced motion: scene viewport has data-reduced-motion attribute when prefers-reduced-motion is active", async () => {
+  test("reduced motion: scene viewport has data-ui-scene-reduced-motion attribute when prefers-reduced-motion is active", async () => {
     // When prefers-reduced-motion is active, the scene's viewport element should
-    // have a data-reduced-motion attribute so consumers and tests can verify
+    // have a data-ui-scene-reduced-motion attribute so consumers and tests can verify
     // the mode is being detected.
     const restore = mockReducedMotion();
 
@@ -449,12 +449,12 @@ describe("Scene reduced motion", () => {
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
     // This attribute is added by the implementation when reduced motion is detected.
-    expect(scene.hasAttribute("data-reduced-motion")).toBe(true);
+    expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(true);
 
     restore();
   });
 
-  test("reduced motion: scene viewport does NOT have data-reduced-motion attribute when motion is allowed", async () => {
+  test("reduced motion: scene viewport does NOT have data-ui-scene-reduced-motion attribute when motion is allowed", async () => {
     // Without prefers-reduced-motion, the attribute should be absent.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
@@ -469,7 +469,7 @@ describe("Scene reduced motion", () => {
     );
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
-    expect(scene.hasAttribute("data-reduced-motion")).toBe(false);
+    expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(false);
   });
 });
 
@@ -561,7 +561,7 @@ describe("useCamera", () => {
     await waitForAnimationFrame();
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]") as HTMLElement;
+    const column = content.closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const columnRect = column.getBoundingClientRect();
 
     const reader = getByTestId("camera-reader").element() as HTMLElement;
@@ -722,7 +722,7 @@ describe("Scene className (S6)", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]") as HTMLElement;
+    const column = content.closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     expect(column.className).toContain("scene-column-test-override");
     // A real !important override wins over SceneColumn's own inline
@@ -749,7 +749,7 @@ describe("Scene className (S6)", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const obj = content.closest("[data-scene-id]") as HTMLElement;
+    const obj = content.closest("[data-ui-scene-id]") as HTMLElement;
 
     expect(obj.className).toContain("scene-object-test-override");
     // A real !important override wins over SceneObject's own inline

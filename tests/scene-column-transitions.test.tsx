@@ -29,11 +29,11 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
-    expect(objA.getAttribute("data-focused")).toBe("true");
-    expect(objB.getAttribute("data-focused")).toBe("false");
+    expect(objA.getAttribute("data-ui-scene-focused")).toBe("true");
+    expect(objB.getAttribute("data-ui-scene-focused")).toBe("false");
 
     // Swap focus to B
     await rerender(
@@ -51,8 +51,8 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    expect(objA.getAttribute("data-focused")).toBe("false");
-    expect(objB.getAttribute("data-focused")).toBe("true");
+    expect(objA.getAttribute("data-ui-scene-focused")).toBe("false");
+    expect(objB.getAttribute("data-ui-scene-focused")).toBe("true");
   });
 
   test("after swap, only the newly focused object is in flow", async () => {
@@ -88,8 +88,8 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     // Focused object is in flow
     expect(window.getComputedStyle(objB).position).toBe("relative");
@@ -115,8 +115,8 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement | null;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
 
     // With A focused (first object), top offset should be 0 or near 0
     const topBefore = contentWrapper ? parseFloat(contentWrapper.style.top || "0") : 0;
@@ -167,8 +167,8 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    const col2 = getByTestId("content-c").element().closest("[data-column]") as HTMLElement;
-    const initialFocused = col2.getAttribute("data-column-focused");
+    const col2 = getByTestId("content-c").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const initialFocused = col2.getAttribute("data-ui-scene-column-focused");
 
     await rerender(
       <TestWrapper fullPage>
@@ -191,9 +191,34 @@ describe("SceneColumn vertical swap", () => {
     );
 
     // col2 should remain focused and unaffected
-    expect(col2.getAttribute("data-column-focused")).toBe(initialFocused);
-    expect(col2.getAttribute("data-column-focused")).toBe("true");
+    expect(col2.getAttribute("data-ui-scene-column-focused")).toBe(initialFocused);
+    expect(col2.getAttribute("data-ui-scene-column-focused")).toBe("true");
     expect(window.getComputedStyle(col2).position).toBe("relative");
+  });
+
+  test("column state attributes live on the anchor, not the column node (ui#22 wrinkle)", async () => {
+    // ui#22 §8b ruling: data-ui-scene-column-focused/-position describe column
+    // STATE and stay on the in-flow ANCHOR (data-ui-scene-column-anchor) even
+    // though the clean family name (data-ui-scene-column) went to the nested
+    // animated column node. Deliberate asymmetry — pin it so a future refactor
+    // can't silently move state onto the node without a test noticing.
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Scene duration={0}>
+          <SceneColumn name="col">
+            <SceneObject name="obj-a" focused>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>A</div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>,
+    );
+
+    const anchor = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const columnNode = anchor.querySelector("[data-ui-scene-column]") as HTMLElement;
+
+    expect(anchor.hasAttribute("data-ui-scene-column-focused")).toBe(true);
+    expect(columnNode.hasAttribute("data-ui-scene-column-focused")).toBe(false);
   });
 
   test("a never-focused sibling before a to-be-focused object does not displace it (B3)", async () => {
@@ -233,8 +258,8 @@ describe("SceneColumn vertical swap", () => {
     );
     await waitForAnimationFrame();
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    const contentWrapper = objB.closest("[data-column]")?.querySelector("[data-column-content]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const contentWrapper = objB.closest("[data-ui-scene-column-anchor]")?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // topOffset must equal A's real height (200) so the wrapper shifts up
     // enough to bring B to the top of the viewport.
@@ -264,8 +289,8 @@ describe("SceneColumn vertical swap", () => {
       </TestWrapper>,
     );
 
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // Swap to B with the default (real) spring — no duration override.
     await rerender(
@@ -420,14 +445,14 @@ describe("Scene entrance geometry — newly-mounted focus swap", () => {
     (getByTestId("swap-btn").element() as HTMLElement).click();
     await settle();
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     const swappedTop = objB.getBoundingClientRect().top;
 
     await cleanup();
 
     const { getByTestId: getByTestIdFresh } = await render(<FreshMountWithBFocused heightB={200} />);
     await settle();
-    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     const canonicalTop = freshObjB.getBoundingClientRect().top;
 
     expect(swappedTop).toBeCloseTo(canonicalTop, 0);
@@ -442,14 +467,14 @@ describe("Scene entrance geometry — newly-mounted focus swap", () => {
     (getByTestId("swap-btn").element() as HTMLElement).click();
     await settle();
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     const swappedTop = objB.getBoundingClientRect().top;
 
     await cleanup();
 
     const { getByTestId: getByTestIdFresh } = await render(<FreshMountWithBFocused heightB={350} />);
     await settle();
-    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const freshObjB = getByTestIdFresh("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     const canonicalTop = freshObjB.getBoundingClientRect().top;
 
     expect(swappedTop).toBeCloseTo(canonicalTop, 0);
@@ -479,8 +504,8 @@ describe("SceneColumn multi-focus stacking", () => {
       </TestWrapper>,
     );
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     // Both focused objects are in normal flow
     expect(window.getComputedStyle(objA).position).toBe("relative");
@@ -504,8 +529,8 @@ describe("SceneColumn multi-focus stacking", () => {
       </TestWrapper>,
     );
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     const rectA = objA.getBoundingClientRect();
     const rectB = objB.getBoundingClientRect();
@@ -549,8 +574,8 @@ describe("SceneColumn multi-focus stacking", () => {
       </TestWrapper>,
     );
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     expect(window.getComputedStyle(objA).position).toBe("relative");
     expect(window.getComputedStyle(objB).position).toBe("relative");
@@ -574,8 +599,8 @@ describe("SceneColumn multi-focus stacking", () => {
       </TestWrapper>,
     );
 
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement | null;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
 
     // With multiple focused objects, top should be 0 (no slide offset)
     const top = contentWrapper ? parseFloat(contentWrapper.style.top || "0") : 0;
@@ -611,7 +636,7 @@ describe("Scene centering", () => {
     // A 300px column in a 1280px viewport is centered via stage `left` offset.
     // Expected stageLeft = (1280 - 300) / 2 = 490px.
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement | null;
     expect(stage).not.toBeNull();
 
     // Stage centering via CSS left (absolute positioning).
@@ -644,7 +669,7 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement | null;
     expect(stage).not.toBeNull();
 
     // When focused content overflows, stageLeft = -focusedNaturalLeft (left-aligned).
@@ -667,8 +692,8 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column?.querySelector("[data-column-content]") as HTMLElement | null;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
     expect(contentWrapper).not.toBeNull();
 
     // ui#17: Motion's `style`-bound MotionValue writes (the owned width
@@ -696,8 +721,8 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column?.querySelector("[data-column-content]") as HTMLElement | null;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
     expect(contentWrapper).not.toBeNull();
 
     const marginTop = parseFloat(window.getComputedStyle(contentWrapper!).marginTop);
@@ -724,7 +749,7 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement | null;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
 
     // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes, e.g. the owned width channel — a geometry read immediately
@@ -824,7 +849,7 @@ describe("Scene centering", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement | null;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement | null;
     expect(stage).not.toBeNull();
     // stageLeft ≈ -360 — stage panned left to center the 200px focused region
     const stageLeft = parseFloat(window.getComputedStyle(stage!).left);
@@ -870,7 +895,7 @@ describe("Scene centering", () => {
     const { rerender, getByTestId } = await render(build());
 
     const viewport = getByTestId("scene").element() as HTMLElement;
-    const wrapper = viewport.querySelector("[data-column-content]") as HTMLElement;
+    const wrapper = viewport.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(wrapper.style.marginTop || "0");
 
     // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
@@ -930,9 +955,9 @@ describe("Scene first paint at rest (A4)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const readStageLeft = () => parseFloat(window.getComputedStyle(stage).left);
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
@@ -988,8 +1013,8 @@ describe("Scene first paint at rest (A4)", () => {
       </TestWrapper>,
     );
 
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const readTop = () => parseFloat(contentWrapper.style.top || "0");
     const samples = [readTop()];
@@ -1058,8 +1083,8 @@ describe("Scene first paint at rest (A4)", () => {
     (getByTestId("mount-btn").element() as HTMLElement).click();
     await waitForAnimationFrame();
 
-    const contentWrapper = getByTestId("content-a").element().closest("[data-column]")
-      ?.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]")
+      ?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
 
     // ui#17: a single awaitStyleFlush (matching this file's other fixes)
@@ -1139,7 +1164,7 @@ describe("Scene first paint at rest (A4)", () => {
     const { getByTestId } = await render(<ShrinkOnMount />);
 
     const viewport = getByTestId("scene").element() as HTMLElement;
-    const colEl = viewport.querySelector("[data-column]") as HTMLElement;
+    const colEl = viewport.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Sanity: a real, non-degenerate height discrepancy exists to correct —
     // offsetHeight (a layout metric, immune to any transform) already
@@ -1247,13 +1272,13 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
     await wait(600);
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stageEl = scene.querySelector("[data-stage]") as HTMLElement;
-    // `chatCol` resolves to the element carrying `data-column` — TODAY the
+    const stageEl = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
+    // `chatCol` resolves to the element carrying `data-ui-scene-column-anchor` — TODAY the
     // single combined motion.div with both `layout` and `animate`. Per the
-    // plan's consumer map, `layout` and `data-column`/registry/ref both stay
+    // plan's consumer map, `layout` and `data-ui-scene-column-anchor`/registry/ref both stay
     // on the OUTER node after the Slice 2 split, so this read survives the
     // split unmodified.
-    const chatCol = getByTestId("chat-content").element().closest("[data-column]") as HTMLElement;
+    const chatCol = getByTestId("chat-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const relLeft = () => chatCol.getBoundingClientRect().left - stageEl.getBoundingClientRect().left;
     // Before any animation has touched this element, `.style.transform` is
     // the literal string "none" — normalized to 0 (identity), same
@@ -1493,13 +1518,13 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
     // scene-wide inertness gate, which the settle counter's own claim/
     // retire sequence for this exact interrupted-transition shape can take
     // a little past 600ms to reach zero on), not just visually reach its
-    // resting position. Poll on `data-scene-settled` (bounded) instead of
+    // resting position. Poll on `data-ui-scene-settled` (bounded) instead of
     // guessing a duration — the click below is only meaningful once the
     // scene has genuinely gone quiet.
-    for (let i = 0; i < 40 && scene.getAttribute("data-scene-settled") !== "true"; i++) {
+    for (let i = 0; i < 40 && scene.getAttribute("data-ui-scene-settled") !== "true"; i++) {
       await wait(50);
     }
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
 
     // A real hit-tested click at fixed screen coordinates.
     const hitEl = document.elementFromPoint(clickX, clickY);

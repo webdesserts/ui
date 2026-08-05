@@ -30,8 +30,8 @@ describe("Scene keyboard scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // Focus an element inside the column so keyboard events route there
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
@@ -71,8 +71,8 @@ describe("Scene keyboard scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
     btn.focus();
@@ -103,8 +103,8 @@ describe("Scene keyboard scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
     btn.focus();
@@ -140,8 +140,8 @@ describe("Scene keyboard scroll", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
     btn.focus();
@@ -181,8 +181,8 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const btn = getByTestId("action-btn").element() as HTMLElement;
 
     btn.focus();
@@ -211,8 +211,8 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     contentWrapper.focus();
     expect(document.activeElement).toBe(contentWrapper);
@@ -229,7 +229,7 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     // Gate finding: isInteractiveElement's content-wrapper exemption used a
     // closest()-based (self-OR-ancestor) check, which wrongly exempted every
     // nested focusable element too — since all consumer content lives inside
-    // [data-column-content] by construction, ANY nested widget with a bare
+    // [data-ui-scene-column-content] by construction, ANY nested widget with a bare
     // tabindex (a roving-tabindex list item, a focusable message bubble) had
     // its own arrow/Space keys hijacked by column scroll. The fix scopes the
     // content-wrapper exemption to a SELF-ONLY check.
@@ -248,8 +248,8 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const widget = getByTestId("widget").element() as HTMLElement;
 
     widget.focus();
@@ -297,8 +297,8 @@ describe("Scene keyboard scroll — interactive element exemption (D1)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const island = getByTestId("scroll-container").element() as HTMLElement;
 
     island.focus();
@@ -335,8 +335,8 @@ describe("Scene scroll position management", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // On first render, scroll offset should be 0 (top of content)
     const top = parseFloat(contentWrapper.style.top || "0");
@@ -355,8 +355,8 @@ describe("Scene scroll position management", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     const columnRect = column.getBoundingClientRect();
 
@@ -424,11 +424,11 @@ describe("Scene scroll edge cases", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const col1 = getByTestId("content1")
       .element()
-      .closest("[data-column]") as HTMLElement;
-    const col1Content = col1.querySelector("[data-column-content]") as HTMLElement;
+      .closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const col1Content = col1.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const col1Rect = col1.getBoundingClientRect();
 
     // Initial state: no vertical scroll, camera at its canonical position.
@@ -480,7 +480,7 @@ describe("Scene scroll edge cases", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
 
     // Verify scrollbar is present
-    expect(scene.querySelector("[data-scrollbar]")).not.toBeNull();
+    expect(scene.querySelector("[data-ui-scene-scrollbar]")).not.toBeNull();
 
     // Swap in content that fits the viewport
     await rerender(
@@ -493,7 +493,7 @@ describe("Scene scroll edge cases", () => {
     );
 
     // Scrollbar should be gone
-    expect(scene.querySelector("[data-scrollbar]")).toBeNull();
+    expect(scene.querySelector("[data-ui-scene-scrollbar]")).toBeNull();
   });
 });
 
@@ -512,8 +512,8 @@ describe("Scene wheel input controller (S5)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const colRect = column.getBoundingClientRect();
 
     const notPrevented = scene.dispatchEvent(
@@ -543,8 +543,8 @@ describe("Scene wheel input controller (S5)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const colRect = column.getBoundingClientRect();
 
     scene.dispatchEvent(
@@ -577,9 +577,9 @@ describe("Scene wheel input controller (S5)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
-    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
-    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const colBRect = colB.getBoundingClientRect();
 
     // Cursor is over column B (not scrollable) — column A must still scroll
@@ -614,10 +614,10 @@ describe("Scene wheel input controller (S5)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
-    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
-    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
-    const colBContent = colB.querySelector("[data-column-content]") as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colBContent = colB.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const colBRect = colB.getBoundingClientRect();
 
     scene.dispatchEvent(
@@ -665,7 +665,7 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const vpRect = scene.getBoundingClientRect();
     const stageLeftBefore = parseFloat(stage.style.left);
 
@@ -708,7 +708,7 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const vpRect = scene.getBoundingClientRect();
     const stageLeftAtOffset0 = parseFloat(stage.style.left);
     // Measured, not hardcoded — mirrors this file's own established
@@ -793,7 +793,7 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const island = getByTestId("scroll-container").element() as HTMLElement;
     const islandRect = island.getBoundingClientRect();
     const stageLeftBefore = parseFloat(stage.style.left);
@@ -847,7 +847,7 @@ describe("Scene horizontal pan keyboard parity (ui#19 slice (d))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const stageLeftBefore = parseFloat(stage.style.left);
 
     scene.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
@@ -880,7 +880,7 @@ describe("Scene horizontal pan keyboard parity (ui#19 slice (d))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const stageLeftAtHome = parseFloat(stage.style.left);
     const expectedRange = scene.scrollWidth - scene.clientWidth;
 
@@ -935,7 +935,7 @@ describe("Scene horizontal pan keyboard parity (ui#19 slice (d))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
     const input = getByTestId("text-input").element() as HTMLElement;
     const stageLeftBefore = parseFloat(stage.style.left);
 
@@ -969,9 +969,9 @@ describe("Scene outer unfocused column positioning", () => {
       ),
     );
 
-    const leftCol = getByTestId("content-left").element().closest("[data-column]") as HTMLElement;
+    const leftCol = getByTestId("content-left").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     // Column should be classified as outer-left
-    expect(leftCol.getAttribute("data-column-position")).toBe("outer-left");
+    expect(leftCol.getAttribute("data-ui-scene-column-position")).toBe("outer-left");
     // Outer-left stays in flex flow at position: relative (no translateX offscreen)
     expect(window.getComputedStyle(leftCol).position).toBe("relative");
     await waitForAnimationFrame();
@@ -994,9 +994,9 @@ describe("Scene outer unfocused column positioning", () => {
       ),
     );
 
-    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const rightCol = getByTestId("content-right").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     // Column should be classified as outer-right
-    expect(rightCol.getAttribute("data-column-position")).toBe("outer-right");
+    expect(rightCol.getAttribute("data-ui-scene-column-position")).toBe("outer-right");
     // Outer-right stays in flex flow at position: relative
     expect(window.getComputedStyle(rightCol).position).toBe("relative");
     await waitForAnimationFrame();
@@ -1018,9 +1018,9 @@ describe("Scene outer unfocused column positioning", () => {
       ),
     );
 
-    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const rightCol = getByTestId("content-right").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     // Initially offscreen right
-    expect(rightCol.getAttribute("data-column-position")).toBe("outer-right");
+    expect(rightCol.getAttribute("data-ui-scene-column-position")).toBe("outer-right");
 
     await rerender(
       buildScene(
@@ -1037,7 +1037,7 @@ describe("Scene outer unfocused column positioning", () => {
     const style = window.getComputedStyle(rightCol);
     expect(style.position).toBe("relative");
     // No longer classified as outer
-    expect(rightCol.getAttribute("data-column-position")).not.toBe("outer-right");
+    expect(rightCol.getAttribute("data-ui-scene-column-position")).not.toBe("outer-right");
   });
 
   test("all unfocused — columns stay at last position (camera does not move)", async () => {
@@ -1056,8 +1056,8 @@ describe("Scene outer unfocused column positioning", () => {
     );
 
     // Record positions while both are focused
-    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
-    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     await rerender(
       buildScene(
@@ -1072,10 +1072,10 @@ describe("Scene outer unfocused column positioning", () => {
 
     // When no columns are focused, neither should be classified as outer
     // (they stay put rather than flying offscreen)
-    expect(colA.getAttribute("data-column-position")).not.toBe("outer-left");
-    expect(colA.getAttribute("data-column-position")).not.toBe("outer-right");
-    expect(colB.getAttribute("data-column-position")).not.toBe("outer-left");
-    expect(colB.getAttribute("data-column-position")).not.toBe("outer-right");
+    expect(colA.getAttribute("data-ui-scene-column-position")).not.toBe("outer-left");
+    expect(colA.getAttribute("data-ui-scene-column-position")).not.toBe("outer-right");
+    expect(colB.getAttribute("data-ui-scene-column-position")).not.toBe("outer-left");
+    expect(colB.getAttribute("data-ui-scene-column-position")).not.toBe("outer-right");
   });
 });
 
@@ -1133,7 +1133,7 @@ describe("Scene keyboard scroll — wheel cliff detector must not intercept (ui#
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
     btn.focus();
 
@@ -1176,7 +1176,7 @@ describe("Scene keyboard scroll — wheel cliff detector must not intercept (ui#
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
     const thumb = column.querySelector('[role="scrollbar"]') as HTMLElement;
     thumb.focus();
 
