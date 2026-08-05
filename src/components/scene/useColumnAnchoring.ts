@@ -16,8 +16,9 @@ import type { FrozenSize } from "./types";
  * SceneColumn's own; this hook must never re-declare a local stand-in for
  * any of them (that's the wiring's one silent-failure mode: no crash, no
  * test failure, just quietly-stale state):
- * - `geometryStore` — written here; read by SceneColumn's scroll-command,
- *   rendering, and registration code (the most-shared structure in the file).
+ * - `geometryStore` — written here; read by SceneColumn's rendering and
+ *   registration code and by useColumnScroll's swap-reset consumers via
+ *   SceneColumn (the most-shared structure in the seam network).
  * - `registeredEls` / `registeredHeightTargetsRef` — populated by
  *   SceneColumn's registration effect (ColumnContext's `register`), read
  *   here during remeasurement.
@@ -28,11 +29,11 @@ import type { FrozenSize } from "./types";
  * - `lastObservedSize` — written here (the ResizeObserver callback) AND by
  *   SceneColumn's frozen-size capture effect, which reads it on focus loss.
  * - `scrollOffsetRef` / `setScrollOffset` — one of several writers across
- *   SceneColumn; `viewportHeightRef` is read-only here, owned by
- *   SceneColumn's scroll-command code.
- * - `applyScrollYDeltaRef` — assigned by SceneColumn's scroll-command
- *   block, called here (a one-directional call-in: this is the literal
- *   geometry→scroll seam).
+ *   the seam network; `viewportHeightRef` is read-only here, owned by
+ *   useColumnScroll (which declares and writes it — an inverted seam:
+ *   that hook owns, this one only reads).
+ * - `applyScrollYDeltaRef` — assigned inside useColumnScroll, called here
+ *   (a one-directional call-in: this is the literal geometry→scroll seam).
  * - `dragStartOffset` / `isDragging` — owned by SceneColumn's touch
  *   handling, compound-assigned/read here to keep a mid-drag compensation
  *   event's baseline coherent.
