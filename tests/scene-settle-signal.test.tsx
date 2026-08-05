@@ -1,4 +1,5 @@
 import { describe, test, expect } from "vitest";
+import { userEvent } from "vitest/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
@@ -703,5 +704,108 @@ describe("double interruption", () => {
     expect(arrangement.find((o) => o.name === "a-obj")?.focused).toBe(false);
     expect(arrangement.find((o) => o.name === "b-obj")?.focused).toBe(true);
     expect(arrangement.find((o) => o.name === "c-obj")?.focused).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consumer contract: real-input writes mid-transition are dropped (ui#p23)
+// ---------------------------------------------------------------------------
+
+describe("consumer contract: settle-gated real input", () => {
+  // Incident report: a consumer (agent-task) suite failed deterministically
+  // after ui#20 shipped — a real Playwright `.fill()` into a newly-focused
+  // object's textarea, dispatched immediately after the triggering click
+  // with no settle wait, silently wrote nothing. React state stayed "",
+  // the consumer's own submit button (enablement derived from the typed
+  // state) stayed permanently disabled, and the deadlock outlived the
+  // transition entirely — a transient inert window became a permanent
+  // latch. Root cause (ui#p23): Scene's settle signal and
+  // `transitionPending` clear correctly on schedule; the runner
+  // (Playwright) is structurally blind to `inert` (source-verified: zero
+  // references to "inert" in playwright-core's actionability code) and
+  // neither waits for nor retries past it — `.fill()` returns successfully
+  // having written nothing. The consumer-side fix this test pins: poll
+  // `data-ui-scene-settled` (via `waitForSceneSettled` here, or your own
+  // runner's native wait primitive) before driving real input across a
+  // focus-changing action.
+  //
+  // This test pins CURRENT RULED BEHAVIOR (Michael's three-state inert
+  // contract: in-transition = fully inert, settled-unfocused =
+  // click-to-focus, settled-focused = fully interactive) and is the
+  // flip-guard for "Option A" — the ruled-but-not-built direction that
+  // narrows inert to focus INTENT rather than motion completion. If Option
+  // A ever ships, the mid-transition "write drops" half of this test is
+  // expected to flip, by design.
+  test("mid-transition real-input write to a newly-focused object is dropped; post-settle write lands", async () => {
+    function Harness() {
+      const [focused, setFocused] = useState<"a" | "b">("a");
+      const [value, setValue] = useState("");
+      return (
+        <Scene>
+          <SceneColumn name="a">
+            <SceneObject name="a-obj" focused={focused === "a"}>
+              <div data-testid="content-a" style={{ width: 300, height: 200 }}>
+                a
+              </div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="b">
+            <SceneObject name="b-obj" focused={focused === "b"} onActivate={() => setFocused("b")}>
+              <div data-testid="content-b" style={{ width: 300, height: 200 }}>
+                <textarea data-testid="b-textarea" value={value} onChange={(e) => setValue(e.target.value)} />
+                <button data-testid="b-submit" disabled={value === ""}>
+                  submit
+                </button>
+              </div>
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      );
+    }
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Harness />
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element() as HTMLElement;
+    await wait(1000);
+
+    // Genuine focus-arrangement change: click b's own content, bubbling up
+    // to the outer wrapper's onActivate handler. `dispatchEvent()` bypasses
+    // the browser's native hit-testing/inert suppression entirely (b's
+    // content is still inert at the moment of this click, being
+    // settled-unfocused) — the same scripted-dispatch technique every other
+    // click trigger in this file already uses (e.g. lines 78, 244, 418),
+    // not a new risk.
+    getByTestId("content-b").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // Non-vacuity precondition — the write below must land inside a real
+    // in-transition window, not after an already-settled scene.
+    await waitForAnimationFrame();
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
+
+    const textarea = getByTestId("b-textarea").element() as HTMLTextAreaElement;
+    const submitBtn = getByTestId("b-submit").element() as HTMLButtonElement;
+    const contentBWrapper = getByTestId("content-b").element().parentElement as HTMLElement;
+
+    // Mid-transition write: b's content wrapper is still inert — it's the
+    // newly-focused object, and the ui#20 delta gates content inertness on
+    // `!focused || transitionPending`, not `!focused` alone. Playwright's
+    // fill() has no visibility into `inert` and returns successfully
+    // having written nothing.
+    expect(contentBWrapper.inert).toBe(true);
+    await userEvent.fill(textarea, "hello");
+    expect(textarea.value).toBe("");
+    expect(submitBtn.disabled).toBe(true);
+
+    await waitForSceneSettled(scene, { timeoutMs: 2000 });
+
+    // Post-settle: the same write lands, and the button — whose enablement
+    // is derived from the typed state, the detail that turns a transient
+    // block into a permanent latch — enables.
+    await userEvent.fill(textarea, "hello");
+    expect(textarea.value).toBe("hello");
+    expect(submitBtn.disabled).toBe(false);
   });
 });
