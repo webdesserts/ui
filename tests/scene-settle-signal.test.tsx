@@ -523,7 +523,7 @@ describe("two-phase focus", () => {
 // ---------------------------------------------------------------------------
 
 describe("double interruption", () => {
-  test("ambient claim in flight, focus change lands mid-flight: transitionPending holds to the true global 0-crossing, exactly-once fire, untouched focused object's content re-enables at the same edge", async () => {
+  test("ambient claim in flight, focus change lands mid-flight: transitionPending holds to the true global 0-crossing, exactly-once fire, untouched focused object's content stays interactive throughout", async () => {
     const fired: Array<Array<{ name: string; focused: boolean }>> = [];
 
     function Harness() {
@@ -580,13 +580,16 @@ describe("double interruption", () => {
     expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
     expect(anchorInnerWrapper.hasAttribute("inert")).toBe(false);
 
-    // Land a genuine focus change mid-flight of the ambient claim — NOW
-    // transitionPending arms, and scene-wide gating makes the untouched,
-    // already-focused "anchor" object's content inert too, even though
-    // nothing about IT changed.
+    // Land a genuine focus change mid-flight of the ambient claim —
+    // transitionPending still arms (it still drives `activatable` and the
+    // two-phase focus-delivery timing), but under Option A it no longer
+    // touches content inertness. "anchor" never toggled its own `focused`
+    // prop, so its content stays interactive throughout — this is "inert
+    // follows focus intent" holding at the scene-wide level, not just the
+    // per-object level.
     getByTestId("focus-target").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await wait(200);
-    expect(anchorInnerWrapper.hasAttribute("inert")).toBe(true);
+    expect(anchorInnerWrapper.hasAttribute("inert")).toBe(false);
 
     await waitForSceneSettled(scene, { timeoutMs: 3000 });
 
@@ -597,7 +600,9 @@ describe("double interruption", () => {
     expect(arrangement.find((o) => o.name === "grower-obj")?.focused).toBe(true);
     expect(arrangement.find((o) => o.name === "target-obj")?.focused).toBe(true);
 
-    // The untouched focused object's content re-enables at the same edge.
+    // The untouched focused object's content stayed interactive throughout
+    // — it was never inerted in the first place, so there's nothing to
+    // re-enable at this edge.
     expect(anchorInnerWrapper.hasAttribute("inert")).toBe(false);
   });
 
@@ -708,7 +713,7 @@ describe("double interruption", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Consumer contract: real-input writes mid-transition are dropped (ui#p23)
+// Consumer contract: real-input writes mid-transition land immediately (ui#31)
 // ---------------------------------------------------------------------------
 
 describe("consumer contract: settle-gated real input", () => {
@@ -723,20 +728,19 @@ describe("consumer contract: settle-gated real input", () => {
   // `transitionPending` clear correctly on schedule; the runner
   // (Playwright) is structurally blind to `inert` (source-verified: zero
   // references to "inert" in playwright-core's actionability code) and
-  // neither waits for nor retries past it — `.fill()` returns successfully
-  // having written nothing. The consumer-side fix this test pins: poll
-  // `data-ui-scene-settled` (via `waitForSceneSettled` here, or your own
-  // runner's native wait primitive) before driving real input across a
-  // focus-changing action.
+  // neither waits for nor retries past it — under motion-timed inertness,
+  // `.fill()` would return successfully having written nothing.
   //
-  // This test pins CURRENT RULED BEHAVIOR (Michael's three-state inert
-  // contract: in-transition = fully inert, settled-unfocused =
-  // click-to-focus, settled-focused = fully interactive) and is the
-  // flip-guard for "Option A" — the ruled-but-not-built direction that
-  // narrows inert to focus INTENT rather than motion completion. If Option
-  // A ever ships, the mid-transition "write drops" half of this test is
-  // expected to flip, by design.
-  test("mid-transition real-input write to a newly-focused object is dropped; post-settle write lands", async () => {
+  // This test pins Option A's ruled contract (ui#31, feed #2395/#2396):
+  // content inertness follows focus INTENT, not motion completion, so a
+  // newly-focused object's content is interactive from the moment its
+  // `focused` prop flips true. The mid-transition write below lands,
+  // closing the incident's root cause at the source rather than requiring
+  // every consumer to poll `data-ui-scene-settled` before driving real
+  // input — that helper remains correct for anything that's genuinely
+  // motion-dependent (autofocus-after-settle, layout measurement), just no
+  // longer required for input to land.
+  test("mid-transition real-input write to a newly-focused object lands immediately; value survives settle", async () => {
     function Harness() {
       const [focused, setFocused] = useState<"a" | "b">("a");
       const [value, setValue] = useState("");
@@ -789,22 +793,19 @@ describe("consumer contract: settle-gated real input", () => {
     const submitBtn = getByTestId("b-submit").element() as HTMLButtonElement;
     const contentBWrapper = getByTestId("content-b").element().parentElement as HTMLElement;
 
-    // Mid-transition write: b's content wrapper is still inert — it's the
-    // newly-focused object, and the ui#20 delta gates content inertness on
-    // `!focused || transitionPending`, not `!focused` alone. Playwright's
-    // fill() has no visibility into `inert` and returns successfully
-    // having written nothing.
-    expect(contentBWrapper.inert).toBe(true);
+    // Mid-transition write: b's content wrapper is already interactive —
+    // it's the newly-focused object, and under Option A content inertness
+    // is gated on `!focused` alone, not on `transitionPending`. The write
+    // lands immediately, same as it would post-settle.
+    expect(contentBWrapper.inert).toBe(false);
     await userEvent.fill(textarea, "hello");
-    expect(textarea.value).toBe("");
-    expect(submitBtn.disabled).toBe(true);
+    expect(textarea.value).toBe("hello");
+    expect(submitBtn.disabled).toBe(false);
 
     await waitForSceneSettled(scene, { timeoutMs: 2000 });
 
-    // Post-settle: the same write lands, and the button — whose enablement
-    // is derived from the typed state, the detail that turns a transient
-    // block into a permanent latch — enables.
-    await userEvent.fill(textarea, "hello");
+    // Post-settle: the value survives settle — nothing about the settle
+    // transition reverts what already landed mid-flight.
     expect(textarea.value).toBe("hello");
     expect(submitBtn.disabled).toBe(false);
   });

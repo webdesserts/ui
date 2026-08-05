@@ -1444,15 +1444,15 @@ function SceneViewport({
  * marker, `data-ui-scene-column-content`.
  *
  * Real-input tests (Playwright, Testing Library, etc.) that drive a
- * focus-changing action and then write into the newly-focused content
- * should wait for `data-ui-scene-settled` to read `"true"` first: the
- * newly-focused object's content is `inert` for the whole in-transition
- * window, and a runner that doesn't understand `inert` will report a
- * successful write that was actually silently dropped. Poll the attribute
- * via your runner's own native retry primitive — for example, in
- * Playwright, `await expect(locator).toHaveAttribute("data-ui-scene-settled", "true")`.
- * A future change (tracked as "Option A") may narrow this inert window;
- * this contract reflects current behavior.
+ * focus-changing action and then write into the newly-focused content no
+ * longer need to wait for anything: content is interactive the instant
+ * `focused` flips true (ui#31 — inert follows focus intent, not motion
+ * completion). `data-ui-scene-settled` remains the right thing to wait on
+ * for anything genuinely motion-dependent instead — autofocus-after-
+ * settle, layout measurement, or any assertion keyed to the visual
+ * transition itself. Poll the attribute via your runner's own native
+ * retry primitive — for example, in Playwright,
+ * `await expect(locator).toHaveAttribute("data-ui-scene-settled", "true")`.
  *
  * @example
  * <Scene>
@@ -1548,12 +1548,14 @@ export function Scene({
   // arrangement change or mount, not any owned-channel claim) while
   // SHARING the clear side (both clear on the raw global zero-crossing) —
   // see the ACCEPTED TRADEOFF paragraph on the settle effect below for why
-  // a per-transition claim tag was rejected in favor of this. Drives
-  // inertness scene-wide via TransitionPendingContext (SceneObject.tsx):
-  // in-transition = fully inert, matching Michael's ruled three-state
-  // contract. `pendingIsFocusTransitionRef` tracks whether the CURRENT
-  // pending window was armed by an actual focus change (vs. pure mount
-  // entrance) — only that case fires `onTransitionEnd` on clear.
+  // a per-transition claim tag was rejected in favor of this. Provided via
+  // TransitionPendingContext (SceneObject.tsx), where it now drives only
+  // `activatable` (blocks retargeting focus mid-transition) and the
+  // two-phase keyboard-focus-delivery effect — content inertness gates on
+  // `focused` alone since ui#31/Option A. `pendingIsFocusTransitionRef`
+  // tracks whether the CURRENT pending window was armed by an actual focus
+  // change (vs. pure mount entrance) — only that case fires
+  // `onTransitionEnd` on clear.
   const [transitionPending, setTransitionPending] = useState(true);
   // Ref mirror of `transitionPending`, kept in lockstep at the top of every
   // render (mirrors this file's own stageLeftRef/columnStatesFingerprintRef
@@ -1747,8 +1749,11 @@ export function Scene({
   // reuses; the overlap is self-limiting (touch flings — the only
   // long-tail ambient channel — die at pointerdown before a click-to-focus
   // can land, and mouse ambient motion is sub-second keyboard-pan/
-  // content-growth), and the scene is scene-wide inert during any focus
-  // transition regardless, so the tradeoff only extends the settle TAIL.
+  // content-growth). Since ui#31/Option A, content inertness no longer
+  // reads this signal at all — the tradeoff only extends how long
+  // `activatable`'s retargeting block and the two-phase focus-delivery
+  // effect's settle wait persist, not the settle TAIL of content
+  // interactivity.
   useLayoutEffect(() => {
     const arrangement: SceneFocusArrangementEntry[] = columnStates.flatMap(
       (c) => columnRegistryRef.current.get(c.name)?.objectStates ?? [],

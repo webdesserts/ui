@@ -26,8 +26,8 @@ import { createContext, type RefObject } from "react";
  * given effect invocation happens to correspond to, `.current` always
  * reflects Scene's latest truth. The reactive boolean
  * (TransitionPendingContext) is still what re-fires the effect (via its
- * presence in the dependency array) and still what `inert`/`activatable`
- * render-time gating use directly — this context exists ONLY to break the
+ * presence in the dependency array) and still what `activatable`
+ * render-time gating uses directly — this context exists ONLY to break the
  * one same-effect-pass staleness window the two-phase mechanism is
  * otherwise exposed to.
  */

@@ -3,13 +3,14 @@ import { createContext } from "react";
 /**
  * True while a Scene-wide focus transition (mount entrance, or any focus-
  * arrangement change) is pending settle — false once the settle counter
- * (SettleSignalContext) reaches zero (ui#20). Gates inertness scene-wide:
- * every SceneObject stays fully inert (content `inert`, activation
- * disabled) while this is true, regardless of whether that particular
- * object's own channels are the ones animating — the stray-click hazard a
- * focus transition creates is scene-wide, not per-object (see Scene.tsx's
+ * (SettleSignalContext) reaches zero (ui#20). Has two remaining consumers
+ * in SceneObject.tsx, both race-prevention rather than content inertness
+ * (which gates on `focused` alone since ui#31/Option A — see Scene.tsx's
  * own transitionPending doc comment for the full design, including the
- * deliberate ambient-overlap tradeoff).
+ * deliberate ambient-overlap tradeoff): `activatable` blocks retargeting
+ * focus to a different, still-unfocused object while a transition is
+ * already in flight, and the two-phase focus effect gates DOM keyboard-
+ * focus delivery until settle.
  *
  * Provided by Scene to every descendant SceneObject. Defaults to `false`
  * outside a Scene (SceneObject used standalone) — no gating applies there,
