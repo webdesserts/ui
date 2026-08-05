@@ -106,10 +106,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // ui#20: true while a Scene-wide focus transition (mount entrance, or any
   // focus-arrangement change) hasn't yet settled — see
   // TransitionPendingContext's own doc comment for the full mechanism,
-  // including the deliberate ambient-overlap tradeoff. Defaults to `false`
-  // outside a Scene (standalone SceneObject usage), matching this
-  // component's existing null-outside-Scene contract for every other
-  // Scene-provided context.
+  // including the deliberate ambient-overlap tradeoff. Drives `activatable`
+  // below and the two-phase keyboard-focus-delivery effect further down;
+  // content inertness stopped reading this signal under Option A (ui#31 —
+  // see the `inert` JSX comment below). Defaults to `false` outside a
+  // Scene (standalone SceneObject usage), matching this component's
+  // existing null-outside-Scene contract for every other Scene-provided
+  // context.
   const transitionPending = useContext(TransitionPendingContext);
   // Ref mirror of the above, ALWAYS synchronously current regardless of
   // which render generation a given effect invocation corresponds to —
@@ -123,13 +126,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // keyboard-reachable activation control (Enter/Space), not just a mouse
   // click target — gated on onActivate presence so a plain non-activatable
   // unfocused object never becomes an unexpected tab stop. ui#20 adds
-  // `!transitionPending`: Michael's ruled three-state contract (in-
-  // transition = fully inert; settled-unfocused = click-to-focus via
-  // onActivate; settled-focused = fully interactive) means activation
-  // itself — not just the content wrapper below — must gate on settle.
-  // This single flag drives tabIndex/role/onKeyDown AND (ui#20 F1) the
-  // JSX onClick prop below, covering both pointer and keyboard activation
-  // from one gate.
+  // `!transitionPending`: while a focus transition is already in flight
+  // anywhere in the scene, activation is blocked so a second click can't
+  // retarget focus again mid-transition — a race-prevention concern,
+  // distinct from content inertness (which gates on `!focused` alone since
+  // ui#31/Option A; see the `inert` JSX comment below). This single flag
+  // drives tabIndex/role/onKeyDown AND (ui#20 F1) the JSX onClick prop
+  // below, covering both pointer and keyboard activation from one gate.
   const activatable = !focused && Boolean(onActivate) && !transitionPending;
 
   // Within-column depth deck: this object is sandwiched between two focused
@@ -525,18 +528,21 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   });
 
   // ui#20 F2 two-phase focus: on focus-gain, keyboard focus lands on the
-  // ANCHOR immediately (phase 1) — safe even mid-transition, since the
-  // anchor (outerRef) sits OUTSIDE the inert content wrapper (unlike the
+  // ANCHOR immediately (phase 1) — the anchor (outerRef) sits OUTSIDE the
+  // content wrapper, so it's always a safe, static target. (Contrast the
   // pre-ui#20 single-phase version, which searched for a focusable
-  // descendant right away; that descendant is INSIDE the content wrapper,
-  // which is inert for the whole in-transition window now — searching it
-  // immediately would either find nothing or focus an element `inert`
-  // still lets browsers technically target). Once the scene-wide focus
-  // transition settles (transitionPending clears) for THIS SAME focus-gain
-  // episode, phase 2 moves focus to the first focusable descendant. Michael's
-  // ruled contract requires in-transition = fully inert, focus input
-  // included — this is the mechanism that honors it without stranding
-  // keyboard focus off-screen mid-transition.
+  // descendant right away — under ui#20's original three-state contract
+  // that descendant sat inside a wrapper that was inert for the whole
+  // in-transition window, so an immediate search would either find
+  // nothing or focus an `inert`-but-technically-targetable element.) Once
+  // the scene-wide focus transition settles (transitionPending clears)
+  // for THIS SAME focus-gain episode, phase 2 moves focus to the first
+  // focusable descendant. This DOM keyboard-focus-delivery timing is
+  // independent of content inertness (which gates on `focused` alone
+  // since ui#31/Option A) and is deliberately left as-is; it does open an
+  // edge case where a user already interacting with content via
+  // mouse/typed input before settle has focus silently redirected once
+  // phase 2 fires — known, not addressed by this change.
   //
   // We use useEffect (not useLayoutEffect) so the DOM has been painted
   // before we try to focus. Re-keyed on [focused, transitionPending] with
