@@ -441,12 +441,11 @@ export function SceneColumn({
       velocity,
       // F17 fix: boundary rubber-band — a plain spring generator (unlike
       // Motion's type:"inertia", which the fling uses) has no built-in
-      // min/max clamp, so this watches the live value every frame and, if
-      // it ever exceeds [0, maxScroll] by more than
-      // SPRING_RUBBER_BAND_MARGIN_PX, retargets toward the nearest bound —
-      // reentrantly, through this SAME function, WITH velocityOverride: 0
-      // (not the carried-over live velocity — see below). Deliberately
-      // unguarded (no "already correcting" flag): the target is always the
+      // min/max clamp (full history: tests/scene-spring-bounds.test.tsx's
+      // own header), so this watches the live value every frame and
+      // reentrantly retargets toward the nearest bound, WITH
+      // velocityOverride: 0 (not the carried-over live velocity — see
+      // below). Deliberately unguarded (no "already correcting" flag): the target is always the
       // SAME deterministic nearest bound while still out of range, so
       // re-issuing it every frame is idempotent, not divergent —
       // probe-confirmed a correctingBoundaryRef guard that RESETS on every
@@ -793,19 +792,13 @@ export function SceneColumn({
       // without pinning values.
       bounceStiffness: stiffness,
       bounceDamping: damping,
-      // F15 fix: every OTHER write path (scrollBy/page/toTop/toBottom/
-      // scrollTo) sets scrollOffsetRef to its TARGET synchronously at
-      // command-issue time — a deliberate "chase" model, so a second
-      // command mid-spring stacks on the intended destination, not
-      // wherever the animation currently visually is. A fling has no such
-      // fixed target: it coasts to wherever momentum runs out, so nothing
-      // wrote scrollOffsetRef during it, and it went stale for every
-      // consumer (a subsequent grab's dragStartOffset, wheel/keyboard's
-      // scrollBy delta base, the F9/F10 compensation clamps) for however
-      // long the coast ran — reproduced on-device (Michael's frozen
-      // snapshot: wrapperStyleTop jumped 370px on the next grab) and here
-      // via a stub-free harness test (tests/scene-model-sync.test.tsx).
-      // Ref-only, no setScrollOffset — this fires every animation frame
+      // F15 fix: a fling has no fixed target (unlike every other write
+      // path's synchronous "chase" model), so nothing else keeps
+      // scrollOffsetRef live during the coast, and every consumer (a
+      // subsequent grab's dragStartOffset, wheel/keyboard's scrollBy delta
+      // base, the F9/F10 compensation clamps) reads it cold. Full history:
+      // tests/scene-model-sync.test.tsx's own header. Ref-only, no
+      // setScrollOffset — this fires every animation frame
       // for the whole coast, and forcing a React re-render that often is
       // exactly the per-tick-render overhead the scrollY MotionValue
       // pipeline exists to avoid (see handleContentPointerMove's own
@@ -1708,23 +1701,21 @@ export function SceneColumn({
   // ResizeObserver firing before focus is lost.
   //
   // F7 item 1 fix (a third missed gBCR site in the same H11 projection-
-  // contamination class, above): offsetWidth/offsetHeight, NOT
+  // contamination class — see remeasureGeometry's own comment for the
+  // established rule): offsetWidth/offsetHeight, NOT
   // getBoundingClientRect(). `columnFocused` (a plain prop) flips the
   // instant React processes the focus click, but the column's own zMV
   // (depth-deck translateZ) is a MotionValue — it hasn't moved yet on this
-  // exact commit, the very first one where columnFocused is newly true.
-  // getBoundingClientRect() on THIS commit still reads the column under
-  // its OLD, fully-settled depth-deck perspective projection (probe-
-  // confirmed: a column previously frozen at depth-1 read 226.34px here
-  // instead of its true 254px — 254 * (800/900) ≈ 226.34, the exact
-  // depth-1 projection factor). That wrong value gets frozen via
-  // setFrozenSize below, and if the column later re-enters the depth deck
-  // (e.g. a quick focus/unfocus double-click, interrupting before the real
-  // spring finishes), the frozen size is PROJECTED AGAIN by the depth-deck
-  // transform on render — 226.34 * (800/900) ≈ 201.2 — a compounding
-  // foreshortening, observed as the column settling ~12px too high.
-  // offsetWidth/offsetHeight are layout metrics, immune to any transform
-  // on the element or its ancestors, matching H11's established pattern.
+  // exact commit, the very first one where columnFocused is newly true, so
+  // getBoundingClientRect() here still reads the column under its OLD,
+  // fully-settled depth-deck perspective projection (probe-confirmed: a
+  // column previously frozen at depth-1 read 226.34px here instead of its
+  // true 254px — the exact depth-1 projection factor). That wrong value
+  // gets frozen via setFrozenSize below, and if the column later re-enters
+  // the depth deck (e.g. a quick focus/unfocus double-click, interrupting
+  // before the real spring finishes), the frozen size is PROJECTED AGAIN by
+  // the depth-deck transform on render — a compounding foreshortening,
+  // observed as the column settling ~12px too high.
   useLayoutEffect(() => {
     if (columnFocused && colRef.current) {
       const width = colRef.current.offsetWidth;
@@ -1794,43 +1785,14 @@ export function SceneColumn({
   // height snapshot itself). useLayoutEffect fires synchronously pre-paint,
   // closing that one-frame gap.
   //
-  // Gate-requested regression test: NOT ADDED — verified, not just assumed,
-  // that this specific timing gap is structurally unobservable through any
-  // realistic focus-change interaction in the CURRENT architecture, so a
-  // useEffect-vs-useLayoutEffect pin here would be vacuous (green either
-  // way). Root cause: Scene's own S6 registration architecture ALWAYS
-  // triggers a nested, layout-effect-driven corrective re-render on every
-  // focus change (columnRegistryRef is one-commit-stale by construction —
-  // `deriveColumnStatesFromRegistry` reads registry state populated by the
-  // PREVIOUS commit's layout effects, so the post-commit correction in
-  // Scene.tsx's `forceRegistryCorrection` check is guaranteed to mismatch
-  // and fire on literally every commit that changes any column's focused
-  // prop, not just complex multi-column cases). React's documented behavior
-  // for a state update triggered FROM a layout effect is to flush ANY
-  // pending passive effects synchronously before starting that nested
-  // render pass — which flushes THIS effect too, regardless of whether it's
-  // declared as useEffect or useLayoutEffect, because it was scheduled in
-  // the same commit whose layout effects triggered the nested update.
-  // Probe-verified across FOUR independent trigger mechanisms (a plain
-  // rerender via the test harness's act()-wrapped root.render, a raw DOM
-  // click dispatched outside act(), a `flushSync`-wrapped state update, and
-  // a truly async `setTimeout`-triggered update polled every rAF) — all
-  // four show frozenSize already correctly populated on the very first
-  // frame where `data-ui-scene-column-position` resolves to "in-between"/outer, with
-  // useEffect reverted (DEFEAT-CHECK SEVER'd during this verification and
-  // restored after). Cross-checked the technique itself is sound with a
-  // Scene-independent minimal component (plain useEffect + flushSync), which
-  // DID show the expected one-tick-late gap — so this is a genuine masking
-  // effect specific to Scene's architecture, not a blind spot in the
-  // verification method. This is also consistent with item 5's finding that
-  // landing this fix did NOT resolve refocus-from-depth-deck-mid-spring's
-  // non-determinism — further evidence this exact gap was never the
-  // observable mechanism in that test either. useLayoutEffect is kept
-  // anyway: it's the semantically correct hook for a synchronous freeze
-  // (defense-in-depth against a future change to the registration
-  // architecture that removes the masking correction pass), it's zero-cost,
-  // and reverting it to chase a provable-red test would trade a strictly
-  // more correct hook choice for a weaker one with no compensating benefit.
+  // A dedicated useEffect-vs-useLayoutEffect regression test was
+  // investigated and not added — Scene's own S6 registration architecture
+  // always triggers a synchronous, layout-effect-driven corrective
+  // re-render on every focus change, which masks the difference between
+  // the two hooks (probe-verified across four independent trigger
+  // mechanisms), so such a test would be vacuous. Kept useLayoutEffect
+  // anyway: correct hook, zero cost, defense-in-depth against a future
+  // architecture change that removes the masking correction pass.
   useLayoutEffect(() => {
     if (columnFocused) {
       wasEverFocused.current = true;
@@ -3291,20 +3253,17 @@ export function SceneColumn({
             // touch-action, the island's interior vertical touch-pan is
             // no longer blocked by any Scene-owned ancestor.
             touchAction: columnFocused && isScrollable ? "pan-x pinch-zoom" : "auto",
-            // CLICK-TARGETING FIX (ui#21 rider 5 escalation, real
-            // regression): makes this element ITS OWN stacking-context
-            // root instead of an ordinary positioned participant in
-            // whatever context sits above it. A root's own background
-            // paints FIRST, before its negative z-index descendants — so
-            // a sandwiched object's own inner node (negative z-index, a
-            // descendant of this element) now paints ABOVE this
-            // element's own box at any point neither covers, restoring
-            // the object as the real hit-test target for its own
-            // exclusive peek sliver. Deliberately `isolation: isolate`,
-            // not an explicit z-index or a transform — isolation has no
-            // grouping/3D side effects and sits BELOW the column's
-            // own preserve-3d participation (SceneColumn's own anchor,
-            // above this element), so column-level 3D/paint-order
+            // CLICK-TARGETING FIX: makes this element ITS OWN
+            // stacking-context root, so a sandwiched object's own
+            // negative-z-index inner node paints ABOVE this element's own
+            // box (a root's background paints first) and stays the real
+            // hit-test target for its own exclusive peek sliver — full
+            // history: tests/scene-within-column-deck.test.tsx's
+            // "sandwiched card click-targeting" describe block. Deliberately
+            // `isolation: isolate`, not an explicit z-index or a transform —
+            // isolation has no grouping/3D side effects and sits BELOW the
+            // column's own preserve-3d participation (SceneColumn's own
+            // anchor, above this element), so column-level 3D/paint-order
             // behavior is untouched by construction.
             isolation: "isolate",
           }}

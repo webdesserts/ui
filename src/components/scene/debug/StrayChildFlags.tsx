@@ -12,8 +12,8 @@ interface StrayChildEntry {
 
 /**
  * Finds every DIRECT DOM child of the stage lacking `data-ui-scene-column-anchor` — the
- * attribute every legitimately-rendered SceneColumn carries. wrapChild
- * (below) already folds bare SceneObjects into an implicit SceneColumn, so
+ * attribute every legitimately-rendered SceneColumn carries. Scene.tsx's own
+ * wrapChild already folds bare SceneObjects into an implicit SceneColumn, so
  * anything reaching the stage without `data-ui-scene-column-anchor` is exactly
  * warnStrayChild's trigger condition: a child that is neither a SceneColumn
  * nor a SceneObject, silently joining the flex row unchanged.
@@ -54,8 +54,8 @@ function strayChildrenEqual(a: StrayChildEntry[], b: StrayChildEntry[]): boolean
 /**
  * F4 feature (b): paints a red outline + label on every stray stage child
  * (see measureStrayChildren above) — the CameraDebug-incident class made
- * visible at a glance, pairing with warnStrayChild's console warning above.
- * Rendered inside the same viewport-pinned clipping layer as
+ * visible at a glance, pairing with warnStrayChild's console warning in
+ * Scene.tsx. Rendered inside the same viewport-pinned clipping layer as
  * SceneObjectOutlines/StageBoundsOutline (commit 1's purity fix) — a stray
  * child is by definition NOT position-managed by Scene, so nothing bounds
  * where it might render.

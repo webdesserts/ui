@@ -66,7 +66,7 @@ function parseTranslateZ(transform: string): number {
  * paint in front of cards behind them, at a glance, without pausing a
  * transition and inspecting devtools). Updates continuously via
  * requestAnimationFrame while mounted (i.e. while `debug` is enabled) —
- * same rationale and pattern as ActiveSpringsSection above: the underlying
+ * same rationale and pattern as ActiveSpringsSection.tsx: the underlying
  * value can change every frame mid-spring, off React's own render cycle, so
  * reading it only at commit time would show it stale throughout a
  * transition.

@@ -196,9 +196,10 @@ export function computeMeasuredWidth(
  * is depth-2, and so on.
  *
  * INVARIANT (load-bearing for the object-level z-index paint-order channel —
- * mirrors computeStackDepths' own DOM-order invariant at the column level,
- * SceneColumn.tsx's own comment near columnDepth/depthZ above, but serves a
- * DIFFERENT purpose): within a single sandwiched cluster (a contiguous run
+ * mirrors computeStackDepths' own DOM-order invariant at the column level
+ * (sceneLayout.ts; see also SceneColumn.tsx's own comment near
+ * columnDepth/depthZ), but serves a DIFFERENT purpose): within a single
+ * sandwiched cluster (a contiguous run
  * of unfocused objects bounded by the same two focused siblings), `depth =
  * lowerFocusedIndex - i` is structurally guaranteed to produce depth order
  * ≡ reverse DOM order — the object further from the lower focused sibling

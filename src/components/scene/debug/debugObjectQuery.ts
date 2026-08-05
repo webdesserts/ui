@@ -6,8 +6,8 @@ import type { DebugObjectEntry } from "./types";
  * attribute — rather than walking Scene's `children` prop tree. DOM truth is
  * immune by construction to Fragment wrapping, custom components that return
  * a SceneObject/SceneColumn, or any other composition that a shallow prop
- * walk can be fooled by (the same rationale as the S6 column registry
- * below), and it's what actually rendered — the only thing worth debugging.
+ * walk can be fooled by (the same rationale as Scene.tsx's own S6 column
+ * registry), and it's what actually rendered — the only thing worth debugging.
  */
 export function queryDebugObjects(viewport: HTMLElement): DebugObjectEntry[] {
   return Array.from(viewport.querySelectorAll<HTMLElement>("[data-ui-scene-id]")).map((el) => ({

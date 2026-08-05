@@ -10,7 +10,7 @@ import type { DebugMotionRecorder } from "./motionRecorder";
  * value, target (when the driving animate() call reported one — an
  * inertia/fling deceleration has no fixed target and reads "—"), and
  * velocity. Registered keys are corrected via a useLayoutEffect (same
- * commit-stale rationale as SceneDebugOverlay's own `objects` list above —
+ * commit-stale rationale as SceneDebugOverlay.tsx's own `objects` list —
  * a brand new key registering elsewhere doesn't otherwise trigger a
  * re-render here) but the per-row NUMBERS are updated via a continuously
  * running requestAnimationFrame loop that mutates each row's text nodes

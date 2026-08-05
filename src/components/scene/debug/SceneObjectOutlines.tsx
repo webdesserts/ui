@@ -27,8 +27,8 @@ import { queryDebugObjects } from "./debugObjectQuery";
  *    Probe-confirmed on the dev app's Debug mode demo: an object's outline
  *    froze at its pre-transition position for an entire ~330ms swap and
  *    never caught up even after the real object settled, because nothing
- *    ever incremented the counter for that transition. ActiveSpringsSection
- *    below already reaches this same conclusion for its own per-frame
+ *    ever incremented the counter for that transition. ActiveSpringsSection.tsx
+ *    already reaches this same conclusion for its own per-frame
  *    readouts and runs continuously for exactly this reason — this mirrors
  *    that established pattern rather than inventing a new one.
  */
@@ -87,7 +87,7 @@ export function SceneObjectOutlines({
 
   // F6 item 1 fix: rAF loop runs continuously for as long as this component
   // is mounted (i.e. for as long as `debug` is enabled), mirroring
-  // ActiveSpringsSection's own established continuous pattern below —
+  // ActiveSpringsSection.tsx's own established continuous pattern —
   // matches Motion's per-frame imperative writes with no external trigger
   // needed. Debug-only, so the per-frame cost never reaches the production
   // path; it doesn't mutate React state or the scene's own layout (only

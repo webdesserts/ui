@@ -19,8 +19,8 @@ interface ColumnRegistration {
    * Returns an unregister function. `focused` feeds the column's OWN
    * registration with Scene (S6 registration architecture) — it's tracked
    * separately from this column's internal deriveObjectStates prop walk
-   * (scope pin: column-level classification only, see SceneColumn's own
-   * registration effect below). `heightTarget` is called unconditionally
+   * (scope pin: column-level classification only, see SceneColumn.tsx's own
+   * registration effect). `heightTarget` is called unconditionally
    * every render (mirrors `focused`'s own unconditional-per-render
    * rationale — a same-commit reflection requirement, not just a mount-time
    * one), so remeasureGeometry always reads this render's own value.

@@ -33,10 +33,7 @@ export interface SceneObjectProps {
   onActivate?: () => void;
   /**
    * Inline styles applied to the outer wrapper div. Useful for setting
-   * explicit dimensions (width, height, minWidth) on the object. Stays on
-   * the ANCHOR (ui#21 — mirrors ui#17's own placement for width) — see
-   * inColumnStyle's own comment for why moving it to the nested object
-   * traces two real failure modes instead.
+   * explicit dimensions (width, height, minWidth) on the object.
    */
   style?: React.CSSProperties;
   /**
@@ -54,31 +51,27 @@ export interface SceneObjectProps {
    * previously-focused object's scroll position). "top" (default) shows
    * this object from the top of its content; "center" starts roughly
    * centered — e.g. an image viewer where the interesting content sits
-   * mid-frame. Read by the parent SceneColumn via child prop introspection
-   * (deriveObjectStates) — not used directly by this component.
+   * mid-frame.
    */
   resetAlignment?: "top" | "center";
 }
 
+// Internal architecture note (ui#21 anchor/object split — the vertical,
+// per-object port of ui#17's anchor/column pattern; see `plans/ui#21
+// Within-Column Deck Rework Plan (2026-07-31)` for the full design):
+// SceneObject's own outer node is a permanent in-flow ANCHOR whose HEIGHT
+// footprint springs natural-height <-> 0 (never flips position mode — no
+// flip-back, mirrors ui#17's column anchor exactly). A nested OBJECT
+// (`data-ui-scene-object`) carries the actual depth visual treatment
+// (opacity/filter/z) and the peek-offset TRANSFORM (`y`) — the object is
+// what flips position:relative <-> position:absolute, with its own `top`
+// held structurally constant (0) across that flip (forecast E4 — the peek
+// offset must live in a transform, never a layout property, for the flip
+// to be zero-pixel).
 /**
- * The SceneObject component is composed of the anchor, the object itself,
- * and its contents.
- *
  * An individual focusable item within a SceneColumn. When unfocused, the inner
  * content wrapper receives the `inert` attribute, disabling all descendant
- * interaction. The outer wrapper stays interactive for click-to-focus (Phase 8).
- *
- * ui#21 anchor/object split (the vertical, per-object port of ui#17's
- * anchor/object pattern — see plans/ui#21 Within-Column Deck Rework Plan
- * (2026-07-31) for the full design): this component's own outer node is a
- * permanent in-flow ANCHOR whose HEIGHT footprint springs natural-height <->
- * 0 (never flips position mode — no flip-back, mirrors ui#17's column
- * anchor exactly). A nested OBJECT (`data-ui-scene-object`) carries the actual
- * depth visual treatment (opacity/filter/z) and the peek-offset TRANSFORM
- * (`y`) — the object is what flips position:relative <-> position:absolute,
- * with its own `top` held structurally constant (0) across that flip
- * (forecast E4 — the peek offset must live in a transform, never a layout
- * property, for the flip to be zero-pixel).
+ * interaction. The outer wrapper stays interactive for click-to-focus.
  *
  * Within a column, focused objects are in flow contributing their natural
  * height; an object sandwiched between two focused siblings contributes
@@ -303,29 +296,14 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // Whether the literal height override is currently active: always while
   // sandwiched (an object stays pinned at 0 forever once settled there, it
   // never releases), or while in-flow AND still mid-spring (released once
-  // settled — see above).
-  //
-  // An earlier version ALSO checked `heightTarget !== heightTargetRef.current`
-  // in the in-flow branch, to close a one-render window on the FIRST render
-  // of a leaving-sandwiched transition (heightSettled, a lagging state,
-  // hadn't yet flipped false for THIS new transition — a real 96px
-  // discontinuity the RED-FIRST layout-box flip test caught before the
-  // contentRef/naturalHeight-as-state fixes existed). REVERTED (real
-  // regression found and fixed here, via the F9 content-growth-anchoring
-  // suite): that check fires for ANY heightTarget change, including a
-  // permanently-in-flow, NEVER-sandwiched object's own ordinary content
-  // resize (e.g. "top" growing 300->500 while already focused and
-  // settled) — treating a normal auto-height change as an override-worthy
-  // event, which then suppresses the SAME-COMMIT live-measurement fallback
+  // settled — see above). Don't add a `heightTarget !== heightTargetRef.current`
+  // check to the in-flow branch — it fires for ANY heightTarget change,
+  // including a permanently-in-flow, never-sandwiched object's own ordinary
+  // content resize, treating a normal auto-height change as override-worthy
+  // and suppressing the same-commit live-measurement fallback
   // computeFocusedContentHeight depends on (see the register() call's own
-  // comment) for an object that was never supposed to be under this
-  // channel's control at all. Retested against the layout-box flip tests
-  // after the contentRef/naturalHeight-as-state fixes landed: those fixes
-  // alone already close the original 96px window (naturalHeight, now real
-  // state with an explicit setState, correctly propagates to a fresh
-  // render before heightSettled's own lag ever becomes observable) — this
-  // extra check was solving an already-solved problem while breaking an
-  // unrelated one.
+  // comment). Full history: tests/scene-within-column-deck.test.tsx's
+  // "layout-box zero-pixel flip" header.
   const heightOverrideActive = sandwichedNow ? heightTarget !== undefined : !heightSettled;
 
   // The other half of naturalHeight's capture (declaration above,
@@ -507,11 +485,8 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // precedent exactly. Only the DEPTH matters here, not a cross-object
   // measured anchor position: once every sandwiched object gets its own
   // zero-footprint in-flow anchor, its own local origin already converges
-  // on "flush against the lower focused sibling" for free (the plan's own
-  // reasoning that predicted `WithinColumnDepthInfo.anchorTop` — the
-  // cross-object geometryStore read this component never consumed — was
-  // vestigial; deleted at its own definition, ui#21 Slice 4 hygiene) — the
-  // transform only needs to apply the peek itself.
+  // on "flush against the lower focused sibling" for free — the transform
+  // only needs to apply the peek itself.
   const peekY = sandwichedNow ? -peekOffset * withinDepthInfo!.depth : 0;
 
   // Register this object's DOM element, focus state, and height-channel
@@ -693,16 +668,8 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           entirely so the full-size content paints regardless of the
           anchor's own height (mirrors SceneColumn's own data-ui-scene-column
           exactly). Paint order at the depth-deck flip commit is driven by
-          an explicit z-index channel (see its own declaration above), not
-          3D-transform depth-sort — a multi-round defeat-check
-          investigation (ui#o32, the D-series record) found object-level
-          translateZ never actually reached the object (three flat
-          transform-style intermediates between here and the nearest
-          preserve-3d ancestor), and even an isolated probe that forced
-          the chain past that didn't restore genuine cross-sibling z-sort.
-          z-index sidesteps the whole question — it works within ordinary
-          2D stacking rules, no preserve-3d chain needed anywhere in this
-          component. */}
+          an explicit z-index channel, not 3D-transform depth-sort (see its
+          own declaration above for why). */}
       <motion.div
         data-ui-scene-object={name}
         className={cn(

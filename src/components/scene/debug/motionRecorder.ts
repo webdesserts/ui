@@ -4,8 +4,8 @@ import type { AnimationPlaybackControls, MotionValue } from "motion/react";
 /**
  * A MotionSeamRegistration recorder Scene creates for ITSELF when `debug` is
  * enabled and no test harness has already wrapped a MotionSeamContext.Provider
- * around the tree (see SceneViewport's `motionSeam` derivation below) — powers
- * the debug overlay's active-springs panel. Registration-only and
+ * around the tree (see Scene.tsx's SceneViewport `motionSeam` derivation) —
+ * powers the debug overlay's active-springs panel. Registration-only and
  * observationally pure: it never drives/mutates the values or controls it
  * receives, only stores references for later reads.
  */

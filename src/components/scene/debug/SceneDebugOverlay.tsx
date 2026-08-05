@@ -16,10 +16,11 @@ export function SceneDebugOverlay({
   columnStacks: DebugColumnStackEntry[];
   viewportRef: React.RefObject<HTMLDivElement | null>;
   stageRef: React.RefObject<HTMLDivElement | null>;
-  /** Scene's own motion-seam recorder (see createDebugMotionRecorder below),
-   *  or null when a test harness supplied its own MotionSeamContext.Provider
-   *  instead (motionSeam.ts) — in that case the active-springs section below
-   *  simply has nothing of Scene's own to read and renders nothing. */
+  /** Scene's own motion-seam recorder (see createDebugMotionRecorder in
+   *  motionRecorder.ts), or null when a test harness supplied its own
+   *  MotionSeamContext.Provider instead (motionSeam.ts) — in that case the
+   *  active-springs section below simply has nothing of Scene's own to read
+   *  and renders nothing. */
   motionRecorder: DebugMotionRecorder | null;
   /** F4 feature (e): the currently-effective slowMo (prop or override). */
   slowMo: boolean;
@@ -27,7 +28,7 @@ export function SceneDebugOverlay({
   onToggleSlowMo: () => void;
 }) {
   // Object list — DOM truth (queryDebugObjects), same rationale as
-  // SceneObjectOutlines above. Corrected via a useLayoutEffect (mirroring
+  // SceneObjectOutlines.tsx. Corrected via a useLayoutEffect (mirroring
   // SceneObjectOutlines' renderedObjects pattern), NOT computed inline
   // during render: a during-render query reads the DOM as of the END of
   // the PREVIOUS commit (React applies THIS commit's mutations only after

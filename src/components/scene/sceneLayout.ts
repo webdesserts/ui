@@ -50,7 +50,7 @@ export function collectColumnFocusStates(
  * collectColumnFocusStates (the prop-walk seed): unlike the seed, it doesn't
  * depend on the shape of Scene's `children` prop, so it stays correct
  * through Fragment wrapping, custom components that return a SceneColumn,
- * etc. — see the S6 registration architecture (seed-then-correct) below.
+ * etc. — see Scene.tsx's own S6 registration architecture (seed-then-correct).
  */
 export function deriveColumnStatesFromRegistry(
   registry: Map<string, RegisteredColumn>,

@@ -81,16 +81,16 @@ export interface SceneProps {
    * Does NOT fire on the initial mount's pure-entrance settle (no focus
    * change occurred), and does NOT fire for a non-focus-driven settle
    * (e.g. an unrelated content-resize spring quieting down) — narrower
-   * than `data-ui-scene-settled`, which is mechanism-broad (see its own doc
-   * comment). Reduced-motion / `duration={0}` focus changes DO fire
-   * (synchronously, before the browser's next paint) — a silent no-fire
-   * there would break every consumer on the accessibility path.
+   * than `data-ui-scene-settled`, which is mechanism-broad (false while ANY
+   * owned animation channel is claimed, focus-driven or not). Reduced-motion
+   * / `duration={0}` focus changes DO fire (synchronously, before the
+   * browser's next paint) — a silent no-fire there would break every
+   * consumer on the accessibility path.
    *
    * Structurally excluded: SceneColumn's own vertical scroll inertia
    * (wheel/touch/keyboard scrolling within a focused column) never claims
-   * through the settle-signal seam (a deliberate, pre-existing exclusion —
-   * see SettleSignalContext's own doc comment) and is not a "focus
-   * transition" in the first place, so it never triggers this callback.
+   * through the settle-signal seam and is not a "focus transition" in the
+   * first place, so it never triggers this callback.
    */
   onTransitionEnd?: (arrangement: SceneFocusArrangementEntry[]) => void;
   /** Enable debug overlays. */
@@ -975,20 +975,11 @@ function SceneViewport({
   // F17 commit 2: wheel-driven deltas are BUFFERED (per column for deltaY,
   // as a single accumulator for deltaX — one pan target for the whole
   // Scene) and flushed as ONE write per real animation frame, rather than
-  // one write per wheel event. Mechanism this closes (F17 commit 1's own
-  // investigation, pinned at source): a real trackpad/wheel stream fires
-  // MULTIPLE events per animation frame, and applying each one immediately
-  // calls a spring-chase animate() call synchronously per event — so pairs
-  // of retargets can land with ~0ms elapsed between them (measured: 72 of
-  // 143 inter-retarget gaps were <1ms, in a 72-event stream, on the
-  // deltaY/vertical path this pattern originates from). Motion's spring
-  // generator inherits the CURRENT velocity as each retarget's starting
-  // condition; a near-zero elapsed time between two retargets is exactly
-  // the numerically unstable case for a velocity estimate
-  // (Δvalue/Δtime, Δtime→0). Buffering to one retarget per real frame
-  // removes the near-zero-Δt pairing at its source AND is a straightforward
-  // perf win (one spring retarget instead of two-plus per frame during a
-  // dense stream) — applies identically to the new deltaX/panOffset path.
+  // one write per wheel event — removes the near-zero-Δt retarget pairing
+  // that made Motion's velocity estimate numerically unstable under a dense
+  // wheel stream, and is a straightforward perf win besides (one spring
+  // retarget instead of two-plus per frame). Full history/measurements:
+  // tests/scene-wheel-coalescing.test.tsx's own header.
   const pendingWheelDeltaRef = useRef<Map<string, number>>(new Map());
   const pendingPanDeltaRef = useRef(0);
   const wheelFlushScheduledRef = useRef(false);
@@ -1250,38 +1241,16 @@ function SceneViewport({
     warnAncestorScrollChaining(el);
   }, []);
 
-  // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
-  // browser's native focus-driven auto-scroll (and other native scrollLeft
-  // mutations) used to bypass the camera's own stageLeft pan and corrupt
-  // scrollLeft (DELTA-2, probe-confirmed: tab-focusing a parked column
-  // jumped scrollLeft 0 -> 782 with stage.left unchanged). A bare
-  // `el.scrollLeft = 0` reset-on-focusin fix (DELTA-2) restored the correct
-  // final position but, being itself a native scroll mutation landing
-  // mid-click-gesture, measurably ate clicks in the consuming app (21/21 +
-  // 27/27 + 24/24 across three N=20 loops). An interim "absorb-and-re-pan"
-  // fix (reset scrollLeft to 0 while simultaneously compensating stage.left
-  // by the same delta, then explicitly re-pan via Motion) closed that but
-  // remained a two-writer system — native scrollLeft AND the camera both
-  // able to move the viewport horizontally, correction code needed to keep
-  // them reconciled, and a Promise/`.then()`-tracked in-flight guard in
-  // that reconciliation shipped a real regression (the camera permanently
-  // stranded ~450px off canonical when a second correction jump()-cancelled
-  // the first's still-in-flight re-pan spring before its `.then()` could
-  // fire and clear the guard).
-  //
-  // ui#19 removes the SECOND writer entirely instead of reconciling it: the
-  // viewport is unconditionally `overflow: clip` on both axes (see the
-  // style block below) — probe-confirmed bulletproof against every native
-  // scrollLeft mutation technique (direct writes, scrollIntoView, focus-
-  // driven auto-scroll, mid-gesture corruption attempts all no-op, read-
-  // back stays 0, zero visual shift) — so there is no corrupted scrollLeft
-  // to ever reconcile, and no correction handler is needed at all. The
-  // camera (stageLeft + the panOffset layer, added later in this arc) is
-  // now the SOLE horizontal-position writer. The cross-cutting lesson from
-  // the stranded-camera regression — no Promise/`.then()`-tracked "already
-  // animating" guards; idempotent re-issue instead (SceneColumn.tsx F17's
-  // driveBoundedSpring pattern) — carries forward as a standing rule for
-  // every cameraX-driving function this arc adds.
+  // The viewport is unconditionally `overflow: clip` on both axes (see the
+  // style block below) — no native scrollLeft mutation can ever corrupt the
+  // camera's pan, so no correction handler is needed at all. The camera
+  // (stageLeft + the panOffset layer) is the SOLE horizontal-position
+  // writer. Standing rule for every cameraX-driving function: no
+  // Promise/`.then()`-tracked "already animating" guards, ever — idempotent
+  // re-issue instead (SceneColumn.tsx F17's driveBoundedSpring pattern).
+  // Full history (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): see
+  // tests/scene-lifecycle-navigation.test.tsx's own header, "Scene
+  // horizontal scrollLeft immunity (ui#19)".
 
   return (
     <MotionSeamContext.Provider value={motionSeam}>

@@ -65,7 +65,7 @@ function stageBoundsEqual(a: StageBoundsInfo | null, b: StageBoundsInfo | null):
  * row, including any frozen/parked columns outside the focused span — with
  * a numeric label, but ONLY when that true width exceeds the focused span.
  * This is the CameraDebug-incident class made visible at a glance (see
- * warnStrayChild below): a wide-but-currently-hidden stage (overflowsX
+ * warnStrayChild in Scene.tsx): a wide-but-currently-hidden stage (overflowsX
  * false, so no scrollbar hints at it) is exactly the shape that widened
  * scrollWidth invisibly before the F4 commit-1 purity fix — this outline
  * exists so a developer can SEE that shape exists without needing to know
@@ -100,7 +100,7 @@ export function StageBoundsOutline({
     measure();
   });
 
-  // F6 item 1 fix: same staleness class as SceneObjectOutlines above — a
+  // F6 item 1 fix: same staleness class as SceneObjectOutlines.tsx — a
   // React-render-only measurement misses the stage width shifting during a
   // Motion-driven (imperative, off-React) transition. `stageBoundsEqual`'s
   // bail-out keeps this from re-rendering every frame once settled.
