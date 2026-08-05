@@ -293,6 +293,12 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     const wrapperRect = wrapper?.getBoundingClientRect();
     const afterOffsetTop = anchorName ? geometryStore.current.get(anchorName)?.offsetTop : undefined;
 
+    // ui#28: set below (when intraBefore exists) — whether the currently
+    // tracked F10b candidate is still within the CURRENT scroll window.
+    // Stays false (the conservative default: re-select) when there's no
+    // tracked candidate to judge yet.
+    let candidateStillInWindow = false;
+
     if (anchorName !== null && beforeOffsetTop !== undefined && afterOffsetTop !== undefined) {
       const delta = afterOffsetTop - beforeOffsetTop;
       if (delta !== 0) {
@@ -362,6 +368,16 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
         const afterIntraGlobalOffsetTop = intraBefore.el.getBoundingClientRect().top - wrapperRect.top;
         const afterIntraLocalOffsetTop = afterIntraGlobalOffsetTop - afterOffsetTop;
         const intraDelta = afterIntraLocalOffsetTop - intraBefore.offsetTop;
+        // ui#28: cheap (no extra DOM read — reuses afterIntraGlobalOffsetTop,
+        // already measured above for the correction check), scroll-window
+        // straddle test in the SAME wrapper-relative frame scrollOffsetRef/
+        // viewportHeightRef are already expressed in (matches
+        // selectAnchorObject's own windowStart/windowEnd predicate below).
+        // Feeds the F10b re-selection gate: a candidate still inside the
+        // CURRENT viewport window needs no fresh descent.
+        candidateStillInWindow =
+          afterIntraGlobalOffsetTop + intraBefore.height > scrollOffsetRef.current &&
+          afterIntraGlobalOffsetTop < scrollOffsetRef.current + viewportHeightRef.current;
         // Offset-exactly-0 suppression, MODE-SCOPED to anchor="none" (F11
         // fix — Peri's CR-3, source-confirmed): F10's original suppression
         // fired for every column, but a real anchor="end" reader who has
@@ -456,7 +472,42 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     // wrapperRect/scrollOffsetRef.current already share — converting to
     // the object-LOCAL frame intraBefore uses only at the end, once,
     // rather than at every recursion level.
-    const anchorEl = anchorName ? registeredEls.current.get(anchorName) : undefined;
+    //
+    // ui#28: this descent walks every one of the anchor object's own DOM
+    // descendants (findIntraObjectAnchorCandidates + isStickyOrFixed's
+    // getComputedStyle per candidate) — O(rows), not O(registered
+    // objects) like `changed` above, and it re-runs on EVERY commit with
+    // no gate at all pre-fix (48 getComputedStyle + 48
+    // getBoundingClientRect per row per 12-event wheel gesture on an
+    // anchor="end" column — hunt-lag round 2a, ui#o87).
+    //
+    // Gating on `changed` alone (content/registered-object geometry) is
+    // UNSOUND here and was proven so empirically: a pure scroll (no
+    // content change) legitimately needs the candidate/witness pair
+    // re-selected once the viewport has moved far enough that the
+    // TRACKED element is no longer near it — 11 growth-compensation/
+    // pinning-suite tests broke under a `changed`-only gate (scrolling
+    // away from a tracked candidate, then prepending, produced zero
+    // compensation — the stale candidate/witness pair referenced a
+    // viewport position the user had long since scrolled away from).
+    //
+    // The sound gate: re-select when EITHER (a) `changed` — real content/
+    // registered-object geometry moved, forcing a fresh read regardless
+    // of position, or (b) `!candidateStillInWindow` — the tracked
+    // candidate has scrolled OUTSIDE the current viewport window, so it's
+    // no longer a valid proxy for "what's near the boundary now" and a
+    // fresh descent is needed to find one that is. A continuous scroll
+    // gesture moving by less than one row's height per frame (the common
+    // case) keeps re-triggering (b) far less often than once per commit —
+    // the reselection frequency now scales with distance scrolled past a
+    // row boundary, not with row count or commit count, which is what
+    // keeps the DOM-read total from scaling with row count (criterion
+    // 6abd0aa0 — probe-lag8 methodology, same-row-count-varying gesture).
+    // When it DOES need to run again, it always reads scrollOffsetRef.
+    // current fresh, so re-selection reflects the CURRENT scroll position
+    // regardless of how many renders were skipped getting there.
+    const needsReselect = changed || !candidateStillInWindow;
+    const anchorEl = needsReselect && anchorName ? registeredEls.current.get(anchorName) : undefined;
     if (anchorEl && wrapperRect && afterOffsetTop !== undefined) {
       const match = findDeepestIntraObjectAnchor(
         anchorEl,
@@ -491,6 +542,21 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
         // Accepted bound (documented): a SECOND stationary element stacked
         // between the anchor and the insert point re-creates the
         // blindness — same class, revisit on evidence.
+        // ui#28 (criterion a18e8581): this witness pass only runs as part
+        // of the SAME re-selection the `needsReselect` gate above governs
+        // — eliminated as a side effect whenever that gate skips, not
+        // separately gated. Measured (probe-lag8 methodology, 500/1,000-
+        // row anchor="end" columns, the mode this pass is scoped to): the
+        // gate reduces re-selection — and with it, this witness pass — to
+        // 3 of 31 commits across a full 12-event gesture (mount plus two
+        // real out-of-window events), collapsing getComputedStyle calls
+        // 24,120→24 and getBoundingClientRect 24,254→144 at 500 rows, with
+        // BOTH counts identical at 1,000 rows — true row-count
+        // independence, not just a smaller constant. No separate handling
+        // needed: retaining the pass but gating its invocation is a
+        // strictly smaller diff than trying to eliminate it as its own
+        // code path, and the identical-count-at-both-row-counts result
+        // means there's no further win available from doing so.
         const witnessLine = match.offsetTop + match.height + 1;
         const viewportEnd = scrollOffsetRef.current + viewportHeightRef.current;
         const witnessMatch =
@@ -510,7 +576,13 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
       } else {
         lastSettledIntraAnchorRef.current = null;
       }
-    } else {
+    } else if (needsReselect) {
+      // Only clear tracking when this settle actually attempted a fresh
+      // selection and the fallback conditions (anchor known, wrapper
+      // mounted, geometry available) came back unmet — a `!needsReselect`
+      // skip above must NOT reach here, or every render where the
+      // candidate is still in-window would wipe the still-valid tracking
+      // the gate above exists to preserve.
       lastSettledIntraAnchorRef.current = null;
     }
 
