@@ -230,9 +230,10 @@ describe("mid-animation capture (focus → unfocus)", () => {
     await wait(250);
 
     // Tighter tolerance because slower springs produce less jitter between frames.
-    // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter; S7
-    // rewrites this test on the motionSeam pinnable pipeline — see
-    // plans/Scene Assessment 2026-07-14 fix plan.
+    // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter — a
+    // member of the ui#o25/o27/o30/o35/o36 rotating load-sensitive
+    // visual-flake family (Scene Test Audit 2026-08-03); still wait()-based,
+    // not converted to the motionSeam pinnable pipeline.
     //
     // NOTE: `maxDiffPixelRatio` is not a real option on ScreenshotMatcherOptions
     // — it's silently ignored, so every occurrence of it in this file was
@@ -530,12 +531,9 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // misleading name. This reasoning does NOT apply to the sibling depth-deck
   // tests below (they have a real, documented WAAPI filter/opacity track —
   // Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
-  // Tracked under ui#o36 (rotating load/timing-sensitive visual-flake
-  // class) — here the fragility is structural (no freezable track exists
-  // for this fixture) rather than load-contention, but the umbrella
-  // ticket's proposed harness-level rework (gate mid-animation captures on
-  // an explicit signal rather than a guessed timeout/fraction) is the same
-  // durable-fix territory this falls under.
+  // Tracked under ui#o94 (structural no-freezable-animation finding) — the
+  // fragility here is structural (no freezable track exists for this
+  // fixture), not load-contention.
   it.skip("layout-flip-frozen-at-50pct", async () => {
     // Start unfocused (duration=0), then focus with default spring. motion's
     // layout FLIP uses WAAPI for the positional correction, so we can freeze
@@ -624,7 +622,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // of its reported duration that would still look "mid-flight"). A wait()
   // here captures the same settled state camera-pan-mid-spring's approach
   // would produce, just non-deterministically. Kept skipped. Tracked under
-  // ui#o36 (rotating load/timing-sensitive visual-flake class) — same
+  // ui#o94 (structural no-freezable-animation finding) — same
   // structural-not-load-contention caveat as layout-flip-frozen-at-50pct's
   // citation above.
   it.skip("layout-flip-mid-spring-wait", async () => {

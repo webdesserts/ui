@@ -386,11 +386,15 @@ Feature: Scene Scroll
     scroll — the position jumps straight to the target rather than
     continuing to visibly pay off the debt after input has already
     stopped (keyboard and scrollbar-thumb scrolling are unaffected — only
-    a genuine wheel/trackpad stream is ever treated this way). Separately,
-    a touch drag's own re-grab (pressing down again mid-coast or
-    mid-spring) jumps the position to wherever it currently is, freezing
-    it there so 1:1 finger tracking begins from the exact visual position
-    rather than continuing to animate underneath the finger.
+    a genuine wheel/trackpad stream is ever treated this way). This catch
+    only arms once at least two wheel-tagged scroll commands have landed
+    within 50ms of each other — a lone wheel event never arms it, so an
+    isolated notch or tap always completes its spring normally rather
+    than being caught. Separately, a touch drag's own re-grab (pressing
+    down again mid-coast or mid-spring) jumps the position to wherever it
+    currently is, freezing it there so 1:1 finger tracking begins from
+    the exact visual position rather than continuing to animate
+    underneath the finger.
 
   Scenario: A declarative scrollTo brings a target element fully into view (F11)
     Given a column's `scrollTo` prop changes to a non-null string

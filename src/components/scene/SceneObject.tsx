@@ -13,7 +13,16 @@ import { cn } from "../../utils/cn";
 export interface SceneObjectProps {
   /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
   name: string;
-  /** Whether this object is currently in focus. Focused objects participate in the flex layout. */
+  /**
+   * Whether this object is currently in focus. Focused objects participate
+   * in the flex layout.
+   *
+   * The unfocused-look itself (e.g. hiding a nav link without a layout
+   * shift) is entirely app-side, keyed off this prop's rendered attribute
+   * contract (`data-focused`) — the library only owns interactivity (an
+   * unfocused object's content receives `inert` for free) and never
+   * guesses at a consumer's own "disabled" visual treatment (ui#o48).
+   */
   focused: boolean;
   children: React.ReactNode;
   /**
@@ -76,6 +85,13 @@ export interface SceneObjectProps {
  * ZERO height to flow (permanently, once settled) and is shown via its own
  * depth-card visual treatment instead of being hidden. The column's
  * content wrapper slides vertically to bring the focused object into view.
+ *
+ * Consumers customize the focus ring via four inheriting CSS custom
+ * properties, settable on any ancestor element: `--scene-focus-ring-color`
+ * (default `rgb(153,200,255)`), `--scene-focus-ring-width` (default
+ * `2px`), `--scene-focus-ring-offset` (default `0`), and
+ * `--scene-focus-ring-radius` (default `0`, square — the library never
+ * guesses a consumer's own card rounding).
  *
  * @example
  * <SceneObject name="article" focused={currentView === "article"}>
