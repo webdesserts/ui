@@ -412,6 +412,32 @@ async function runStandardCameraToggle(direction: "unfocus" | "refocus"): Promis
   return { targets, settledValue: cameraX.get() };
 }
 
+// Regression history (delta claim review, 2026-07-31) for the camera-aim
+// walk this fixture pins (Scene.tsx's target-derived aiming, in the
+// camera-recentering effect): two distinct bugs, both reproduced on exactly
+// this left/middle/right toggle shape.
+//
+// 1. targetRight computation: an earlier version stopped extending
+// targetRight after the FIRST focused column, silently dropping every
+// subsequent column of a multi-focus span — a contiguous span (like this
+// fixture's permanently-focused left+right) needs its RIGHTMOST focused
+// column's cursor, not its first.
+//
+// 2. Unresolved-widthTarget fallback gating: on the unfocus direction, at
+// the exact commit "middle" flips unfocused, "right" (still focused
+// throughout) has already resolved its widthTarget, but "middle"'s own
+// target is transiently unresolved for that one render. A version that
+// fell back to measurement only when targetRight was already undefined
+// broke immediately after "left" was walked, computing targetRight=200
+// instead of the true 416 — a 108px wrong first aim, self-correcting one
+// render later once "middle" resolved. A version that fell back
+// unconditionally on ANY unresolved target over-corrected instead,
+// triggering the measurement fallback for unresolved-but-irrelevant
+// columns past the last focused one and reintroducing a sub-pixel
+// gBCR-measurement discrepancy the visual baselines don't expect. The fix:
+// track the last focused column's index and only fall back when the
+// unresolved column is at-or-before it — exact, not over- or
+// under-triggered.
 describe("Glass-stack deck: camera-recentering commit-aim pins (delta claim review, target-derived aiming)", () => {
   test("unfocus direction: at most 2 cameraX retargets for one focus toggle", async () => {
     const { targets } = await runStandardCameraToggle("unfocus");

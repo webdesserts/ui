@@ -4,7 +4,7 @@ import { SceneObject, type SceneObjectProps } from "./SceneObject";
 import { SceneConfigContext, useSceneConfig, DEFAULT_STIFFNESS, DEFAULT_DAMPING, DEFAULT_TOUCH_POWER, DEFAULT_TOUCH_TIME_CONSTANT, DEFAULT_COLUMN_GAP, DEFAULT_PERSPECTIVE, DEFAULT_PEEK_OFFSET } from "./useSceneConfig";
 import { CameraContext, type CameraRect } from "./useCamera";
 import { ViewportContext, type ViewportDimensions } from "./ViewportContext";
-import { ColumnPositionContext, type ColumnPosition } from "./ColumnPositionContext";
+import { ColumnPositionContext } from "./ColumnPositionContext";
 import { ColumnRegistryContext, type RegisteredColumn, type RegisterColumn } from "./ColumnRegistryContext";
 import { SettleSignalContext, type SettleSignal } from "./SettleSignalContext";
 import { TransitionPendingContext } from "./TransitionPendingContext";
@@ -30,156 +30,24 @@ import {
   type VelocitySample,
 } from "./inputController";
 import { PanControlContext, type PanControl } from "./PanControlContext";
-import { animate, motion, useMotionValue, useReducedMotion, type AnimationPlaybackControls, type MotionValue } from "motion/react";
+import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import type { DebugColumnStackEntry } from "./debug/types";
+import { StageBoundsOutline } from "./debug/StageBoundsOutline";
+import { StrayChildFlags } from "./debug/StrayChildFlags";
+import { PaintOrderBadges } from "./debug/PaintOrderBadges";
+import { SceneObjectOutlines } from "./debug/SceneObjectOutlines";
+import { SceneDebugOverlay } from "./debug/SceneDebugOverlay";
+import { createDebugMotionRecorder, type DebugMotionRecorder } from "./debug/motionRecorder";
+import {
+  collectColumnFocusStates,
+  deriveColumnStatesFromRegistry,
+  computeColumnPositions,
+  computeStackDepths,
+} from "./sceneLayout";
 
-/**
- * Collects the focused state of each direct SceneColumn child (in order).
- * Returns an array of `{ name, focused }` entries for the columns.
- */
-function collectColumnFocusStates(
-  children: React.ReactNode,
-): Array<{ name: string; focused: boolean }> {
-  const result: Array<{ name: string; focused: boolean }> = [];
-
-  React.Children.forEach(children, (child) => {
-    if (!isValidElement(child)) return;
-
-    const type = child.type as { displayName?: string } | string;
-    const isColumn =
-      typeof type !== "string" &&
-      (type === SceneColumn || type.displayName === "SceneColumn");
-
-    if (!isColumn) return;
-
-    const props = child.props as { name?: string; children?: React.ReactNode };
-    const name = props.name ?? "";
-
-    // A column is focused if any of its SceneObject children are focused.
-    const columnFocused = React.Children.toArray(
-      props.children,
-    ).some(
-      (c) =>
-        isValidElement<SceneObjectProps>(c) &&
-        c.type === SceneObject &&
-        c.props.focused === true,
-    );
-
-    result.push({ name, focused: columnFocused });
-  });
-
-  return result;
-}
-
-/**
- * Derives column focus-state entries from the column registry, sorted by
- * true DOM order via compareDocumentPosition — NOT registration/insertion
- * order, which can differ from DOM order (e.g. a column mounting later than
- * one it's rendered before). This is the registry-derived counterpart to
- * collectColumnFocusStates (the prop-walk seed): unlike the seed, it doesn't
- * depend on the shape of Scene's `children` prop, so it stays correct
- * through Fragment wrapping, custom components that return a SceneColumn,
- * etc. — see the S6 registration architecture (seed-then-correct) below.
- */
-function deriveColumnStatesFromRegistry(
-  registry: Map<string, RegisteredColumn>,
-): Array<{ name: string; focused: boolean }> {
-  return Array.from(registry.entries())
-    .sort(([, a], [, b]) => {
-      const position = a.element.compareDocumentPosition(b.element);
-      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-      return 0;
-    })
-    .map(([name, { focused }]) => ({ name, focused }));
-}
-
-/**
- * Computes a position classification for each column based on which columns
- * are focused. Outer-left columns slide offscreen left, outer-right slide
- * right, in-between stack as a depth deck.
- *
- * When no columns are focused, all positions are null (camera stays still).
- */
-export function computeColumnPositions(
-  columns: Array<{ name: string; focused: boolean }>,
-): Map<string, ColumnPosition> {
-  const positions = new Map<string, ColumnPosition>();
-
-  const focusedIndices = columns
-    .map((c, i) => ({ i, focused: c.focused }))
-    .filter((x) => x.focused)
-    .map((x) => x.i);
-
-  // When nothing is focused, columns stay at last position — don't slide offscreen.
-  if (focusedIndices.length === 0) {
-    columns.forEach((c) => positions.set(c.name, null));
-    return positions;
-  }
-
-  const leftmostFocused = focusedIndices[0]!;
-  const rightmostFocused = focusedIndices[focusedIndices.length - 1]!;
-
-  columns.forEach((col, i) => {
-    if (col.focused) {
-      positions.set(col.name, null); // focused — in flex flow
-    } else if (i < leftmostFocused) {
-      positions.set(col.name, "outer-left");
-    } else if (i > rightmostFocused) {
-      positions.set(col.name, "outer-right");
-    } else {
-      positions.set(col.name, "in-between");
-    }
-  });
-
-  return positions;
-}
-
-/**
- * Computes the depth index for each in-between column. Depth 1 is adjacent to
- * the rightmost focused column, depth 2 is the next one further left, etc.
- * Columns that are not in-between get depth 0 (unused sentinel value).
- *
- * Load-bearing invariant (D-series, ui#o32): because depth is assigned by
- * walking backward through DOM order from the rightmost focused column,
- * depth is structurally guaranteed to equal reverse DOM order for every
- * state this function can produce. Column-level paint order (SceneColumn.tsx,
- * depthZ's own comment) relies on this — translateZ there is paint-INERT
- * (confirmed: z-sort doesn't work across sibling column anchors even with a
- * genuinely intact preserve-3d chain, and z-index is separately suppressed
- * inside preserve-3d entirely), so it's really ordinary DOM-order stacking
- * that keeps deeper columns visually behind shallower ones — this function's
- * own definition of "depth" is the ONLY reason that happens to be correct.
- * If a future change ever computes depth independent of DOM position (or
- * reorders columns independent of depth), column-level paint order breaks
- * silently and needs an explicit mechanism, mirroring the z-index channel
- * SceneObject.tsx already has for exactly this reason.
- */
-export function computeStackDepths(
-  columns: Array<{ name: string; focused: boolean }>,
-): Map<string, number> {
-  const depths = new Map<string, number>();
-  const focusedIndices = columns
-    .map((c, i) => ({ i, focused: c.focused }))
-    .filter((x) => x.focused)
-    .map((x) => x.i);
-
-  if (focusedIndices.length === 0) return depths;
-
-  const rightmostFocused = focusedIndices[focusedIndices.length - 1]!;
-
-  // Walk backwards from the rightmost focused column — each in-between column
-  // gets increasing depth (1 = adjacent to right, 2 = next further, etc.).
-  let depth = 1;
-  for (let i = rightmostFocused - 1; i >= 0; i--) {
-    const col = columns[i]!;
-    if (!col.focused) {
-      depths.set(col.name, depth);
-      depth++;
-    }
-  }
-
-  return depths;
-}
+// Re-exported for module-surface stability: these were `export function`
+// declarations directly in this file before the sceneLayout.ts extraction.
+export { computeColumnPositions, computeStackDepths } from "./sceneLayout";
 
 /**
  * A single SceneObject's name and focus state at the moment a focus
@@ -213,16 +81,16 @@ export interface SceneProps {
    * Does NOT fire on the initial mount's pure-entrance settle (no focus
    * change occurred), and does NOT fire for a non-focus-driven settle
    * (e.g. an unrelated content-resize spring quieting down) — narrower
-   * than `data-ui-scene-settled`, which is mechanism-broad (see its own doc
-   * comment). Reduced-motion / `duration={0}` focus changes DO fire
-   * (synchronously, before the browser's next paint) — a silent no-fire
-   * there would break every consumer on the accessibility path.
+   * than `data-ui-scene-settled`, which is mechanism-broad (false while ANY
+   * owned animation channel is claimed, focus-driven or not). Reduced-motion
+   * / `duration={0}` focus changes DO fire (synchronously, before the
+   * browser's next paint) — a silent no-fire there would break every
+   * consumer on the accessibility path.
    *
    * Structurally excluded: SceneColumn's own vertical scroll inertia
    * (wheel/touch/keyboard scrolling within a focused column) never claims
-   * through the settle-signal seam (a deliberate, pre-existing exclusion —
-   * see SettleSignalContext's own doc comment) and is not a "focus
-   * transition" in the first place, so it never triggers this callback.
+   * through the settle-signal seam and is not a "focus transition" in the
+   * first place, so it never triggers this callback.
    */
   onTransitionEnd?: (arrangement: SceneFocusArrangementEntry[]) => void;
   /** Enable debug overlays. */
@@ -256,21 +124,6 @@ export interface SceneProps {
    * depth. Defaults to DEFAULT_PEEK_OFFSET (12).
    */
   peekOffset?: number;
-}
-
-/** A snapshot of a SceneObject's state for the debug overlay. */
-interface DebugObjectEntry {
-  name: string;
-  focused: boolean;
-}
-
-/** Position classification and depth for an unfocused column. */
-interface DebugColumnStackEntry {
-  name: string;
-  /** "outer-left" | "in-between" | "outer-right" */
-  classification: string;
-  /** Stacking depth index (only meaningful for in-between columns). */
-  depth: number;
 }
 
 // Module-level (not per-Scene-instance) — dev-warn dedup for warnStrayChild
@@ -377,1090 +230,6 @@ function wrapChild(child: React.ReactNode): React.ReactNode {
 
   warnStrayChild(child.type);
   return child;
-}
-
-/**
- * Reads the debug overlay's object list straight from the DOM — every
- * `[data-ui-scene-id]` element under the viewport, with its `data-ui-scene-focused`
- * attribute — rather than walking Scene's `children` prop tree. DOM truth is
- * immune by construction to Fragment wrapping, custom components that return
- * a SceneObject/SceneColumn, or any other composition that a shallow prop
- * walk can be fooled by (the same rationale as the S6 column registry
- * below), and it's what actually rendered — the only thing worth debugging.
- */
-function queryDebugObjects(viewport: HTMLElement): DebugObjectEntry[] {
-  return Array.from(viewport.querySelectorAll<HTMLElement>("[data-ui-scene-id]")).map((el) => ({
-    name: el.getAttribute("data-ui-scene-id") ?? "",
-    focused: el.getAttribute("data-ui-scene-focused") === "true",
-  }));
-}
-
-/** Per-column scroll state read from DOM data attributes for the debug overlay. */
-interface DebugColumnScroll {
-  name: string;
-  scrollOffset: number;
-  contentHeight: number;
-  viewportHeight: number;
-  scrollable: boolean;
-}
-
-/** Measured bounds of a SceneObject for the debug overlay. */
-interface DebugObjectBounds {
-  name: string;
-  width: number;
-  height: number;
-  x: number;
-  y: number;
-}
-
-/** Measured stage-vs-focused-span bounds for StageBoundsOutline below. */
-interface StageBoundsInfo {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  stageWidth: number;
-  focusedWidth: number;
-}
-
-/**
- * Measures the stage's true rendered width against the union of currently
- * focused columns' width. Returns null when there's nothing focused (no
- * "focused span" to compare against) or when the stage doesn't exceed it
- * (the common case — most layouts have no frozen/parked columns extending
- * the stage beyond what's focused).
- */
-function measureStageBounds(viewport: HTMLElement, stage: HTMLElement): StageBoundsInfo | null {
-  const focusedCols = Array.from(stage.querySelectorAll<HTMLElement>("[data-ui-scene-column-focused='true']"));
-  if (focusedCols.length === 0) return null;
-
-  const focusedUnion = focusedCols.reduce(
-    (acc, col) => {
-      const rect = col.getBoundingClientRect();
-      return { left: Math.min(acc.left, rect.left), right: Math.max(acc.right, rect.right) };
-    },
-    { left: Infinity, right: -Infinity },
-  );
-  const focusedWidth = focusedUnion.right - focusedUnion.left;
-
-  const stageRect = stage.getBoundingClientRect();
-  const stageWidth = stageRect.width;
-
-  // 1px epsilon absorbs sub-pixel layout rounding noise, not real overflow.
-  if (stageWidth <= focusedWidth + 1) return null;
-
-  const vpRect = viewport.getBoundingClientRect();
-  return {
-    left: stageRect.left - vpRect.left,
-    top: stageRect.top - vpRect.top,
-    width: stageWidth,
-    height: stageRect.height,
-    stageWidth,
-    focusedWidth,
-  };
-}
-
-function stageBoundsEqual(a: StageBoundsInfo | null, b: StageBoundsInfo | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  return (
-    a.left === b.left &&
-    a.top === b.top &&
-    a.width === b.width &&
-    a.height === b.height &&
-    a.stageWidth === b.stageWidth &&
-    a.focusedWidth === b.focusedWidth
-  );
-}
-
-/**
- * F4 feature (b): draws the stage's TRUE rendered bounds — the full flex
- * row, including any frozen/parked columns outside the focused span — with
- * a numeric label, but ONLY when that true width exceeds the focused span.
- * This is the CameraDebug-incident class made visible at a glance (see
- * warnStrayChild below): a wide-but-currently-hidden stage (overflowsX
- * false, so no scrollbar hints at it) is exactly the shape that widened
- * scrollWidth invisibly before the F4 commit-1 purity fix — this outline
- * exists so a developer can SEE that shape exists without needing to know
- * to check scrollWidth themselves. The existing permanent magenta stage
- * outline (SceneViewport's `outline: debug ? "2px solid magenta"` on the
- * stage element itself) already technically delineates these same bounds,
- * but it's clipped by the viewport's own overflow just like real content —
- * the far edge of a wide stage is invisible in the current scroll position
- * exactly when this matters most. Rendered inside the same viewport-pinned
- * overflow:hidden clipping layer SceneObjectOutlines uses (commit 1) — this
- * label is exactly as width-unconstrained as SceneObjectOutlines' name
- * labels were, so it MUST stay inside that clip to avoid reopening the same
- * purity bug.
- */
-function StageBoundsOutline({
-  viewportRef,
-  stageRef,
-}: {
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-  stageRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const [bounds, setBounds] = useState<StageBoundsInfo | null>(null);
-
-  const measure = useCallback(() => {
-    const viewport = viewportRef.current;
-    const stage = stageRef.current;
-    const fresh = viewport && stage ? measureStageBounds(viewport, stage) : null;
-    setBounds((prev) => (stageBoundsEqual(prev, fresh) ? prev : fresh));
-  }, [viewportRef, stageRef]);
-
-  useLayoutEffect(() => {
-    measure();
-  });
-
-  // F6 item 1 fix: same staleness class as SceneObjectOutlines above — a
-  // React-render-only measurement misses the stage width shifting during a
-  // Motion-driven (imperative, off-React) transition. `stageBoundsEqual`'s
-  // bail-out keeps this from re-rendering every frame once settled.
-  useEffect(() => {
-    let rafId = requestAnimationFrame(function loop() {
-      measure();
-      rafId = requestAnimationFrame(loop);
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [measure]);
-
-  if (!bounds) return null;
-
-  const hidden = Math.round(bounds.stageWidth - bounds.focusedWidth);
-
-  return (
-    <div
-      data-ui-scene-debug-stage-bounds
-      style={{
-        position: "absolute",
-        left: bounds.left,
-        top: bounds.top,
-        width: bounds.width,
-        height: bounds.height,
-        border: "2px dashed orange",
-        pointerEvents: "none",
-        boxSizing: "border-box",
-        zIndex: 9997,
-      }}
-    >
-      <span
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          background: "orange",
-          color: "#000",
-          fontFamily: "monospace",
-          fontSize: 10,
-          padding: "0 2px",
-          lineHeight: "14px",
-        }}
-      >
-        stage {Math.round(bounds.stageWidth)}px (focused {Math.round(bounds.focusedWidth)}px, +{hidden}px hidden)
-      </span>
-    </div>
-  );
-}
-
-/** A stage child that joined the flex row without going through a SceneColumn. */
-interface StrayChildEntry {
-  key: string;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  typeName: string;
-}
-
-/**
- * Finds every DIRECT DOM child of the stage lacking `data-ui-scene-column-anchor` — the
- * attribute every legitimately-rendered SceneColumn carries. wrapChild
- * (below) already folds bare SceneObjects into an implicit SceneColumn, so
- * anything reaching the stage without `data-ui-scene-column-anchor` is exactly
- * warnStrayChild's trigger condition: a child that is neither a SceneColumn
- * nor a SceneObject, silently joining the flex row unchanged.
- */
-function measureStrayChildren(viewport: HTMLElement, stage: HTMLElement): StrayChildEntry[] {
-  const vpRect = viewport.getBoundingClientRect();
-  const entries: StrayChildEntry[] = [];
-  Array.from(stage.children).forEach((child, i) => {
-    if (!(child instanceof HTMLElement)) return;
-    if (child.hasAttribute("data-ui-scene-column-anchor")) return;
-    const rect = child.getBoundingClientRect();
-    entries.push({
-      key: `stray-${i}-${child.tagName}`,
-      left: rect.left - vpRect.left,
-      top: rect.top - vpRect.top,
-      width: rect.width,
-      height: rect.height,
-      typeName: child.tagName.toLowerCase(),
-    });
-  });
-  return entries;
-}
-
-function strayChildrenEqual(a: StrayChildEntry[], b: StrayChildEntry[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every(
-      (entry, i) =>
-        entry.key === b[i]?.key &&
-        entry.left === b[i]?.left &&
-        entry.top === b[i]?.top &&
-        entry.width === b[i]?.width &&
-        entry.height === b[i]?.height,
-    )
-  );
-}
-
-/**
- * F4 feature (b): paints a red outline + label on every stray stage child
- * (see measureStrayChildren above) — the CameraDebug-incident class made
- * visible at a glance, pairing with warnStrayChild's console warning above.
- * Rendered inside the same viewport-pinned clipping layer as
- * SceneObjectOutlines/StageBoundsOutline (commit 1's purity fix) — a stray
- * child is by definition NOT position-managed by Scene, so nothing bounds
- * where it might render.
- */
-function StrayChildFlags({
-  viewportRef,
-  stageRef,
-}: {
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-  stageRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const [entries, setEntries] = useState<StrayChildEntry[]>([]);
-
-  const measure = useCallback(() => {
-    const viewport = viewportRef.current;
-    const stage = stageRef.current;
-    const fresh = viewport && stage ? measureStrayChildren(viewport, stage) : [];
-    setEntries((prev) => (strayChildrenEqual(prev, fresh) ? prev : fresh));
-  }, [viewportRef, stageRef]);
-
-  useLayoutEffect(() => {
-    measure();
-  });
-
-  // F6 item 1 fix: same staleness class as SceneObjectOutlines above.
-  // strayChildrenEqual's bail-out keeps this from re-rendering every frame
-  // once settled.
-  useEffect(() => {
-    let rafId = requestAnimationFrame(function loop() {
-      measure();
-      rafId = requestAnimationFrame(loop);
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [measure]);
-
-  return (
-    <>
-      {entries.map((entry) => (
-        <div
-          key={entry.key}
-          data-ui-scene-debug-stray-child={entry.typeName}
-          style={{
-            position: "absolute",
-            left: entry.left,
-            top: entry.top,
-            width: entry.width,
-            height: entry.height,
-            border: "2px solid red",
-            pointerEvents: "none",
-            boxSizing: "border-box",
-            zIndex: 9998,
-          }}
-        >
-          <span
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              background: "red",
-              color: "#fff",
-              fontFamily: "monospace",
-              fontSize: 10,
-              padding: "0 2px",
-              lineHeight: "14px",
-            }}
-          >
-            stray &lt;{entry.typeName}&gt;
-          </span>
-        </div>
-      ))}
-    </>
-  );
-}
-
-/** Identifies one deck card (column-level in-between, or within-column depth object). */
-interface DeckCardKey {
-  /** React key + badge-ref key. */
-  key: string;
-  kind: "column" | "object";
-  /** The data-ui-scene-column-anchor name (kind "column") or data-ui-scene-id name (kind
-   *  "object") used to re-find the live DOM element on every frame. */
-  domId: string;
-}
-
-/**
- * Finds every current deck card: columns classified in-between (F1/H8's
- * `data-ui-scene-stack-depth`, only ever set for in-between columns) and
- * within-column depth-deck objects (`data-ui-scene-within-column-depth`, only ever
- * set when an object is sandwiched between two focused siblings — see
- * SceneObject's withinDepthInfo). Focused cards and outer-left/outer-right
- * columns carry neither attribute and are correctly excluded — badges are
- * for deck cards specifically, matching the paint-order invariant they
- * exist to visually check (Michael's ruled invariant: two objects
- * overlapping in 2D screen space must never change which one paints on top
- * — see tests/utils/animation.ts's assertPaintOrderInvariant).
- */
-function findDeckCardKeys(stage: HTMLElement): DeckCardKey[] {
-  const keys: DeckCardKey[] = [];
-  stage.querySelectorAll<HTMLElement>("[data-ui-scene-stack-depth]").forEach((el) => {
-    const name = el.getAttribute("data-ui-scene-column-anchor") ?? "";
-    keys.push({ key: `column:${name}`, kind: "column", domId: name });
-  });
-  stage.querySelectorAll<HTMLElement>("[data-ui-scene-within-column-depth]").forEach((el) => {
-    const name = el.getAttribute("data-ui-scene-id") ?? "";
-    keys.push({ key: `object:${name}`, kind: "object", domId: name });
-  });
-  return keys;
-}
-
-function deckCardKeysEqual(a: DeckCardKey[], b: DeckCardKey[]): boolean {
-  return a.length === b.length && a.every((k, i) => k.key === b[i]?.key);
-}
-
-/**
- * Reads the live translateZ a card is CURRENTLY rendered at, straight off
- * its computed `transform` — not off a MotionValue, because only
- * SceneColumn's column-level z is one (zMV, registered on the motion seam
- * for feature (a)'s active-springs panel); a within-column depth object's z
- * lives in Motion's declarative `animate` prop (WAAPI-driven — see
- * SceneObject's own comment on why opacity/filter/z go there instead of a
- * MotionValue). getComputedStyle reflects whichever mechanism is driving a
- * given card, uniformly, so one read path covers both card kinds. Any 3D
- * transform (translateZ specifically) resolves to `matrix3d(...)` (16
- * comma-separated values, column-major) — tz is the 15th value (index 14).
- * A 2D `matrix(...)` or `none` has no z component (0).
- */
-function parseTranslateZ(transform: string): number {
-  const match = transform.match(/matrix3d\(([^)]+)\)/);
-  if (!match) return 0;
-  const values = match[1]!.split(",").map((v) => parseFloat(v.trim()));
-  return values[14] ?? 0;
-}
-
-/**
- * F4 feature (d): a small badge on every deck card (column-level and
- * within-column) showing its current live paint-order value — the visual
- * check for the paint-order invariant (do cards nearer the front actually
- * paint in front of cards behind them, at a glance, without pausing a
- * transition and inspecting devtools). Updates continuously via
- * requestAnimationFrame while mounted (i.e. while `debug` is enabled) —
- * same rationale and pattern as ActiveSpringsSection above: the underlying
- * value can change every frame mid-spring, off React's own render cycle, so
- * reading it only at commit time would show it stale throughout a
- * transition.
- *
- * Two DIFFERENT mechanisms drive paint order depending on card kind (ui#21
- * z-index paint-order channel amendment) — column-level cards still use
- * translateZ (SceneColumn.tsx:~2856's own comment: paint-INERT there,
- * DOM-order actually governs, translateZ is kept for the perspective
- * foreshortening visual cue only); within-column object cards use a
- * discrete zIndex write instead (SceneObject's own zIndex comment —
- * object-level translateZ never actually reached the object and was removed
- * entirely). The badge reads whichever channel is real for that card kind.
- */
-function PaintOrderBadges({
-  viewportRef,
-  stageRef,
-}: {
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-  stageRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const [cards, setCards] = useState<DeckCardKey[]>([]);
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    const fresh = stage ? findDeckCardKeys(stage) : [];
-    setCards((prev) => (deckCardKeysEqual(prev, fresh) ? prev : fresh));
-  });
-
-  const badgeRefs = useRef<Map<string, HTMLElement>>(new Map());
-
-  const updateBadges = useCallback(() => {
-    const viewport = viewportRef.current;
-    const stage = stageRef.current;
-    if (!viewport || !stage) return;
-    const vpRect = viewport.getBoundingClientRect();
-    for (const card of cards) {
-      const el =
-        card.kind === "column"
-          ? stage.querySelector<HTMLElement>(`[data-ui-scene-column-anchor='${card.domId}']`)
-          : stage.querySelector<HTMLElement>(`[data-ui-scene-id='${card.domId}']`);
-      const badge = badgeRefs.current.get(card.key);
-      if (!el || !badge) continue;
-      const rect = el.getBoundingClientRect();
-      badge.style.left = `${rect.left - vpRect.left}px`;
-      badge.style.top = `${rect.top - vpRect.top}px`;
-      if (card.kind === "column") {
-        // ui#17 anchor/column split: the depth translateZ lives on the column's
-        // inner column node now, not the outer flex anchor `el` itself — read
-        // z from the column node when one exists (every column has one; this
-        // falls back to `el` defensively, which has no column child to begin
-        // with).
-        const zSource = el.querySelector<HTMLElement>("[data-ui-scene-column]") ?? el;
-        const z = parseTranslateZ(getComputedStyle(zSource).transform);
-        badge.textContent = `z:${Math.round(z)}`;
-      } else {
-        // ui#21 z-index paint-order channel amendment: object-level depth
-        // cards no longer carry translateZ at all (removed entirely — see
-        // SceneObject's own zIndex comment) — paint order is a discrete
-        // zIndex write on the object instead. parseTranslateZ would always
-        // read 0 here now; read the real channel directly.
-        const zSource = el.querySelector<HTMLElement>("[data-ui-scene-object]") ?? el;
-        badge.textContent = `z:${getComputedStyle(zSource).zIndex}`;
-      }
-    }
-  }, [cards]);
-
-  // Paint-synchronous pass so the first frame isn't blank before the first
-  // rAF tick (mirrors ActiveSpringsSection/SceneObjectOutlines).
-  useLayoutEffect(() => {
-    updateBadges();
-  });
-
-  useEffect(() => {
-    let rafId = requestAnimationFrame(function loop() {
-      updateBadges();
-      rafId = requestAnimationFrame(loop);
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [updateBadges]);
-
-  return (
-    <>
-      {cards.map((card) => (
-        <div
-          key={card.key}
-          ref={(el) => {
-            if (el) badgeRefs.current.set(card.key, el);
-            else badgeRefs.current.delete(card.key);
-          }}
-          data-ui-scene-debug-paint-badge={card.key}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            background: card.kind === "column" ? "#7c3aed" : "#0891b2",
-            color: "#fff",
-            fontFamily: "monospace",
-            fontSize: 9,
-            padding: "0 2px",
-            lineHeight: "12px",
-            whiteSpace: "nowrap",
-            pointerEvents: "none",
-            zIndex: 9999,
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
-/**
- * Absolutely-positioned overlay elements that draw colored outlines around each
- * SceneObject. Rendered inside the viewport so positions are relative to it.
- * `pointer-events: none` ensures these overlays never interfere with interaction.
- *
- * Outline positions are updated in two ways:
- * 1. `useLayoutEffect` fires on every React render for initial/settled layout.
- * 2. A `requestAnimationFrame` loop runs continuously for as long as this
- *    component is mounted (i.e. for as long as `debug` is enabled — F6 item
- *    1 fix), measuring positions every frame and mutating outline div styles
- *    directly (no setState) so Motion animations are tracked without
- *    triggering re-renders. Previously gated on a `animatingRef.current > 0`
- *    counter fed by `onAnimationStart`/`onLayoutAnimationStart` callbacks —
- *    those only fire for DECLARATIVE `animate`-prop transitions with the
- *    callback actually wired up (SceneColumn's opacity/x/y/filter + layout
- *    FLIP + marginTop), never for the S3+ imperative motion pipeline
- *    (topOffsetMV, zMV, scrollY, cameraX, SceneObject's within-column
- *    heightMV/marginBottomMV, replacing the retired topMV) or for
- *    SceneObject's own declarative opacity/filter animate (z moved to a
- *    discrete, non-animated zIndex channel — ui#21's z-index paint-order
- *    channel amendment) — none of these were ever wired to any
- *    onAnimationStart callback at all.
- *    Probe-confirmed on the dev app's Debug mode demo: an object's outline
- *    froze at its pre-transition position for an entire ~330ms swap and
- *    never caught up even after the real object settled, because nothing
- *    ever incremented the counter for that transition. ActiveSpringsSection
- *    below already reaches this same conclusion for its own per-frame
- *    readouts and runs continuously for exactly this reason — this mirrors
- *    that established pattern rather than inventing a new one.
- */
-function SceneObjectOutlines({
-  viewportRef,
-}: {
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  // Outline div refs, keyed by object name. Direct DOM mutation during rAF.
-  const outlineRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  // Track which objects (name + focused) we've rendered outlines for — DOM
-  // truth via queryDebugObjects, re-derived every render by the layout
-  // effect below. Used to detect when the object list (or its focus state)
-  // changes and we need to re-render the outline divs.
-  const [renderedObjects, setRenderedObjects] = useState<DebugObjectEntry[]>([]);
-
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const objects = queryDebugObjects(viewport);
-    setRenderedObjects((prev) => {
-      const same =
-        prev.length === objects.length &&
-        prev.every((p, i) => p.name === objects[i]?.name && p.focused === objects[i]?.focused);
-      return same ? prev : objects;
-    });
-  });
-
-  // Shared measurement helper: measure each object and mutate its outline
-  // div. Re-queries the DOM directly (rather than reading renderedObjects
-  // state) so it's always accurate for THIS pass, matching the old
-  // always-fresh `objects` prop — renderedObjects itself lags by one commit
-  // when it changes (the state-update-in-layout-effect pattern above).
-  const measureAndUpdate = useCallback(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const vpRect = viewport.getBoundingClientRect();
-
-    for (const obj of queryDebugObjects(viewport)) {
-      const el = viewport.querySelector<HTMLElement>(`[data-ui-scene-id='${obj.name}']`);
-      const outlineDiv = outlineRefs.current.get(obj.name);
-      if (!el || !outlineDiv) continue;
-
-      const rect = el.getBoundingClientRect();
-      outlineDiv.style.left = `${rect.left - vpRect.left}px`;
-      outlineDiv.style.top = `${rect.top - vpRect.top}px`;
-      outlineDiv.style.width = `${rect.width}px`;
-      outlineDiv.style.height = `${rect.height}px`;
-    }
-  }, [viewportRef]);
-
-  // Measure on every React render (catches layout changes, focus state changes).
-  useLayoutEffect(() => {
-    measureAndUpdate();
-  });
-
-  // F6 item 1 fix: rAF loop runs continuously for as long as this component
-  // is mounted (i.e. for as long as `debug` is enabled), mirroring
-  // ActiveSpringsSection's own established continuous pattern below —
-  // matches Motion's per-frame imperative writes with no external trigger
-  // needed. Debug-only, so the per-frame cost never reaches the production
-  // path; it doesn't mutate React state or the scene's own layout (only
-  // this overlay div's own style, pointer-events: none), so it doesn't
-  // reopen the "debug does not affect layout" bar (F4 commit 1).
-  useEffect(() => {
-    let rafId = requestAnimationFrame(function loop() {
-      measureAndUpdate();
-      rafId = requestAnimationFrame(loop);
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [measureAndUpdate]);
-
-  return (
-    <>
-      {renderedObjects.map(({ name, focused }) => {
-        const borderColor = focused ? "green" : "gray";
-        return (
-          <div
-            key={name}
-            ref={(el) => {
-              if (el) {
-                outlineRefs.current.set(name, el);
-              } else {
-                outlineRefs.current.delete(name);
-              }
-            }}
-            data-ui-scene-debug-object-outline={name}
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              width: 0,
-              height: 0,
-              border: `1px solid ${borderColor}`,
-              pointerEvents: "none",
-              boxSizing: "border-box",
-              zIndex: 9998,
-            }}
-          >
-            <span
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                background: borderColor,
-                color: "#fff",
-                fontFamily: "monospace",
-                fontSize: 10,
-                padding: "0 2px",
-                lineHeight: "14px",
-                pointerEvents: "none",
-              }}
-            >
-              {name}
-            </span>
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-/**
- * Debug overlay section listing every currently-registered MotionValue on
- * Scene's motion seam (cameraX, scrollY/topOffset/z per column,
- * height/marginBottom per within-column depth-deck object — ui#21's
- * height/margin channels, replacing the retired withinColumnTop key) with
- * its live
- * value, target (when the driving animate() call reported one — an
- * inertia/fling deceleration has no fixed target and reads "—"), and
- * velocity. Registered keys are corrected via a useLayoutEffect (same
- * commit-stale rationale as SceneDebugOverlay's own `objects` list above —
- * a brand new key registering elsewhere doesn't otherwise trigger a
- * re-render here) but the per-row NUMBERS are updated via a continuously
- * running requestAnimationFrame loop that mutates each row's text nodes
- * directly (SceneObjectOutlines' pattern) — a MotionValue changes every
- * frame off React's own render cycle, so reading it only at commit time
- * would show it permanently stale mid-spring. Runs for as long as this
- * component is mounted (i.e. for as long as `debug` is enabled) rather than
- * gating on SceneViewport's animatingRef counter, which only tracks the
- * stage/column motion.div's own WAAPI animations — not these imperative
- * animate(motionValue, ...) calls, which have no such correlated signal.
- */
-function ActiveSpringsSection({ recorder }: { recorder: DebugMotionRecorder }) {
-  const [keys, setKeys] = useState<string[]>([]);
-  useLayoutEffect(() => {
-    const fresh = Array.from(recorder.values.keys());
-    setKeys((prev) => {
-      const same = prev.length === fresh.length && prev.every((k, i) => k === fresh[i]);
-      return same ? prev : fresh;
-    });
-  });
-
-  const valueRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const targetRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const velocityRefs = useRef<Map<string, HTMLElement>>(new Map());
-
-  const updateRows = useCallback(() => {
-    for (const key of keys) {
-      const mv = recorder.values.get(key);
-      if (!mv) continue;
-      const valueEl = valueRefs.current.get(key);
-      const targetEl = targetRefs.current.get(key);
-      const velocityEl = velocityRefs.current.get(key);
-      const target = recorder.targets.get(key);
-      if (valueEl) valueEl.textContent = mv.get().toFixed(1);
-      if (targetEl) targetEl.textContent = target === undefined ? "—" : target.toFixed(1);
-      if (velocityEl) velocityEl.textContent = mv.getVelocity().toFixed(1);
-    }
-  }, [keys, recorder]);
-
-  // Paint-synchronous pass so the very first frame isn't blank before the
-  // first rAF tick below (mirrors SceneObjectOutlines' equivalent
-  // useLayoutEffect measureAndUpdate pass).
-  useLayoutEffect(() => {
-    updateRows();
-  });
-
-  useEffect(() => {
-    let rafId = requestAnimationFrame(function loop() {
-      updateRows();
-      rafId = requestAnimationFrame(loop);
-    });
-    return () => cancelAnimationFrame(rafId);
-  }, [updateRows]);
-
-  if (keys.length === 0) return null;
-
-  return (
-    <>
-      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-        Active springs
-      </div>
-      {keys.map((key) => (
-        <div key={key} data-ui-scene-debug-spring={key}>
-          <span style={{ color: "#fbbf24" }}>{key}</span>
-          {": "}
-          <span
-            ref={(el) => {
-              if (el) valueRefs.current.set(key, el);
-              else valueRefs.current.delete(key);
-            }}
-            data-ui-scene-debug-spring-value
-          />
-          {" → "}
-          <span
-            ref={(el) => {
-              if (el) targetRefs.current.set(key, el);
-              else targetRefs.current.delete(key);
-            }}
-            data-ui-scene-debug-spring-target
-          />
-          {" (v="}
-          <span
-            ref={(el) => {
-              if (el) velocityRefs.current.set(key, el);
-              else velocityRefs.current.delete(key);
-            }}
-            data-ui-scene-debug-spring-velocity
-          />
-          {")"}
-        </div>
-      ))}
-    </>
-  );
-}
-
-/** Debug overlay rendered inside the Scene when `debug` is enabled. */
-function SceneDebugOverlay({
-  columnStacks,
-  viewportRef,
-  stageRef,
-  motionRecorder,
-  slowMo,
-  onToggleSlowMo,
-}: {
-  columnStacks: DebugColumnStackEntry[];
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-  stageRef: React.RefObject<HTMLDivElement | null>;
-  /** Scene's own motion-seam recorder (see createDebugMotionRecorder below),
-   *  or null when a test harness supplied its own MotionSeamContext.Provider
-   *  instead (motionSeam.ts) — in that case the active-springs section below
-   *  simply has nothing of Scene's own to read and renders nothing. */
-  motionRecorder: DebugMotionRecorder | null;
-  /** F4 feature (e): the currently-effective slowMo (prop or override). */
-  slowMo: boolean;
-  /** F4 feature (e): flips Scene's internal slowMo override. */
-  onToggleSlowMo: () => void;
-}) {
-  // Object list — DOM truth (queryDebugObjects), same rationale as
-  // SceneObjectOutlines above. Corrected via a useLayoutEffect (mirroring
-  // SceneObjectOutlines' renderedObjects pattern), NOT computed inline
-  // during render: a during-render query reads the DOM as of the END of
-  // the PREVIOUS commit (React applies THIS commit's mutations only after
-  // the whole tree has rendered), and unlike SceneObjectOutlines — whose
-  // own state update triggers its own self-correcting re-render —
-  // SceneDebugOverlay has no other re-render trigger of its own, so an
-  // idle scene would otherwise show a mount/unmount stale by exactly one
-  // commit indefinitely.
-  const [objects, setObjects] = useState<DebugObjectEntry[]>([]);
-  useLayoutEffect(() => {
-    const currentViewport = viewportRef.current;
-    if (!currentViewport) return;
-    const fresh = queryDebugObjects(currentViewport);
-    setObjects((prev) => {
-      const same =
-        prev.length === fresh.length &&
-        prev.every((p, i) => p.name === fresh[i]?.name && p.focused === fresh[i]?.focused);
-      return same ? prev : fresh;
-    });
-  });
-
-  // F4 purity audit finding: everything below (columnScrollStates,
-  // scrollLeft/scrollWidth/clientWidth, offsetParentWarnings, objectBounds)
-  // is still computed via RENDER-TIME reads of viewportRef.current/
-  // stageRef.current — the exact one-commit-stale hazard `objects` above was
-  // moved off of (see its comment). These are lower-stakes than `objects`
-  // (no self-correcting re-render loop existed for them either way, and an
-  // idle scene's stale display corrects on the next unrelated re-render), and
-  // — same rationale as SceneObjectOutlines' pure DOM reads — reading here is
-  // observationally pure: it only feeds the overlay's OWN displayed text, and
-  // is never written back into Scene's actual layout/scroll decisions, so it
-  // doesn't threaten "Debug does not affect layout" (scene-debug.feature).
-  // Left as pre-existing behavior (out of scope for this purity fix, which is
-  // about Scene's real behavior, not the overlay's internal display
-  // freshness) — a future pass could apply the same layout-effect+state
-  // treatment `objects` already got, purely to reduce staleness in what's
-  // shown.
-  const columnScrollStates: DebugColumnScroll[] = [];
-  const viewport = viewportRef.current;
-  if (viewport) {
-    const columns = viewport.querySelectorAll("[data-ui-scene-column-anchor]");
-    columns.forEach((col) => {
-      const name = col.getAttribute("data-ui-scene-column-anchor") ?? "?";
-      const focused = col.getAttribute("data-ui-scene-column-focused") === "true";
-      if (!focused) return;
-      const scrollOffset = parseFloat(col.getAttribute("data-ui-scene-scroll-offset") ?? "0");
-      const contentHeight = parseFloat(col.getAttribute("data-ui-scene-content-height") ?? "0");
-      const maxScroll = parseFloat(col.getAttribute("data-ui-scene-max-scroll") ?? "0");
-      const viewportHeight = contentHeight - maxScroll; // viewport = content - maxScroll
-      columnScrollStates.push({
-        name,
-        scrollOffset,
-        contentHeight,
-        viewportHeight,
-        scrollable: maxScroll > 0,
-      });
-    });
-  }
-
-  const scrollLeft = viewport?.scrollLeft ?? 0;
-  const scrollWidth = viewport?.scrollWidth ?? 0;
-  const clientWidth = viewport?.clientWidth ?? 0;
-
-  // Detect offsetParent issues: a column's offsetParent should be the stage div
-  // (which has position: relative). If it's anything else — whether an element
-  // inside the stage or completely outside it — a positioned ancestor is
-  // intercepting layout calculations.
-  const stage = stageRef.current;
-  const offsetParentWarnings: string[] = [];
-  if (stage && viewport) {
-    const columns = viewport.querySelectorAll<HTMLElement>("[data-ui-scene-column-anchor]");
-    columns.forEach((col) => {
-      const op = col.offsetParent;
-      if (op && op !== stage) {
-        const name = col.getAttribute("data-ui-scene-column-anchor") ?? "?";
-        offsetParentWarnings.push(name);
-      }
-    });
-  }
-
-  // Measure object bounds for the overlay panel display.
-  const objectBounds: DebugObjectBounds[] = [];
-  if (viewport) {
-    const vpRect = viewport.getBoundingClientRect();
-    for (const obj of objects) {
-      const el = viewport.querySelector<HTMLElement>(`[data-ui-scene-id='${obj.name}']`);
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      objectBounds.push({
-        name: obj.name,
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        x: Math.round(rect.left - vpRect.left),
-        y: Math.round(rect.top - vpRect.top),
-      });
-    }
-  }
-
-  // F4 feature (c) geometry-store inspector: reads SceneColumn's per-object
-  // data-ui-scene-debug-geometry-offset-top/height mirror (written by remeasureGeometry —
-  // see SceneColumn.tsx), grouped by parent column. No provenance tag
-  // (seeded-at-registration vs remeasured, as originally scoped) — SceneColumn
-  // has exactly ONE write site into its geometryStore (remeasureGeometry's
-  // bulk pass; verified at source, no separate registration-time seed
-  // exists), so a provenance boolean would have nothing real to distinguish.
-  const geometryByColumn = new Map<string, Array<{ name: string; offsetTop: number; height: number }>>();
-  if (viewport) {
-    viewport.querySelectorAll<HTMLElement>("[data-ui-scene-debug-geometry-offset-top]").forEach((el) => {
-      const name = el.getAttribute("data-ui-scene-id") ?? "?";
-      const columnName = el.closest<HTMLElement>("[data-ui-scene-column-anchor]")?.getAttribute("data-ui-scene-column-anchor") ?? "?";
-      const entries = geometryByColumn.get(columnName) ?? [];
-      entries.push({
-        name,
-        offsetTop: parseFloat(el.getAttribute("data-ui-scene-debug-geometry-offset-top") ?? "0"),
-        height: parseFloat(el.getAttribute("data-ui-scene-debug-geometry-height") ?? "0"),
-      });
-      geometryByColumn.set(columnName, entries);
-    });
-  }
-
-  return (
-    <div
-      data-ui-scene-debug-overlay
-      style={{
-        position: "fixed",
-        bottom: 8,
-        right: 8,
-        zIndex: 9999,
-        background: "rgba(0,0,0,0.8)",
-        color: "#fff",
-        fontFamily: "monospace",
-        fontSize: 11,
-        padding: "6px 10px",
-        borderRadius: 4,
-        // F4 feature (e) tradeoff, taken deliberately and documented rather
-        // than left as a silent side effect: every OTHER debug element
-        // (outlines, badges, stage bounds, stray-child flags) stays
-        // pointerEvents:"none" — pure observation, exactly what F4 commit 1
-        // guarantees ("Debug does not affect layout"). This ONE panel
-        // becomes pointerEvents:"auto" so its slowMo checkbox below is
-        // actually clickable, which means debug mode's bottom-right corner
-        // becomes click-opaque (mouse/touch events over the panel hit it,
-        // not whatever Scene content happens to sit underneath) — an
-        // inherent, accepted cost of having ANY interactive debug chrome at
-        // all. This does not reopen the purity bar: that bar is about
-        // layout/scroll METRICS (scrollWidth/clientWidth/rects) being
-        // identical debug on vs off, which pointer-events has zero bearing
-        // on — nothing here changes what gets MEASURED or LAID OUT, only
-        // what a click in this specific screen region hits.
-        pointerEvents: "auto",
-      }}
-    >
-      <label
-        data-ui-scene-debug-slowmo-toggle
-        style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, cursor: "pointer" }}
-      >
-        <input type="checkbox" checked={slowMo} onChange={onToggleSlowMo} />
-        slow motion
-      </label>
-
-      <div style={{ fontWeight: "bold", marginBottom: 4 }}>Scene objects</div>
-      {objects.map((obj) => {
-        const bounds = objectBounds.find((b) => b.name === obj.name);
-        return (
-          <div key={obj.name}>
-            <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
-              {obj.name}
-            </span>
-            {" — "}
-            <span style={{ color: obj.focused ? "#4ade80" : "#9ca3af" }}>
-              {obj.focused ? "focused" : "unfocused"}
-            </span>
-            {bounds && (
-              <span style={{ color: "#6b7280" }}>
-                {" "}
-                {bounds.width}×{bounds.height} @ {bounds.x},{bounds.y}
-              </span>
-            )}
-          </div>
-        );
-      })}
-
-      {offsetParentWarnings.length > 0 && (
-        <>
-          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4, color: "#f87171" }}>
-            ⚠ offsetParent warning
-          </div>
-          {offsetParentWarnings.map((name) => (
-            <div key={name} style={{ color: "#f87171" }}>
-              {name}: positioned ancestor breaks bounds
-            </div>
-          ))}
-        </>
-      )}
-
-      {columnStacks.length > 0 && (
-        <>
-          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-            Column stacking
-          </div>
-          {columnStacks.map((col) => (
-            <div key={col.name}>
-              <span style={{ color: "#c4b5fd" }}>{col.name}</span>
-              {": "}
-              <span style={{ color: "#94a3b8" }}>{col.classification}</span>
-              {col.classification === "in-between" && (
-                <span style={{ color: "#94a3b8" }}>{" depth "}{col.depth}</span>
-              )}
-            </div>
-          ))}
-        </>
-      )}
-
-      {columnScrollStates.length > 0 && (
-        <>
-          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-            Vertical scroll
-          </div>
-          {columnScrollStates.map((col) => (
-            <div key={col.name} data-ui-scene-debug-scroll-column={col.name}>
-              <span style={{ color: col.scrollable ? "#facc15" : "#9ca3af" }}>
-                {col.name}
-              </span>
-              {": "}
-              <span>{Math.round(col.scrollOffset)}</span>
-              {" / "}
-              <span>{Math.round(col.contentHeight - col.viewportHeight)}</span>
-              {col.scrollable ? " (scrollable)" : " (fits)"}
-            </div>
-          ))}
-        </>
-      )}
-
-      {geometryByColumn.size > 0 && (
-        <>
-          <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-            Geometry store
-          </div>
-          {Array.from(geometryByColumn.entries()).map(([columnName, entries]) => (
-            <div key={columnName} data-ui-scene-debug-geometry-column={columnName}>
-              <span style={{ color: "#c4b5fd" }}>{columnName}</span>
-              {entries.map((entry) => (
-                <div key={entry.name} style={{ paddingLeft: 8 }} data-ui-scene-debug-geometry-object={entry.name}>
-                  <span style={{ color: "#9ca3af" }}>{entry.name}</span>
-                  {": top="}
-                  {Math.round(entry.offsetTop)}
-                  {" h="}
-                  {Math.round(entry.height)}
-                </div>
-              ))}
-            </div>
-          ))}
-        </>
-      )}
-
-      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-        Horizontal scroll
-      </div>
-      <div data-ui-scene-debug-h-scroll>
-        {Math.round(scrollLeft)} / {Math.round(scrollWidth - clientWidth)} (vp:{" "}
-        {Math.round(clientWidth)})
-      </div>
-
-      <div style={{ fontWeight: "bold", marginTop: 8, marginBottom: 4 }}>
-        Camera
-      </div>
-      <div data-ui-scene-debug-camera>
-        <span style={{ color: "#93c5fd" }}>viewport</span>
-        {": "}
-        {Math.round(clientWidth)} × {Math.round(viewport?.clientHeight ?? 0)}
-      </div>
-
-      {motionRecorder && <ActiveSpringsSection recorder={motionRecorder} />}
-    </div>
-  );
-}
-
-/**
- * A MotionSeamRegistration recorder Scene creates for ITSELF when `debug` is
- * enabled and no test harness has already wrapped a MotionSeamContext.Provider
- * around the tree (see SceneViewport's `motionSeam` derivation below) — powers
- * the debug overlay's active-springs panel. Registration-only and
- * observationally pure: it never drives/mutates the values or controls it
- * receives, only stores references for later reads.
- */
-interface DebugMotionRecorder extends MotionSeamRegistration {
-  values: Map<string, MotionValue<number>>;
-  controls: Map<string, AnimationPlaybackControls | undefined>;
-  targets: Map<string, number>;
-}
-
-function createDebugMotionRecorder(): DebugMotionRecorder {
-  const values = new Map<string, MotionValue<number>>();
-  const controls = new Map<string, AnimationPlaybackControls | undefined>();
-  const targets = new Map<string, number>();
-  return {
-    values,
-    controls,
-    targets,
-    registerMotionValue(key, value) {
-      values.set(key, value);
-    },
-    registerControls(key, playbackControls) {
-      controls.set(key, playbackControls);
-    },
-    registerTarget(key, target) {
-      targets.set(key, target);
-    },
-    unregisterMotionValue(key) {
-      values.delete(key);
-      controls.delete(key);
-      targets.delete(key);
-    },
-  };
 }
 
 /** Inner scene content — reads debug flag from config to apply outline. */
@@ -1571,10 +340,10 @@ function SceneViewport({
   // is the canonical/default camera target; ui#19's panOffset layer (below)
   // composes on top of it for user-driven panning.
   const [stageLeft, setStageLeft] = useState(0);
-  // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx
-  // maxScrollRef/contentHeightRef, ~793-794) — stable event-listener/input-
-  // handler closures need the CURRENT canonical camera target at invocation
-  // time, not whatever was captured when an effect last (re-)subscribed.
+  // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx's
+  // maxScrollRef/contentHeightRef) — stable event-listener/input-handler
+  // closures need the CURRENT canonical camera target at invocation time,
+  // not whatever was captured when an effect last (re-)subscribed.
   const stageLeftRef = useRef(stageLeft);
   stageLeftRef.current = stageLeft;
   // ui#19 single-writer horizontal channel: panOffset is the user-driven pan
@@ -1678,36 +447,20 @@ function SceneViewport({
   // width/height source in the ResizeObserver callback (content-box,
   // excluding border/padding) — unchanged from before this reshape.
   //
-  // F5 item 5 fix (H10 wobble, root cause found): width/height must be
-  // CONTENT-BOX (matching the ResizeObserver callback below), not
-  // getBoundingClientRect()'s BORDER-BOX. This viewport element toggles its
-  // own `overflowX` between "auto"/"hidden" (see the stageLeft effect
-  // below) — when a horizontal scrollbar is showing, border-box height
-  // stays the element's full CSS height (a scrollbar doesn't shrink the
-  // border box), while content-box height shrinks by the scrollbar's
-  // thickness. This effect runs on EVERY render (no deps, by design, so a
-  // dynamic resize is picked up as fast as possible) — probe-confirmed
-  // (real classic/space-reserving scrollbars, which headless Chromium
-  // normally suppresses via Playwright's own `--hide-scrollbars` default
-  // arg): the ResizeObserver below correctly detects the scrollbar's
-  // content-box shrinkage and calls setViewportSize with the smaller
-  // (correct) height, but that state update itself triggers a re-render,
-  // and THIS effect — reading the unchanged, scrollbar-oblivious
-  // border-box height on every render — immediately overwrote the
-  // correction back to the larger (wrong) value within the same commit
-  // pair. The two measurement paths were fighting over two different box
-  // models faster than any per-frame sampling could catch, and the
-  // scrollbar-oblivious value always won (this effect runs on every
-  // subsequent render; the observer only fires again on a genuine future
-  // resize) — silently miscentering content (marginTop, maxScroll, and any
-  // other effectiveViewportHeight-derived value) by the scrollbar's
-  // thickness whenever one is showing. clientWidth/clientHeight are
-  // content-box by definition (matching contentRect) — computed here as
+  // F5 item 5 (H10 wobble): width/height must be CONTENT-BOX (matching the
+  // ResizeObserver callback below), not getBoundingClientRect()'s
+  // BORDER-BOX — this viewport toggles its own `overflowX` between
+  // "auto"/"hidden" (see the stageLeft effect below), and a showing
+  // horizontal scrollbar shrinks content-box height but not border-box.
+  // Reading border-box here on every render (no deps, by design) used to
+  // fight the ResizeObserver's correct content-box measurement and always
+  // win, silently miscentering content by the scrollbar's thickness. Full
+  // regression history: tests/scene-column-transitions.test.tsx's
+  // "content-box, not scrollbar-oblivious border-box" test. Computed as
   // the border-box rect's own float-precise width/height minus the
   // (integer) offset-vs-client delta, rather than clientWidth/clientHeight
-  // directly, to avoid introducing a NEW, smaller oscillation from
-  // clientHeight's own integer rounding disagreeing with contentRect's
-  // subpixel-precise float on every render.
+  // directly, to avoid a NEW oscillation from clientHeight's integer
+  // rounding disagreeing with contentRect's subpixel float on every render.
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -1979,28 +732,13 @@ function SceneViewport({
       if (registered === undefined || registered.widthTarget === undefined) {
         // Past the last focused column (see the pre-pass's own invariant
         // above): this column's own resolution status can never affect
-        // targetLeft/targetRight, so stop silently — no fallback needed.
-        // AT OR BEFORE it: this column (or a later one still to come)
-        // could still be the span's own left/right edge, so an unresolved
-        // target here forces the fallback. A prior version of this line
-        // fell back (or didn't) based only on whether targetRight already
-        // happened to be defined, which breaks when a LATER column is
-        // ALSO focused and hasn't been walked yet (delta claim review,
-        // 2026-07-31 — reproduced on a plain 3-column left/middle/right
-        // toggle, unfocus direction: "right" stays focused throughout, but
-        // "middle"'s own widthTarget is transiently unresolved the render
-        // its focus state changes; the old shortcut broke immediately
-        // after "left," computing targetRight=200 instead of the true
-        // 416 — a 108px wrong first aim, self-correcting one render later
-        // once "middle" resolves). A version that fell back UNCONDITIONALLY
-        // on any unresolved target fixed that, but over-triggered the
-        // fallback for an unresolved-but-irrelevant column past the last
-        // focused one (e.g. an unfocused sibling with nothing focused
-        // after it) — reintroducing the gBCR-measurement sub-pixel
-        // discrepancy the already-regenerated visual baselines don't
-        // expect, on fixtures that never needed the fallback for
-        // correctness in the first place. The last-focused-index check is
-        // exact: fall back only when it could possibly matter.
+        // targetLeft/targetRight, so stop silently — no fallback needed. AT
+        // OR BEFORE it: this column (or a later one still to come) could
+        // still be the span's own left/right edge, so an unresolved target
+        // here forces the fallback — exact, not over- or under-triggered.
+        // Full regression history (two related bugs this exact gate fixes):
+        // tests/scene-glass-stack-deck.test.tsx's "camera-recentering
+        // commit-aim pins" describe block header.
         if (i > lastFocusedIndex) break;
         missingTargetColumn = colName;
         break;
@@ -2010,9 +748,8 @@ function SceneViewport({
       // Every focused column keeps extending targetRight — a contiguous
       // multi-column focused span (or, matching the fallback's own
       // first-to-last semantics, a non-contiguous one) needs its RIGHTMOST
-      // focused column's cursor, not its first. Fixed 2026-07-31: an
-      // earlier version broke immediately after the FIRST focused column,
-      // silently dropping every subsequent column of a multi-focus span.
+      // focused column's cursor, not its first (full regression history:
+      // same test header as the fallback gate's comment above).
       if (registered.focused) targetRight = cursor;
       cursor += registered.marginTarget;
       if (i < allColumnEls.length - 1) cursor += columnGap;
@@ -2107,18 +844,11 @@ function SceneViewport({
     // between renders; the camera's own immediate positioning this render
     // uses live geometry, matching how newStageLeft itself is never
     // latch-gated). Range must include `2 * padding`, not just the raw
-    // overflow (focusedWidth - vpWidth) — probe-caught while restoring the
-    // padding-cluster inset tests: at panOffset=0, newStageLeft's own
-    // `+padding` already insets the LEFT edge by padding (leftInset =
-    // padding, independent of range); reaching the symmetric RIGHT-edge
-    // inset at full pan needs panOffset to travel the raw overflow amount
-    // PLUS both paddings (the left inset the camera starts already holding,
-    // and the right inset it still needs to gain) — omitting `2 * padding`
-    // overshot the right inset by exactly that amount (measured: -4px
-    // instead of +4px at padding=4, an 8px = 2×4 error; padding=0 masked it
-    // entirely, which is why that case alone passed before this fix). 0
-    // when content fits (no pan range at all). Sign convention documented
-    // at panOffsetRef's declaration.
+    // overflow (focusedWidth - vpWidth) — see the "both edges are inset by
+    // exactly padding" test in tests/scene-scroll-restore.test.tsx for the
+    // full derivation and the regression this formula fixes. 0 when
+    // content fits (no pan range at all). Sign convention documented at
+    // panOffsetRef's declaration.
     const range = contentOverflows ? Math.max(0, focusedWidth - vpWidth + 2 * padding) : 0;
     const bounds = { min: -range, max: 0 };
     if (vpWidthWasSettled) {
@@ -2206,20 +936,11 @@ function SceneViewport({
   // F17 commit 2: wheel-driven deltas are BUFFERED (per column for deltaY,
   // as a single accumulator for deltaX — one pan target for the whole
   // Scene) and flushed as ONE write per real animation frame, rather than
-  // one write per wheel event. Mechanism this closes (F17 commit 1's own
-  // investigation, pinned at source): a real trackpad/wheel stream fires
-  // MULTIPLE events per animation frame, and applying each one immediately
-  // calls a spring-chase animate() call synchronously per event — so pairs
-  // of retargets can land with ~0ms elapsed between them (measured: 72 of
-  // 143 inter-retarget gaps were <1ms, in a 72-event stream, on the
-  // deltaY/vertical path this pattern originates from). Motion's spring
-  // generator inherits the CURRENT velocity as each retarget's starting
-  // condition; a near-zero elapsed time between two retargets is exactly
-  // the numerically unstable case for a velocity estimate
-  // (Δvalue/Δtime, Δtime→0). Buffering to one retarget per real frame
-  // removes the near-zero-Δt pairing at its source AND is a straightforward
-  // perf win (one spring retarget instead of two-plus per frame during a
-  // dense stream) — applies identically to the new deltaX/panOffset path.
+  // one write per wheel event — removes the near-zero-Δt retarget pairing
+  // that made Motion's velocity estimate numerically unstable under a dense
+  // wheel stream, and is a straightforward perf win besides (one spring
+  // retarget instead of two-plus per frame). Full history/measurements:
+  // tests/scene-wheel-coalescing.test.tsx's own header.
   const pendingWheelDeltaRef = useRef<Map<string, number>>(new Map());
   const pendingPanDeltaRef = useRef(0);
   const wheelFlushScheduledRef = useRef(false);
@@ -2481,38 +1202,16 @@ function SceneViewport({
     warnAncestorScrollChaining(el);
   }, []);
 
-  // History (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): the
-  // browser's native focus-driven auto-scroll (and other native scrollLeft
-  // mutations) used to bypass the camera's own stageLeft pan and corrupt
-  // scrollLeft (DELTA-2, probe-confirmed: tab-focusing a parked column
-  // jumped scrollLeft 0 -> 782 with stage.left unchanged). A bare
-  // `el.scrollLeft = 0` reset-on-focusin fix (DELTA-2) restored the correct
-  // final position but, being itself a native scroll mutation landing
-  // mid-click-gesture, measurably ate clicks in the consuming app (21/21 +
-  // 27/27 + 24/24 across three N=20 loops). An interim "absorb-and-re-pan"
-  // fix (reset scrollLeft to 0 while simultaneously compensating stage.left
-  // by the same delta, then explicitly re-pan via Motion) closed that but
-  // remained a two-writer system — native scrollLeft AND the camera both
-  // able to move the viewport horizontally, correction code needed to keep
-  // them reconciled, and a Promise/`.then()`-tracked in-flight guard in
-  // that reconciliation shipped a real regression (the camera permanently
-  // stranded ~450px off canonical when a second correction jump()-cancelled
-  // the first's still-in-flight re-pan spring before its `.then()` could
-  // fire and clear the guard).
-  //
-  // ui#19 removes the SECOND writer entirely instead of reconciling it: the
-  // viewport is unconditionally `overflow: clip` on both axes (see the
-  // style block below) — probe-confirmed bulletproof against every native
-  // scrollLeft mutation technique (direct writes, scrollIntoView, focus-
-  // driven auto-scroll, mid-gesture corruption attempts all no-op, read-
-  // back stays 0, zero visual shift) — so there is no corrupted scrollLeft
-  // to ever reconcile, and no correction handler is needed at all. The
-  // camera (stageLeft + the panOffset layer, added later in this arc) is
-  // now the SOLE horizontal-position writer. The cross-cutting lesson from
-  // the stranded-camera regression — no Promise/`.then()`-tracked "already
-  // animating" guards; idempotent re-issue instead (SceneColumn.tsx F17's
-  // driveBoundedSpring pattern) — carries forward as a standing rule for
-  // every cameraX-driving function this arc adds.
+  // The viewport is unconditionally `overflow: clip` on both axes (see the
+  // style block below) — no native scrollLeft mutation can ever corrupt the
+  // camera's pan, so no correction handler is needed at all. The camera
+  // (stageLeft + the panOffset layer) is the SOLE horizontal-position
+  // writer. Standing rule for every cameraX-driving function: no
+  // Promise/`.then()`-tracked "already animating" guards, ever — idempotent
+  // re-issue instead (SceneColumn.tsx F17's driveBoundedSpring pattern).
+  // Full history (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): see
+  // tests/scene-lifecycle-navigation.test.tsx's own header, "Scene
+  // horizontal scrollLeft immunity (ui#19)".
 
   return (
     <MotionSeamContext.Provider value={motionSeam}>

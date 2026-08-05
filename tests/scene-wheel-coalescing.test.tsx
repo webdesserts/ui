@@ -1,12 +1,21 @@
 /**
- * F17 commit 2: wheel input coalescing. See Scene.tsx's own wheel handler
- * comment for the full mechanism this closes (a real wheel/trackpad stream
- * firing multiple events per animation frame used to call driveScrollYRef's
- * spring-chase animate() once PER EVENT, synchronously and immediately —
- * this file asserts that's no longer true: a burst of same-frame wheel
- * events now produces exactly one scrollY retarget (one animate() call, one
- * registerControls registration) per real animation frame, not one per
- * event.
+ * F17 commit 2: wheel input coalescing. A real wheel/trackpad stream fires
+ * multiple events per animation frame; applying each one immediately used to
+ * call driveScrollYRef's spring-chase animate() once PER EVENT, synchronously
+ * and immediately — pairs of retargets could land with ~0ms elapsed between
+ * them (measured: 143 inter-retarget gaps were <1ms, in a 72-event stream, on
+ * the deltaY/vertical path this pattern originates from). Motion's spring
+ * generator inherits the CURRENT velocity as each retarget's starting
+ * condition, and a near-zero elapsed time between two retargets is exactly
+ * the numerically unstable case for a velocity estimate (Δvalue/Δtime,
+ * Δtime→0).
+ *
+ * Fix (Scene.tsx's wheel handler): buffer wheel-driven deltas (per column for
+ * deltaY, as a single accumulator for deltaX) and flush as ONE write per real
+ * animation frame, removing the near-zero-Δt pairing at its source. This file
+ * asserts that holds: a burst of same-frame wheel events now produces exactly
+ * one scrollY retarget (one animate() call, one registerControls
+ * registration) per real animation frame, not one per event.
  *
  * Counts via a custom MotionSeamRegistration (not the shared
  * createMotionSeamRecorder, which only stores the LATEST registration per

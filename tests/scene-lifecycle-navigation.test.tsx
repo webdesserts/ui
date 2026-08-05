@@ -840,7 +840,8 @@ describe("SceneObject click-to-focus", () => {
 // no Promise/`.then()`-tracked in-flight guards, ever; idempotent re-issue
 // instead (SceneColumn.tsx F17's driveBoundedSpring pattern) — carries
 // forward as a standing rule for every cameraX-driving function ui#19 adds
-// (see Scene.tsx's viewport style comment for the fuller history).
+// (see Scene.tsx's viewport style comment for the durable constraint this
+// history left behind).
 //
 // ui#19 removes the second writer entirely: overflow-x/-y are
 // unconditionally clip, so there is no corrupted scrollLeft to ever

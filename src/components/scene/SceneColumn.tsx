@@ -1,6 +1,4 @@
 import React, {
-  createContext,
-  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -8,8 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { animate, motion, useMotionValue, useTransform } from "motion/react";
-import { SceneObject, type SceneObjectProps } from "./SceneObject";
+import { motion, useMotionValue, useTransform } from "motion/react";
 import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { ViewportContext } from "./ViewportContext";
 import { ColumnPositionContext } from "./ColumnPositionContext";
@@ -25,375 +22,35 @@ import { PanControlContext } from "./PanControlContext";
 import { useMotionSeam } from "./motionSeam";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
+import { useColumnAnchoring } from "./useColumnAnchoring";
+import { useColumnScroll } from "./useColumnScroll";
 import type { FrozenSize } from "./types";
 import type { SceneScrollMetrics } from "./scrollMetrics";
 import {
-  isInteractiveElement,
-  mapScrollKeyToCommand,
-  selectAnchorObject,
-  isAtScrollEnd,
-  findDeepestIntraObjectAnchor,
-  findScrollToTarget,
-  computeNearestEdgeScrollOffset,
   classifyTouchGestureDirection,
   shouldPreventTouchMove,
   computeReleaseVelocity,
-  clampSpringRetargetVelocity,
-  SPRING_RUBBER_BAND_MARGIN_PX,
-  shouldCliffStop,
-  opposesOutstandingDebt,
-  WHEEL_CLIFF_SILENCE_MS,
-  WHEEL_CLIFF_DELTA_FLOOR_PX,
-  WHEEL_CLIFF_OUTSTANDING_FLOOR_PX,
-  WHEEL_STREAM_PAIRING_MS,
-  type ScrollCommand,
   type TouchGestureOwnership,
   type VelocitySample,
 } from "./inputController";
+import { ColumnContext } from "./ColumnContext";
+import {
+  deriveColumnFocused,
+  deriveObjectStates,
+  computeFocusedObjectKey,
+  computeTopOffset,
+  computeFocusedWidth,
+  computeMeasuredWidth,
+  computeWithinColumnDepths,
+  computeFocusedContentHeight,
+  type ObjectState,
+  type GeometryEntry,
+} from "./columnGeometry";
 
-// ---------------------------------------------------------------------------
-// ColumnContext — lets SceneObjects register their elements and report their
-// natural heights to the parent column.
-// ---------------------------------------------------------------------------
-
-/**
- * Depth info for an unfocused SceneObject that is sandwiched between two
- * focused siblings within the same column. These objects receive depth-deck
- * visual treatment (opacity, greyscale, scale) and are positioned to peek
- * above the lower focused sibling rather than being hidden.
- */
-export interface WithinColumnDepthInfo {
-  /** Depth index: 1 = adjacent to the lower focused sibling, increasing outward. */
-  depth: number;
-}
-
-interface ColumnRegistration {
-  /**
-   * Register a SceneObject's outer element, focus state, and its own
-   * height-channel target (ui#21 — see GeometryEntry's own `heightTarget`
-   * doc comment for why this must be REPORTED, not DOM-measured, here).
-   * Returns an unregister function. `focused` feeds the column's OWN
-   * registration with Scene (S6 registration architecture) — it's tracked
-   * separately from this column's internal deriveObjectStates prop walk
-   * (scope pin: column-level classification only, see SceneColumn's own
-   * registration effect below). `heightTarget` is called unconditionally
-   * every render (mirrors `focused`'s own unconditional-per-render
-   * rationale — a same-commit reflection requirement, not just a mount-time
-   * one), so remeasureGeometry always reads this render's own value.
-   */
-  register: (name: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => () => void;
-  /**
-   * Depth info for unfocused SceneObjects sandwiched between two focused
-   * siblings. Objects not in this map receive normal (hidden) treatment.
-   */
-  withinColumnDepths: Map<string, WithinColumnDepthInfo>;
-  /**
-   * This column's own objectGap (px) — exposed so SceneObject's own
-   * margin-bottom gap-compensation channel (ui#21, mirrors SceneColumn's
-   * own marginMV/-columnGap channel vertically) can read it without a
-   * separate prop-drilling path.
-   */
-  objectGap: number;
-}
-
-export const ColumnContext = createContext<ColumnRegistration | null>(null);
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Derives whether any direct SceneObject child is currently focused. */
-function deriveColumnFocused(children: React.ReactNode): boolean {
-  return React.Children.toArray(children).some(
-    (child) =>
-      isValidElement<SceneObjectProps>(child) &&
-      child.type === SceneObject &&
-      child.props.focused === true,
-  );
-}
-
-/** A direct SceneObject child's focus state and reset preference, in DOM order. */
-interface ObjectState {
-  name: string;
-  focused: boolean;
-  resetAlignment: "top" | "center";
-}
-
-/**
- * Derives all direct SceneObject children's focus state in DOM order.
- * Returns an array of `{ name, focused, resetAlignment }` entries.
- */
-function deriveObjectStates(children: React.ReactNode): ObjectState[] {
-  const result: ObjectState[] = [];
-  React.Children.forEach(children, (child) => {
-    if (
-      isValidElement<SceneObjectProps>(child) &&
-      child.type === SceneObject
-    ) {
-      result.push({
-        name: child.props.name,
-        focused: child.props.focused,
-        resetAlignment: child.props.resetAlignment ?? "top",
-      });
-    }
-  });
-  return result;
-}
-
-/**
- * Joins the names of all currently-focused objects (sorted, so the key is
- * independent of DOM order) into a single string key. Used by the swap-reset
- * scroll model (A2) to distinguish an unchanged inner focus arrangement
- * (park/return — restore) from a within-column swap (reset).
- */
-function computeFocusedObjectKey(objectStates: ObjectState[]): string {
-  return objectStates
-    .filter((o) => o.focused)
-    .map((o) => o.name)
-    .sort()
-    .join(",");
-}
-
-/** A registered object's measured position within its column's content wrapper. */
-interface GeometryEntry {
-  /** Distance (px) from the content wrapper's top edge to this object's top edge. */
-  offsetTop: number;
-  /**
-   * This object's LIVE rendered height (px), via offsetHeight — a raw DOM
-   * measurement of the object's own outer anchor node. HAZARD (ui#21 delta
-   * claim review Slice 0 spike, source-verified): unlike `width` below,
-   * this is NOT safe to read for a currently-focused object once ui#21's
-   * own height-override channel lands (SceneObject.tsx) — that channel
-   * applies a pixel override DIRECTLY to this SAME anchor node, so
-   * `offsetHeight` read here would capture the spring's own in-flight
-   * value mid-transition, not a settled target (the exact "camera chases
-   * width" bug class, on the vertical scroll model this time). Consumers
-   * summing focused-object height (computeFocusedContentHeight,
-   * inputController.ts's selectAnchorObject) MUST read `heightTarget`
-   * below instead. This raw field survives only for the Slice 0
-   * disposition list's OWN "harmless" sites (debug overlays, one-shot
-   * command reads, column-level frozen-size snapshots) — see the plan's
-   * own disposition list before adding a new consumer here.
-   */
-  height: number;
-  /**
-   * This object's height-channel TARGET (px) — synchronously known,
-   * mirroring `width`'s own precedent below exactly: 0 while sandwiched
-   * (permanent), the object's own natural in-flow height while focused or
-   * otherwise in-flow (a snapshot taken at rest, when nothing is
-   * overriding it — see SceneObject.tsx's naturalHeightRef). Reported by
-   * SceneObject via the extended `register` call (ui#21) — NOT derived
-   * from a DOM read here, since the same node this measures is the one
-   * the height channel writes to (see `height`'s own hazard note above).
-   * Undefined only during the one-render deferred-measurement window for
-   * an object that mounts already sandwiched, never having been in-flow
-   * (mirrors `neverFocusedNaturalWidth`'s own bootstrap case) — a
-   * currently-focused object never has this undefined in practice, since
-   * an object must be in-flow to become focused in the first place.
-   */
-  heightTarget: number | undefined;
-  /**
-   * This object's rendered width (px) — the ui#17 owned width channel's
-   * "after" target. An object's own declared width (e.g. a `cqw` value)
-   * resolves against the STAGE's container-query context (Scene.tsx's
-   * `containerType: "size"`), not this column's own current box, so it's
-   * stable and measurable regardless of whether the column itself is
-   * currently constrained by a frozen or in-flight spring width.
-   */
-  width: number;
-}
-
-/**
- * Computes the vertical offset (in px) that the content wrapper must slide to
- * bring the (single) focused object into view at the top of the column.
- * Returns 0 when multiple objects are focused (stacking — show from top) or
- * when no objects are focused.
- *
- * Reads the focused object's own measured offsetTop directly from the
- * geometry store — every registered object (focused or not, except
- * within-column depth cards) stays in flow, so its rendered offset already
- * reflects the real cumulative height (and gap) of everything before it,
- * with no need to sum anything here.
- */
-function computeTopOffset(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-): number {
-  const focusedNames = objectStates
-    .filter((o) => o.focused)
-    .map((o) => o.name);
-
-  // Multi-focus stacking: show from top, no offset
-  if (focusedNames.length !== 1) return 0;
-
-  const focusedName = focusedNames[0]!;
-  return geometryStore.get(focusedName)?.offsetTop ?? 0;
-}
-
-/**
- * ui#17: computes the column's own target width while focused — the widest
- * currently-focused object's own measured width (multi-focus stacking can
- * have several focused objects of different widths; the column's
- * shrink-to-fit box becomes as wide as the widest one, matching ordinary
- * block layout). Returns undefined when nothing is focused, or when a
- * focused object hasn't been geometry-measured yet (e.g. its very first
- * render, before any remeasure pass has run) — the caller's own "no target
- * yet" handling (no override, natural CSS sizing) already covers this.
- */
-function computeFocusedWidth(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-): number | undefined {
-  let width: number | undefined;
-  for (const { name, focused } of objectStates) {
-    if (!focused) continue;
-    const entry = geometryStore.get(name);
-    if (!entry) continue;
-    width = width === undefined ? entry.width : Math.max(width, entry.width);
-  }
-  return width;
-}
-
-/**
- * The widest REGISTERED object's own measured width, regardless of focus.
- * Unlike computeFocusedWidth, this doesn't filter to focused objects — a
- * deck column's own object is never focused while it's the one being
- * measured, so computeFocusedWidth would always return undefined for it.
- * Safe from the circularity a same-node-composition design would hit
- * (geometryStore measuring an already-crushed size fed back as the
- * channel's own target): the column this feeds is position:absolute within
- * its own zero-footprint anchor, never constrained by the anchor's own
- * shrinking width, so its own natural/cqw-resolved size is always what's
- * actually measured here.
- */
-function computeMeasuredWidth(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-): number | undefined {
-  let width: number | undefined;
-  for (const { name } of objectStates) {
-    const entry = geometryStore.get(name);
-    if (!entry) continue;
-    width = width === undefined ? entry.width : Math.max(width, entry.width);
-  }
-  return width;
-}
-
-// The owned-channel settle counter's own claim/retire guard now lives at
-// the shared seam every animate()/jump() call for an owned MotionValue
-// flows through — see ownedAnimation.ts's useOwnedAnimation() doc comment
-// (ui#17 cascade-fix round, Step 2) for the full rationale, including why
-// this replaced the hand-wired per-channel guard that originally lived
-// here.
-
-/**
- * Identifies unfocused SceneObjects that are sandwiched between two focused
- * siblings in DOM order and computes depth info for each. These objects will
- * peek out above the lower focused sibling rather than being hidden.
- *
- * Depth index counts from the lower focused sibling outward: the unfocused
- * object immediately above the lower focused object is depth-1, the next one
- * is depth-2, and so on.
- *
- * INVARIANT (load-bearing for the object-level z-index paint-order channel —
- * mirrors computeStackDepths' own DOM-order invariant at the column level,
- * SceneColumn.tsx's own comment near columnDepth/depthZ above, but serves a
- * DIFFERENT purpose): within a single sandwiched cluster (a contiguous run
- * of unfocused objects bounded by the same two focused siblings), `depth =
- * lowerFocusedIndex - i` is structurally guaranteed to produce depth order
- * ≡ reverse DOM order — the object further from the lower focused sibling
- * (earlier in DOM within the cluster) always gets the higher depth value.
- * SceneObject's own zIndex channel writes `-depth` directly, so THIS
- * ordering is what makes shallower siblings paint in front of deeper ones
- * (the "multi-sandwiched" z-index test's own subject). UNLIKE column-level
- * paint order, object-level DOM order alone does NOT structurally guarantee
- * correct stacking on its own (an object's own inner node sits outside any
- * column's preserve-3d chain — ui#o32, the D-series record), so this invariant is
- * what the explicit z-index channel is built ON TOP OF, not a substitute
- * for it.
- *
- * `anchorTop` (a cross-object, live geometryStore read of the lower focused
- * sibling's own measured offsetTop) was DELETED from this function's return
- * shape (ui#21 Slice 4 hygiene) — verified zero consumers at tip
- * (SceneObject's peekY computation only ever reads `.depth`) and verified
- * vestigial by the same geometric argument the plan's own Design port
- * section made before implementation: every sandwiched object's own
- * zero-height anchor converges on the SAME local origin (flush against the
- * lower focused sibling) once settled, since each collapsed object
- * contributes exactly zero net flow height — the column's peek-offset
- * transform only needs its OWN local depth (`-peekOffset * depth`), never a
- * cross-object measured position. Same shape as ui#17's own stackTargetLeft
- * deletion (a cross-sibling measured value the flow-collapse architecture
- * made unnecessary).
- *
- * Returns a Map from object name → `{ depth }` for every between-unfocused
- * object. Objects that are not sandwiched are absent from the map.
- */
-function computeWithinColumnDepths(objectStates: ObjectState[]): Map<string, WithinColumnDepthInfo> {
-  const result = new Map<string, WithinColumnDepthInfo>();
-  const n = objectStates.length;
-
-  // For each unfocused object, check whether there is a focused object both
-  // before it and after it in DOM order.
-  for (let i = 0; i < n; i++) {
-    if (objectStates[i]!.focused) continue;
-
-    const hasFocusedBefore = objectStates.slice(0, i).some((o) => o.focused);
-    const focusedAfterIndex = objectStates.slice(i + 1).findIndex((o) => o.focused);
-    if (!hasFocusedBefore || focusedAfterIndex === -1) continue;
-
-    // This object is between two focused objects. Find the lower focused sibling
-    // (the first focused object after this one in DOM order).
-    const lowerFocusedIndex = i + 1 + focusedAfterIndex;
-
-    // Depth = distance from this object to the lower focused sibling.
-    // The object immediately above lowerFocused is depth-1, further away is higher.
-    const depth = lowerFocusedIndex - i;
-
-    result.set(objectStates[i]!.name, { depth });
-  }
-
-  return result;
-}
-
-/**
- * Sums the height-channel TARGETS of every currently-focused object (from
- * the geometry store) plus the gaps between them. This is the focused-content
- * scroll range — a distinct concept from topOffset (strip position): it
- * only ever includes focused content, never unfocused in-flow siblings.
- *
- * Reads `heightTarget`, NOT `height` (ui#21 delta claim review Slice 0 spike
- * finding, ruled): `height` is a live offsetHeight read on the same node
- * ui#21's own height-override channel writes to — summing it here would
- * chase the channel's own in-flight spring value mid-transition, the exact
- * "camera chases width" bug class ui#17 already had to fix once (see
- * GeometryEntry's own `heightTarget` doc comment for the full mechanism).
- * `heightTarget` is a synchronously-known spring destination instead, safe
- * to sum at any point in a transition. Falls back to `height` only for a
- * legacy/defensive path (an object that hasn't yet reported a height
- * target via the extended register() call — should not occur for a
- * currently-focused object in practice, since an object must be in-flow to
- * become focused, but kept as a non-throwing fallback rather than `?? 0`,
- * which would silently zero out a real object's contribution).
- */
-function computeFocusedContentHeight(
-  objectStates: ObjectState[],
-  geometryStore: Map<string, GeometryEntry>,
-  objectGap: number,
-): number {
-  let focusedHeight = 0;
-  let focusedCount = 0;
-  for (const { name, focused } of objectStates) {
-    if (!focused) continue;
-    focusedCount++;
-    const entry = geometryStore.get(name);
-    focusedHeight += entry?.heightTarget ?? entry?.height ?? 0;
-  }
-  if (focusedCount > 1 && objectGap) {
-    focusedHeight += (focusedCount - 1) * objectGap;
-  }
-  return focusedHeight;
-}
+// Re-exported for module-surface stability: these were declared directly in
+// this file before the ColumnContext.tsx extraction.
+export { ColumnContext } from "./ColumnContext";
+export type { WithinColumnDepthInfo } from "./ColumnContext";
 
 // ---------------------------------------------------------------------------
 // SceneColumn
@@ -523,6 +180,12 @@ export function SceneColumn({
   // rendered outside a Scene (shouldn't happen in practice) — guarded
   // defensively at each call site below rather than assumed non-null.
   const panControl = useContext(PanControlContext);
+  // Read here (rather than inside useColumnScroll) because width/margin/z
+  // channel registration further down (topOffsetMV, widthMV, marginMV,
+  // columnWidthMV, zMV) needs the SAME instance — a context read, so calling
+  // it twice would be harmless but redundant; threaded through as a param
+  // instead (ui#24 Cluster C extraction).
+  const motionSeam = useMotionSeam();
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
   // slowMo → lazier spring parameters for animation snapshot testing.
@@ -534,396 +197,24 @@ export function SceneColumn({
 
   // A4 first-paint gate: tracks whether this column instance has EVER seen a
   // real (nonzero) effectiveViewportHeight — the LAST-arriving piece of a
-  // column's initial geometry settling (SceneViewport's own viewport
-  // measurement is a layout effect declared in an ANCESTOR component, so it
-  // lands a render after this column's own content-height/geometryStore
-  // corrections settle in the same commit — probe-confirmed: the render
-  // where effectiveViewportHeight first becomes real already has
-  // firstPaintRef.current === false, because Scene's passive first-paint-
-  // flip effect fires between the two synchronous correction rounds).
-  // columnGeometryWasSettled captures the PRE-mutation value (read below,
-  // right after effectiveViewportHeight is computed) so marginTop, the
-  // topOffsetMV/width-channel/zMV drive gates all reflect whether settling
-  // had ALREADY happened as of the PREVIOUS render — the render where it
-  // first happens must still count as "not yet settled" so its own value
-  // commits instantly rather than springing from a placeholder. ui#17
-  // criterion 5 re-derivation: columnTransition (marginTopTransition's own
-  // sibling site) no longer consumes this — see its own declaration
-  // comment for why (its original reason, Motion's `layout` FLIP, is gone).
+  // column's initial geometry settling (SceneViewport's viewport measurement
+  // is a layout effect in an ANCESTOR component, so it lands a render after
+  // this column's own content-height/geometryStore corrections settle in the
+  // same commit — the render where effectiveViewportHeight first becomes
+  // real already has firstPaintRef.current === false). columnGeometryWasSettled
+  // captures the PRE-mutation value (read below, right after
+  // effectiveViewportHeight is computed) so marginTop, the topOffsetMV/
+  // width-channel/zMV drive gates all reflect whether settling had ALREADY
+  // happened as of the PREVIOUS render — the render where it first happens
+  // must still count as "not yet settled" so its own value commits instantly
+  // rather than springing from a placeholder. ui#17 criterion 5: columnTransition
+  // (marginTopTransition's own sibling) no longer consumes this — see its own
+  // declaration comment for why.
   //
-  // F7 item 2 fix (why "settled" requires TWO consecutive equal commits,
-  // not just one nonzero one — full rationale now lives on the shared
-  // useSettledValue hook this reuses, ui#20 criterion 6): probe-confirmed
-  // (cqw demo, real space-reserving scrollbars — headless Chromium
-  // normally suppresses these entirely, see F5 item 5) viewportHeight
-  // arrives in TWO separate real commits during mount, not one — first
-  // without the horizontal scrollbar's space reservation (254), then with
-  // it once SceneViewport's own overflow-x measurement toggles the
-  // scrollbar on and the ResizeObserver picks up the now-smaller
-  // content-box height (243). Tracking the last-seen value and only
-  // marking settled once it repeats closes this (measured before the fix:
-  // marginTop sprang 78.94px -> 73.5px over ~280ms instead of jumping).
+  // Requires TWO consecutive equal, nonzero commits, not one — see
+  // useSettledValue's own doc comment for the full rationale and the
+  // measured regression this closes.
   const [columnGeometryWasSettled, checkColumnGeometrySettled] = useSettledValue();
-
-  // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
-  // so the content wrapper's `top` can be driven off React's render cycle —
-  // touch pan (commit 2) needs 1:1 per-frame writes without forcing a
-  // re-render on every pointermove. scrollY represents the JS scroll amount
-  // alone (not the swap offset), keeping its bounds naturally [0, maxScroll]
-  // for inertia's min/max in commit 2.
-  //
-  // Deliberately NOT routed through ownedAnimation's settle-signal seam
-  // (ui#17 cascade-fix round, Step 2 audit) despite being an animate()-
-  // driven channel like width/margin/z/topOffset above: scrollY is
-  // vertical content-scroll offset WITHIN a column, which never changes
-  // the column's own outer bounding box — the only thing Scene's camera-
-  // recentering effect ever measures — so wiring it in would add zero
-  // camera-correctness benefit. It would add real risk: scrollY drives a
-  // heavily-tuned, empirically-measured physics system (wheel coalescing,
-  // reentrant boundary rubber-banding, touch-drag 1:1 tracking, release
-  // inertia — see driveBoundedSpring's own comment for the measured
-  // tuning this represents) across many call sites, several of which are
-  // continuously re-triggered during active user interaction (a sustained
-  // wheel/drag session would keep this channel perpetually claimed,
-  // delaying every OTHER channel's zero-crossing for as long as the user
-  // keeps scrolling — harmless for camera correctness since scrollY was
-  // never camera-relevant, but an unnecessary coupling between two
-  // unrelated systems for no benefit). Confirmed empirically irrelevant to
-  // the specific late-mover bug this round diagnosed: a direct frame-by-
-  // frame trace of scrollY:detail through the exact window cameraX was
-  // proven to still be settling in showed scrollY's own value never
-  // changing by more than floating-point noise.
-  const scrollY = useMotionValue(0);
-  // scrollY.getVelocity() is used at TWO call sites, both mid-animation
-  // (never at release — F13 commit 2 replaced the release-time read with
-  // computeReleaseVelocity's own drag-sample tracker; see its doc comment
-  // for why a MotionValue read is unreliable exactly there): the mid-coast
-  // re-fling capture in applyScrollYDeltaRef (F13 commit 4) and the
-  // in-flight-spring-retarget capture just below it. Both are valid
-  // precisely because they're mid-animation, not post-jump/release —
-  // getVelocity() is always computed fresh with no caching, so it
-  // correctly reflects the currently-running animation's real velocity;
-  // the staleness class this used to guard against (probe-confirmed:
-  // useVelocity(scrollY)'s CACHED signal, which only refreshes on a
-  // "change" event or an elapsed animation frame tick — neither guaranteed
-  // in a same-tick grab->release) was specific to the RELEASE-time read
-  // this file no longer makes.
-  const motionSeam = useMotionSeam();
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
-    return () => motionSeam?.unregisterMotionValue?.(`scrollY:${name}`);
-  }, [motionSeam, scrollY, name]);
-
-  // Drives scrollY in parallel with the existing scrollOffset React state at
-  // every write site below (wheel/keyboard/swap-reset/scrollbar). duration=0
-  // uses `.set()` directly (NOT animate(...,{duration:0}) — async completion
-  // semantics differ, forecast-gate adjudication #1); otherwise `animate()`
-  // retargets the in-flight spring exactly like the old animate={{top}} prop
-  // did on every tick (the "spring-chase" feel). Stored in a ref (mirroring
-  // this file's viewportHeightRef/maxScrollRef pattern) so the stable-closure
-  // effects below (wheel, keyboard — subscribed once via `[]` deps) always
-  // call the latest version instead of a stale one captured at mount.
-  const driveScrollYRef = useRef<(target: number) => void>(() => {});
-
-  // F13 commit 4: true while a REAL multi-frame inertia coast (the
-  // type:"inertia" animate() call assigned to startInertiaFlingRef below)
-  // is actively running — distinct from scrollYSpringTargetRef, which only
-  // tracks destination-based (driveScrollYRef) springs; an inertia coast
-  // has no fixed destination to track (see applyScrollCommand's fling
-  // branch — no registerTarget call there, on purpose). Read by
-  // applyScrollYDeltaRef to decide whether a content-growth/prepend
-  // compensation arriving mid-coast must RE-FLING (preserve the user's
-  // momentum) rather than plain-jump (silently killing it — jump()
-  // unconditionally stops any in-flight Motion animation, fling included).
-  // Cleared at every write-path entry that supersedes or completes the
-  // coast: startInertiaFlingRef's own onComplete (natural settle), and
-  // every other direct scrollY write site below (driveScrollYRef, the
-  // maxScroll-shrink clamp effect, the follow-the-end pin effect,
-  // handleContentPointerDown's own re-grab jump) — each superseding write
-  // clears it at its own site, mirroring how those same sites already
-  // clear scrollYSpringTargetRef for the identical reason.
-  const flingActiveRef = useRef(false);
-
-  // F13 commit 4: extracted so BOTH applyScrollCommand's release-time fling
-  // branch below AND applyScrollYDeltaRef's mid-coast re-fling (content-
-  // growth compensation arriving while a fling is active) share the exact
-  // same inertia call — no duplicated animate() invocation to drift out of
-  // sync. Declared empty here (mirrors driveScrollYRef's own two-step
-  // ref-then-assign pattern just above) and assigned its real
-  // implementation further down, once every dependency it needs
-  // (maxScrollRef, the tuned inertia params, updatePinnedState,
-  // resyncScrollMetricsRef) is in scope.
-  const startInertiaFlingRef = useRef<(velocity: number) => void>(() => {});
-
-  // F9 anchoring: the destination a REAL-mode scrollY spring is currently
-  // animating toward, or null when at rest (no live spring). Content-growth
-  // compensation (below) reads this to decide between retargeting an
-  // in-flight spring by the compensation delta (adjudication 1 — carries
-  // momentum) and a plain jump when nothing is currently animating (nothing
-  // further to animate toward). Cleared on the spring's NATURAL completion
-  // via onComplete — NOT on interruption (`.stop()`/`.jump()`), since every
-  // call site that stops a running spring immediately either sets a fresh
-  // target (a new command, or compensation's own retarget) or explicitly
-  // clears this ref itself (see handleContentPointerDown, the maxScroll-
-  // shrink clamp effect below).
-  const scrollYSpringTargetRef = useRef<number | null>(null);
-
-  // ui#27: the pending wheel catch-stop (cliff) timer handle, armed on
-  // every wheel-tagged scrollBy command and cancelled by anything that
-  // supersedes the stream it's watching (a fresh wheel-tagged scrollBy
-  // re-arms it; everything else — a non-wheel command, or a touch grab via
-  // handleContentPointerDown — just cancels it, since the debt calculation
-  // it's watching is about to become stale). Null when no wheel stream is
-  // currently being watched for a catch.
-  const wheelCliffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The absolute magnitude of the most recent wheel-tagged scrollBy's own
-  // delta — read by the timer callback below (fresh at fire time, not a
-  // stale closure) to decide whether the stream that just went silent
-  // ended on a still-large delta (a catch) or had already faded out
-  // (natural decay, WHEEL_CLIFF_DELTA_FLOOR_PX excludes it).
-  const lastWheelDeltaAbsPxRef = useRef(0);
-
-  // ui#27, orchestrator-ruled amendment: whether the CURRENT unbroken wheel
-  // stream has been confirmed as a real stream — at least two wheel-tagged
-  // scrollBy commands landing within WHEEL_STREAM_PAIRING_MS of each other
-  // (see that constant's own doc comment for why). A RATCHET: once paired,
-  // stays paired for the rest of the stream regardless of any later gap —
-  // only the enumerated reset points below (cliff fire, a non-wheel command
-  // superseding the stream, the compensation-path cancel, a touch grab, or
-  // the silence timer elapsing without firing) clear it. The cliff timer
-  // may only ARM while this is true — a lone single wheel command (this
-  // stays false until a second one arrives close behind) is an ordinary,
-  // uncaught scroll, not a stream with anything to catch.
-  const wheelStreamPairedRef = useRef(false);
-  // Timestamp (performance.now()) of the most recent wheel-tagged scrollBy
-  // — used only to compute the gap for the pairing check above. 0 means
-  // "no wheel event since the last reset," matching every reset site's own
-  // convention below.
-  const lastWheelEventAtRef = useRef(0);
-
-  // F9 commit 2: whether this column's follow-the-end pin is currently
-  // engaged (anchor="end" only — always false/unused for anchor="none").
-  // Starts pinned per the design doc's "Initial mount of an anchor='end'
-  // column starts pinned at end" rule. The growth-while-pinned effect
-  // below is what actually DELIVERS that on a true first mount (see its
-  // own comment — geometryStore isn't measured yet when A2's swap-reset
-  // effect runs on the very first commit, so A2's own mount-time
-  // computation is a harmless no-op there); A2 is what matters for a
-  // GENUINE within-column swap between already-registered objects.
-  // Updated at every user-initiated write site (wheel/keyboard/scrollbar/
-  // touch-drag/fling) via updatePinnedState — evaluated against the
-  // resulting/target offset, not delta sign (a positive-delta command
-  // issued while already at maxScroll is a no-op, not a release trigger;
-  // touch drag's sign convention is inverted from wheel's). Deliberately
-  // NEVER touched by the maxScroll-shrink clamp effect or by F9 commit 1's
-  // own anchoring-compensation/pin-follow writes — those are content/
-  // viewport-driven corrections, not user intent, and must never be
-  // classified as a release or re-pin signal.
-  const pinnedRef = useRef(anchor === "end");
-
-  // F9 commit 2: the single check used at every user-initiated write site
-  // to decide release ("moved away from the end") vs re-pin ("scrolled
-  // back to the end") — a no-op for anchor="none" columns.
-  const updatePinnedState = (offset: number, maxScrollValue: number) => {
-    if (anchor !== "end") return;
-    pinnedRef.current = isAtScrollEnd(offset, maxScrollValue);
-  };
-
-  // F9 commit 3: populated by the onScroll subscription effect below with a
-  // function that re-emits the current SceneScrollMetrics on demand. Every
-  // updatePinnedState call site orders itself BEFORE the scrollY write that
-  // triggers onScroll's own change-event subscriber, so that subscriber's
-  // next firing already carries the correct anchored field — except the
-  // inertia settle callback (applyScrollCommand's fling branch), where the
-  // final scrollY value is already set by the animation driver by the time
-  // onComplete runs and decides the re-pin. That one site calls this ref
-  // directly to force a resync after updatePinnedState, since no further
-  // scrollY change event will fire on its own to carry the correction.
-  const resyncScrollMetricsRef = useRef<(() => void) | null>(null);
-
-  // F17: the actual bounded-spring call — extracted from driveScrollYRef's
-  // public entry point below so BOTH a fresh external command AND this
-  // function's OWN reentrant boundary correction (inside onUpdate) share
-  // the exact same animate() invocation, no duplicated call to drift out
-  // of sync (mirrors this file's own established pattern for
-  // startInertiaFlingRef/applyScrollYDeltaRef's shared inertia call).
-  //
-  // `velocityOverride` lets the reentrant boundary correction (below) start
-  // from rest instead of inheriting the live carried velocity — see that
-  // call site's own comment for why: carrying the live velocity into the
-  // correction empirically produced LARGE secondary overshoots (900+px
-  // measured), not the small rubber-band this fix is supposed to produce.
-  const driveBoundedSpring = (target: number, velocityOverride?: number) => {
-    scrollYSpringTargetRef.current = target;
-    // F17 fix (mechanism pinned at source): clamp the velocity Motion
-    // would otherwise inherit from scrollY's own internal tracking before
-    // it feeds this retarget's spring — see clampSpringRetargetVelocity's
-    // own doc comment for the near-zero-dt blowup this closes. Only read
-    // for a FRESH external command (velocityOverride undefined) — the
-    // reentrant boundary correction always supplies its own explicit 0.
-    const velocity =
-      velocityOverride !== undefined
-        ? velocityOverride
-        : clampSpringRetargetVelocity(scrollY.getVelocity());
-    const controls = animate(scrollY, target, {
-      ...transition,
-      velocity,
-      // F17 fix: boundary rubber-band — a plain spring generator (unlike
-      // Motion's type:"inertia", which the fling uses) has no built-in
-      // min/max clamp, so this watches the live value every frame and, if
-      // it ever exceeds [0, maxScroll] by more than
-      // SPRING_RUBBER_BAND_MARGIN_PX, retargets toward the nearest bound —
-      // reentrantly, through this SAME function, WITH velocityOverride: 0
-      // (not the carried-over live velocity — see below). Deliberately
-      // unguarded (no "already correcting" flag): the target is always the
-      // SAME deterministic nearest bound while still out of range, so
-      // re-issuing it every frame is idempotent, not divergent —
-      // probe-confirmed a correctingBoundaryRef guard that RESETS on every
-      // fresh external command (needed so a genuine new user command can
-      // always interrupt/redirect) thrashes badly once wheel input arrives
-      // every frame (even coalesced to one retarget/frame): each frame's
-      // "fresh" command wiped the guard and re-triggered its own
-      // correction before the PREVIOUS one had a chance to converge,
-      // measured WORSE (0/10 clean runs) than this boundary fix alone
-      // (7/10 clean). Re-issuing the same target every frame while out of
-      // range avoids that interrupt-vs-guard tension entirely.
-      //
-      // velocityOverride: 0 on the correction itself (rather than carrying
-      // scrollY's live velocity through, the way a fresh external command
-      // does): at the moment the boundary trips, the live value's velocity
-      // is, by construction, heading FURTHER out of bounds — that's what
-      // triggered the correction. A damped spring given a nonzero starting
-      // velocity that points AWAY from its new target doesn't calmly
-      // reverse course; it keeps carrying that momentum outward for a beat
-      // before the spring force turns it around, producing a SECOND,
-      // larger overshoot on the way back — empirically measured up to
-      // ~900-1000px under a sustained multi-pass wheel stream with the
-      // carried-velocity version of this correction, an order of magnitude
-      // past the intended small rubber-band margin. Starting the
-      // correction from rest removes that wrong-direction-momentum
-      // mechanism entirely: a spring moving a short, bounded distance
-      // (already within margin of the target when this trips) with zero
-      // initial velocity settles smoothly, matching "a small damped
-      // rubber-band margin" as actually specified.
-      onUpdate: (latest) => {
-        const max = maxScrollRef.current;
-        if (latest > max + SPRING_RUBBER_BAND_MARGIN_PX) {
-          driveBoundedSpring(max, 0);
-        } else if (latest < -SPRING_RUBBER_BAND_MARGIN_PX) {
-          driveBoundedSpring(0, 0);
-        }
-      },
-      onComplete: () => {
-        // Guard against a stale onComplete firing after a NEWER spring has
-        // already retargeted to a different destination — only clear if
-        // this callback's own target is still the one currently tracked.
-        if (scrollYSpringTargetRef.current === target) {
-          scrollYSpringTargetRef.current = null;
-        }
-      },
-    });
-    motionSeam?.registerControls(`scrollY:${name}`, controls);
-    motionSeam?.registerTarget?.(`scrollY:${name}`, target);
-  };
-
-  driveScrollYRef.current = (target: number) => {
-    // F13 commit 4: any intent-driven command (wheel/keyboard/scrollbar/
-    // scrollTo) superseding an active fling must stop tracking it as
-    // active — this call is about to drive scrollY toward its OWN target
-    // via the standard chase, not the inertia coast, and a later
-    // compensation event must not try to re-fling something that no
-    // longer exists.
-    flingActiveRef.current = false;
-    if (duration === 0) {
-      scrollY.set(target);
-      return;
-    }
-    driveBoundedSpring(target);
-  };
-
-  // F9 anchoring/content-driven scroll changes: applies a displacement
-  // DELTA to scrollY, never as a navigation (jump semantics — never
-  // animated on its own). When a real spring is currently in flight
-  // (scrollYSpringTargetRef tracks its destination), retargets it by the
-  // SAME delta with velocity carryover (adjudication 1) rather than a
-  // naive `.set()` (silently overwritten by the still-running spring's own
-  // next tick — probe-confirmed elsewhere in this file, see
-  // handleContentPointerDown's doc comment) or a hard stop-and-jump (kills
-  // the user's in-progress scroll momentum). At rest (no tracked target),
-  // there is nothing further to animate toward — a plain jump is both
-  // correct and cheaper (asserted by commit 1's tests: no animate() call
-  // during a resting-state compensation).
-  const applyScrollYDeltaRef = useRef<(delta: number) => void>(() => {});
-  applyScrollYDeltaRef.current = (delta: number) => {
-    if (delta === 0) return;
-    // ui#27: content-growth compensation bypasses applyScrollCommand
-    // entirely (this ref's own doc comment above), so a pending wheel-cliff
-    // timer's top-of-applyScrollCommand cancel never sees it — a real
-    // regression, gate-caught: a wheel-armed timer that outlives this call
-    // fires later using the WHEEL command's own lastDeltaAbsPx against
-    // whatever debt this compensation's own retarget just created, jumping
-    // into (and killing) a spring this timer was never watching. The
-    // caller keeps scrollOffsetRef.current in sync with the compensated
-    // target (its own doc comment above), so scrollOffsetRef staying
-    // "correct" doesn't help — the timer itself is what must not outlive
-    // the stream it was armed for.
-    if (wheelCliffTimerRef.current !== null) {
-      clearTimeout(wheelCliffTimerRef.current);
-      wheelCliffTimerRef.current = null;
-    }
-    // ui#27, orchestrator-ruled amendment: same reset as the timer cancel
-    // above — this compensation breaks whatever wheel stream was being
-    // paired/watched too, so a wheel command arriving after it must re-earn
-    // pairing from scratch rather than inheriting stale ratchet state.
-    wheelStreamPairedRef.current = false;
-    lastWheelEventAtRef.current = 0;
-    if (duration === 0) {
-      scrollY.jump(scrollY.get() + delta);
-      return;
-    }
-    // F13 commit 4: a mid-coast compensation must shift the coast, not kill
-    // it. A plain jump() below stops ANY in-flight Motion animation — that's
-    // fine for the resting/spring-retarget cases this function already
-    // handled, but a coasting inertia fling has no "target" to retarget
-    // toward (scrollYSpringTargetRef is never set for it — see
-    // startInertiaFlingRef's own comment), so it would otherwise fall
-    // straight into the plain-jump branch below and silently freeze the
-    // user's still-in-flight momentum. Capture the LIVE velocity first
-    // (valid mid-animation — Motion's animate() writes via .set() every
-    // frame, which keeps its internal velocity-tracking state fresh, unlike
-    // the release-time staleness this file works around elsewhere), jump by
-    // the delta (stops the interrupted controls exactly as it always has),
-    // then re-fling with that captured velocity through the SAME inertia
-    // call release uses — maxScrollRef.current is read FRESH at re-fling
-    // time inside startInertiaFlingRef, not the bound baked into the now-
-    // ended animation, which was computed pre-growth and is now stale.
-    if (flingActiveRef.current) {
-      const velocity = scrollY.getVelocity();
-      scrollY.jump(scrollY.get() + delta);
-      startInertiaFlingRef.current(velocity);
-      return;
-    }
-    const currentTarget = scrollYSpringTargetRef.current;
-    if (currentTarget === null) {
-      scrollY.jump(scrollY.get() + delta);
-      return;
-    }
-    const velocity = scrollY.getVelocity();
-    scrollY.jump(scrollY.get() + delta); // stops the running spring, shifts current position
-    const newTarget = currentTarget + delta;
-    scrollYSpringTargetRef.current = newTarget;
-    const controls = animate(scrollY, newTarget, {
-      ...transition,
-      velocity,
-      onComplete: () => {
-        if (scrollYSpringTargetRef.current === newTarget) {
-          scrollYSpringTargetRef.current = null;
-        }
-      },
-    });
-    motionSeam?.registerControls(`scrollY:${name}`, controls);
-    motionSeam?.registerTarget?.(`scrollY:${name}`, newTarget);
-  };
 
   // Registered SceneObject elements — populated via ColumnContext.
   const registeredEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -947,17 +238,6 @@ export function SceneColumn({
   // current render — valid for computing swap offsets since object content
   // doesn't change during a focus-only re-render.
   const geometryStore = useRef<Map<string, GeometryEntry>>(new Map());
-  // Fingerprint of the last-remeasured geometry, used to bail out of forcing
-  // a re-render (geometryVersion bump) when a ResizeObserver callback fires
-  // but nothing actually moved.
-  const geometryFingerprintRef = useRef("");
-  // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
-  // remeasure finds a real change — forces a re-render so topOffset/
-  // contentHeight recompute from the fresh geometry. The value itself is
-  // never read; only the state update matters. (ui#21 Slice 4: dropped the
-  // stale `anchorTop` mention from this list — computeWithinColumnDepths no
-  // longer reads geometryStore at all, see its own doc comment.)
-  const [, setGeometryVersion] = useState(0);
   // The ResizeObserver instance shared by every registered object element
   // plus colRef itself. Created once on mount; register/unregister manage
   // membership as objects mount/unmount.
@@ -985,19 +265,6 @@ export function SceneColumn({
   const [contentHeight, setContentHeight] = useState(0);
   const contentWrapperRef = useRef<HTMLDivElement | null>(null);
 
-  // -------------------------------------------------------------------------
-  // Vertical scroll state (pure JS — no overflow-y, no proxy divs)
-  //
-  // scrollOffset drives `top: -scrollOffset` on the content wrapper.
-  // maxScroll = contentHeight - viewportHeight (clamped to 0 when content fits).
-  // The viewport's wheel handler decides a target column and calls straight
-  // into that column's registered applyScrollCommand (S5 input controller,
-  // below) with a scrollBy command — no intervening DOM event.
-  // -------------------------------------------------------------------------
-
-  const [scrollOffset, setScrollOffset] = useState(0);
-  const scrollOffsetRef = useRef(0);
-
   // Effective viewport height accounts for Scene padding applied to the stage.
   // Padding reduces the usable height, so the scroll range grows accordingly.
   const effectiveViewportHeight = viewportHeight - padding * 2;
@@ -1011,544 +278,54 @@ export function SceneColumn({
     checkColumnGeometrySettled(effectiveViewportHeight);
   });
 
-  const maxScroll = Math.max(
-    0,
-    columnFocused && effectiveViewportHeight > 0
-      ? contentHeight - effectiveViewportHeight
-      : 0,
-  );
-  const maxScrollRef = useRef(maxScroll);
-  maxScrollRef.current = maxScroll;
-
-  // F9 commit 3: ref mirror of contentHeight state, for onScroll's
-  // SceneScrollMetrics — the scrollY.on("change", ...) subscription below
-  // needs the CURRENT value at callback time, not whatever was captured
-  // when the effect last (re-)subscribed.
-  const contentHeightRef = useRef(contentHeight);
-  contentHeightRef.current = contentHeight;
-
-  // Clamp scrollOffset to [0, maxScroll] whenever maxScroll changes (e.g. on
-  // content resize or viewport resize). F9 adjudication 3: reclassified
-  // from spring to jump — a maxScroll shrink is content/viewport-driven,
-  // not user intent, so under this slice's "content-driven scroll changes
-  // jump; intent-driven scroll changes spring" rule it must not animate.
-  // Shipping that rule as a spec'd contract (this slice) while this
-  // already-mapped site still sprang via driveScrollYRef would make the
-  // spec false on day one. scrollY.jump() stops any in-flight spring
-  // without firing its onComplete (an interruption, not a completion), so
-  // the tracked spring target is cleared explicitly here too — otherwise a
-  // LATER compensation event could read a stale target and retarget
-  // toward a destination nothing is actually animating toward anymore.
-  useEffect(() => {
-    if (scrollOffsetRef.current > maxScroll) {
-      const clamped = Math.min(scrollOffsetRef.current, maxScroll);
-      scrollOffsetRef.current = clamped;
-      setScrollOffset(clamped);
-      scrollY.jump(clamped);
-      scrollYSpringTargetRef.current = null;
-      // F13 commit 4: same interruption as scrollYSpringTargetRef above —
-      // a maxScroll shrink stops any in-flight fling too.
-      flingActiveRef.current = false;
-    }
-  }, [maxScroll, scrollY]);
-
-  // F9 commit 2: while pinned (anchor="end"), new content arriving keeps
-  // the offset at maxScroll — same-frame, no animation (a content-driven
-  // change, not a navigation, same jump-not-spring rule as the clamp
-  // effect above). Deliberately unconditional on maxScroll's direction
-  // (unlike the clamp effect, which only fires on shrink past the current
-  // offset) — a pinned column always tracks the CURRENT maxScroll exactly,
-  // whichever way it moved. A no-op for anchor="none" (pinnedRef stays
-  // permanently false there, since updatePinnedState only ever sets it
-  // when anchor==="end").
-  //
-  // This is ALSO what actually delivers "starts pinned at mount" in
-  // practice, not the A2 swap-reset effect below — probe-confirmed while
-  // debugging this slice: on a column's true first-ever render,
-  // geometryStore hasn't been measured yet (children register in the SAME
-  // commit but the very first remeasure happens moments before A2 reads
-  // it), so A2's own freshMaxScroll computes as 0 at that instant — a
-  // harmless no-op there (scrollOffsetRef already starts at 0 too), NOT
-  // the mechanism doing the real work. `contentHeight`/`maxScroll` REACT
-  // STATE settles one render later, and THIS effect reacts to that first
-  // real transition (0 -> the true maxScroll) while pinnedRef is already
-  // true from its initial useRef(anchor==="end") value — that's the
-  // actual mount-pin path. A2's own override is what uniquely matters for
-  // a GENUINE swap (switching to an already-registered, already-measured
-  // object) — defeat-check-confirmed: severing A2's override broke only
-  // the swap-re-pins test, not the mount-pin test; severing THIS effect
-  // broke both.
-  useEffect(() => {
-    if (anchor === "end" && pinnedRef.current) {
-      scrollOffsetRef.current = maxScroll;
-      setScrollOffset(maxScroll);
-      scrollY.jump(maxScroll); // NOT driveScrollYRef — must not spring
-      scrollYSpringTargetRef.current = null;
-      // F13 commit 4: same interruption as scrollYSpringTargetRef above.
-      flingActiveRef.current = false;
-    }
-  }, [maxScroll, scrollY, anchor]);
-
-  // F13 commit 4: the actual inertia call, assigned via a ref (mirrors
-  // driveScrollYRef/applyScrollYDeltaRef's own reassign-every-render
-  // pattern) so applyScrollCommand's fling branch below AND
-  // applyScrollYDeltaRef's mid-coast re-fling can both call the exact same
-  // logic — see startInertiaFlingRef's own declaration (near
-  // driveScrollYRef, above) for the full rationale.
-  startInertiaFlingRef.current = (velocity: number) => {
-    flingActiveRef.current = true;
-    // NOTE: deviates from the plan's literal
-    // animate(scrollY, undefined, {type:"inertia",...}) — probe-confirmed
-    // that resolves internally to keyframes=[null, undefined], which
-    // finishes the animation instantly without ever running. Passing an
-    // explicit single-element keyframes array with the current value is
-    // required for inertia to actually decelerate from here.
-    const controls = animate(scrollY, [scrollY.get()], {
-      type: "inertia",
-      velocity,
-      min: 0,
-      max: maxScrollRef.current,
-      // F13 commit 3: iOS-feel flywheel constants (the classic
-      // power/timeConstant pair), Michael-tunable via the dev TuningPanel —
-      // threaded through SceneConfig exactly like stiffness/damping (see
-      // useSceneConfig.tsx's DEFAULT_TOUCH_POWER/DEFAULT_TOUCH_TIME_CONSTANT
-      // for the shipped defaults).
-      power: touchPower,
-      timeConstant: touchTimeConstant,
-      // Reuses Scene's configured spring constants for the boundary bounce
-      // so the touch-release feel matches wheel/keyboard's spring physics,
-      // rather than introducing a third unrelated set of magic numbers —
-      // judgment call: the plan named bounceStiffness/bounceDamping
-      // without pinning values.
-      bounceStiffness: stiffness,
-      bounceDamping: damping,
-      // F15 fix: every OTHER write path (scrollBy/page/toTop/toBottom/
-      // scrollTo) sets scrollOffsetRef to its TARGET synchronously at
-      // command-issue time — a deliberate "chase" model, so a second
-      // command mid-spring stacks on the intended destination, not
-      // wherever the animation currently visually is. A fling has no such
-      // fixed target: it coasts to wherever momentum runs out, so nothing
-      // wrote scrollOffsetRef during it, and it went stale for every
-      // consumer (a subsequent grab's dragStartOffset, wheel/keyboard's
-      // scrollBy delta base, the F9/F10 compensation clamps) for however
-      // long the coast ran — reproduced on-device (Michael's frozen
-      // snapshot: wrapperStyleTop jumped 370px on the next grab) and here
-      // via a stub-free harness test (tests/scene-model-sync.test.tsx).
-      // Ref-only, no setScrollOffset — this fires every animation frame
-      // for the whole coast, and forcing a React re-render that often is
-      // exactly the per-tick-render overhead the scrollY MotionValue
-      // pipeline exists to avoid (see handleContentPointerMove's own
-      // per-tick comment on the same tradeoff for 1:1 drag).
-      onUpdate: (latest) => {
-        scrollOffsetRef.current = latest;
-      },
-      // F9 commit 2: re-pin (or stay released) once the coast genuinely
-      // settles — the only point at which the final resting offset is
-      // knowable for a physics-based multi-frame deceleration. F9
-      // commit 3: the animation driver has already set scrollY to its
-      // final value (and fired onScroll's own change-event subscriber
-      // for it) by the time onComplete runs, so updatePinnedState's
-      // decision here arrives too late for that subscriber to have
-      // reported it — force an explicit resync so the pin transition
-      // is still observable via onScroll. F13 commit 4: also clears
-      // flingActiveRef — this is the coast's NATURAL settle (an
-      // interruption instead clears it at its own write site — see the
-      // ref's own declaration for the full list). F15 fix: also flushes
-      // scrollOffsetRef/scrollOffset explicitly here (not relying purely
-      // on onUpdate's own last tick) — this is exactly the "sensible
-      // boundary" a natural settle represents, and it's the one point
-      // this file already forces an explicit resync for a DIFFERENT
-      // reason (onScroll), so the state write costs nothing extra here.
-      onComplete: () => {
-        flingActiveRef.current = false;
-        const settled = scrollY.get();
-        scrollOffsetRef.current = settled;
-        setScrollOffset(settled);
-        updatePinnedState(settled, maxScrollRef.current);
-        resyncScrollMetricsRef.current?.();
-      },
-    });
-    motionSeam?.registerControls(`scrollY:${name}`, controls);
-    // No registerTarget here (F4 active-springs panel): an inertia
-    // deceleration has no fixed destination to report — it coasts to
-    // wherever momentum runs out, only meeting the boundary spring
-    // above if it overshoots. The panel shows "—" for this key while
-    // coasting, which is the honest answer.
-  };
-
-  // Single write-path closure (S5 input controller) for every scroll command
-  // source: wheel (via the registry below), keyboard, touch release (fling),
-  // and the Scrollbar thumb (pointer-drag and keyboard). Non-fling commands
-  // resolve to a target offset and write it through the same triplet
-  // (scrollOffsetRef, scrollOffset state, driveScrollYRef) every other write
-  // site used to duplicate individually. fling is a real branch of its own —
-  // it drives the scrollY MotionValue directly (instant clamp, boundary
-  // spring-back, or full inertia decay) rather than the driveScrollYRef
-  // triplet, since inertia's physics aren't expressible as a single target +
-  // the standard transition chase.
-  const applyScrollCommand = useCallback(
-    (cmd: ScrollCommand) => {
-      // ui#27: an ALLOWLIST, not an enumerated exclusion list — see
-      // ScrollCommand's own doc comment in inputController.ts. Captured
-      // once, up front, so the rest of this callback (the timer-cancel
-      // below, and the arm/rebase logic after the write) can read it
-      // without re-narrowing `cmd`'s type at each use.
-      const isWheelScrollBy = cmd.type === "scrollBy" && cmd.source === "wheel";
-      const wheelDeltaAbsPx = cmd.type === "scrollBy" ? Math.abs(cmd.delta) : 0;
-
-      // Any command that ISN'T a wheel-tagged scrollBy supersedes whatever
-      // wheel stream a pending cliff timer might be watching — cancel it so
-      // a stale timer can never fire a jump into an unrelated later scroll
-      // state (fling/toTop/toBottom/scrollTo taking over; page/keyboard/
-      // scrollbar-thumb-drag scrollBy moving the target the timer's own
-      // debt calculation was tracking), and reset the pairing gate too —
-      // the stream it was tracking is over, so a wheel command arriving
-      // later starts a fresh stream that must re-earn pairing from
-      // scratch. A fresh wheel-tagged scrollBy re-arms the timer instead,
-      // after the write below.
-      if (!isWheelScrollBy) {
-        if (wheelCliffTimerRef.current !== null) {
-          clearTimeout(wheelCliffTimerRef.current);
-          wheelCliffTimerRef.current = null;
-        }
-        wheelStreamPairedRef.current = false;
-        lastWheelEventAtRef.current = 0;
-      }
-
-      if (cmd.type === "fling") {
-        // F9 commit 2 / adjudication 2 (velocity-sign-at-initiation,
-        // ACCEPTED): from a pinned state the only possible fling is
-        // away-from-end — release immediately at initiation rather than
-        // waiting for the coast to settle. Re-pin (below, at each fling
-        // sub-branch's own settled destination) covers both a fling that
-        // begins unpinned but settles at the end, and the S3 boundary-
-        // bounce case (an overshooting fling whose own boundary spring
-        // pulls it back to maxScroll has RETURNED to the end).
-        if (anchor === "end" && pinnedRef.current) {
-          pinnedRef.current = false;
-        }
-        if (duration === 0) {
-          // Instant mode: inertia has no meaningful instant equivalent — just
-          // settle at the clamped release position (forecast-gate plan §2).
-          // Clamped defensively — instant mode never runs a fling (this whole
-          // branch returns before the inertia code below), so scrollY
-          // shouldn't normally be out of bounds here, but the same bound-on-
-          // release invariant as the real-mode path below applies if it ever is.
-          const clamped = Math.max(0, Math.min(maxScrollRef.current, scrollY.get()));
-          // F9 commit 3: updatePinnedState BEFORE the write — onScroll's
-          // subscriber fires synchronously off scrollY.set below, so
-          // pinnedRef must already reflect this release/re-pin decision or
-          // that one onScroll call would report the pre-transition anchored
-          // value (probe-confirmed: reversing this order left the LAST
-          // onScroll call of a release still reporting "end").
-          updatePinnedState(clamped, maxScrollRef.current);
-          scrollY.set(clamped);
-          return;
-        }
-
-        // F13 commit 2: velocity is computeReleaseVelocity's own drag-sample
-        // tracker (handleContentPointerUp), not a scrollY MotionValue read
-        // at release — see that function's own doc comment for why a
-        // MotionValue read is unreliable exactly at a pointer release (a
-        // cached signal that can land just outside its own refresh window
-        // on a fast grab->release, plus — since commit 4 — corruption from
-        // a mid-coast compensation jump that never reflects real finger
-        // movement).
-        const velocity = cmd.velocity;
-
-        // Fix-round round 2 (gate finding: 203px drift on a genuinely
-        // zero-velocity release): a fresh type:"inertia" animation's
-        // checkCatchBoundary(0) engages its boundary-catch spring at GENERATOR
-        // CREATION TIME whenever the STARTING keyframe is out of [min,max]
-        // bounds — completely independent of the passed velocity (probe-
-        // confirmed at source: animate(y, [2029], {type:"inertia", velocity:0,
-        // max:1200,...}) still springs 2029->1366 over 300ms). scrollY CAN
-        // legitimately sit out of bounds here: it's a snapshot of wherever a
-        // PRIOR fling's own rubber-band overshoot was at the exact moment this
-        // grab's jump() froze it (the plan's "clamped rubber-band" physics can
-        // transiently exceed maxScroll before its own boundary spring pulls it
-        // back — a real, verified C4 behavior, not a bug). A genuinely
-        // zero-velocity release means the user imparted no momentum, so no
-        // inertia/friction decay is warranted here — but the strip must still
-        // never come to rest permanently past its scrollable edge (iOS
-        // convention; the spec's Touch scenario: "overscroll past the scroll
-        // bounds should be clamped"). So: in bounds → leave it exactly where
-        // jump() froze it (nothing to correct); out of bounds → spring back to
-        // the nearest edge, the same correction an uninterrupted fling's own
-        // boundary-catch would eventually have applied.
-        if (Math.abs(velocity) < 0.01) {
-          const current = scrollY.get();
-          const clamped = Math.max(0, Math.min(maxScrollRef.current, current));
-          if (current !== clamped) {
-            const controls = animate(scrollY, clamped, transition);
-            motionSeam?.registerControls(`scrollY:${name}`, controls);
-            motionSeam?.registerTarget?.(`scrollY:${name}`, clamped);
-          }
-          // clamped IS the final destination in both branches above
-          // (whether an animation was needed to get there or it was
-          // already there) — re-pin (or stay released) against it now.
-          updatePinnedState(clamped, maxScrollRef.current);
-          return;
-        }
-
-        // F13 commit 4: the real, multi-frame decay call lives in
-        // startInertiaFlingRef (assigned just above, before this callback —
-        // see its own declaration near driveScrollYRef for why) so
-        // applyScrollYDeltaRef can call the exact SAME logic to re-fling a
-        // coast interrupted mid-flight by a content-growth compensation —
-        // no duplicated animate() invocation to drift out of sync.
-        startInertiaFlingRef.current(velocity);
-        return;
-      }
-
-      let nextOffset: number;
-      switch (cmd.type) {
-        case "scrollBy":
-        case "page": {
-          // ui#27 / ui#o85 F1: a wheel-tagged delta whose sign OPPOSES the
-          // outstanding spring debt is a deliberate reverse-scroll — rebase
-          // the target computation onto the LIVE spring position instead
-          // of chasing the stale (pre-reversal) target, so the reversal
-          // feels immediate rather than first having to unwind whatever
-          // the forward chase still owed. Scoped to wheel (matching the
-          // cliff detector's own allowlist) — keyboard/scrollbar-thumb
-          // commands keep today's plain accumulate-onto-target behavior.
-          let base = scrollOffsetRef.current;
-          if (isWheelScrollBy) {
-            const outstandingDebt = scrollOffsetRef.current - scrollY.get();
-            if (opposesOutstandingDebt(Math.sign(cmd.delta), Math.sign(outstandingDebt))) {
-              base = scrollY.get();
-            }
-          }
-          nextOffset = Math.max(0, Math.min(maxScrollRef.current, base + cmd.delta));
-          break;
-        }
-        case "toTop":
-          nextOffset = 0;
-          break;
-        case "toBottom":
-          nextOffset = maxScrollRef.current;
-          break;
-        case "scrollTo":
-          // F11 commit 2: the target offset is already fully computed
-          // (nearest-edge, clamped) by the scrollTo effect below — this
-          // command just routes it through the SAME shared write path
-          // every other intent-driven command uses, springing exactly
-          // like scrollBy/toTop/toBottom, and getting the pin-interaction
-          // re-pin below "for free" (updatePinnedState runs unconditionally
-          // for every command type here, scrollTo included).
-          nextOffset = Math.max(0, Math.min(maxScrollRef.current, cmd.offset));
-          break;
-      }
-      scrollOffsetRef.current = nextOffset;
-      setScrollOffset(nextOffset);
-      // F9 commit 2: release/re-pin against the target this command is
-      // driving toward, evaluated at the SAME site as the write (not
-      // waiting for the spring to visually finish) — the user's intent
-      // (and thus the pin transition) is clear the moment the command is
-      // issued. F9 commit 3: ordered BEFORE driveScrollYRef below —
-      // instant mode (duration===0) writes scrollY synchronously, firing
-      // onScroll's change-event subscriber immediately, so pinnedRef must
-      // already carry this decision or that call would report the
-      // pre-transition anchored value.
-      updatePinnedState(nextOffset, maxScrollRef.current);
-      driveScrollYRef.current(nextOffset);
-
-      // ui#27, orchestrator-ruled amendment: update the pairing ratchet on
-      // every wheel-tagged command BEFORE deciding whether to arm — pairs
-      // THIS event with the immediately preceding one if they landed
-      // within WHEEL_STREAM_PAIRING_MS of each other (see that constant's
-      // own doc comment). A ratchet: once true, stays true for the rest of
-      // this unbroken stream regardless of any later gap — only the
-      // top-of-function reset (a non-wheel command), the compensation-path
-      // reset, handleContentPointerDown's reset, or this timer's own
-      // callback (below, unconditionally) ever clear it.
-      if (isWheelScrollBy) {
-        const now = performance.now();
-        if (lastWheelEventAtRef.current !== 0 && now - lastWheelEventAtRef.current <= WHEEL_STREAM_PAIRING_MS) {
-          wheelStreamPairedRef.current = true;
-        }
-        lastWheelEventAtRef.current = now;
-      }
-
-      // Arm (or re-arm) the wheel catch-stop timer — only once the stream
-      // is paired (a lone single wheel command is an ordinary, uncaught
-      // scroll with nothing to catch; see WHEEL_STREAM_PAIRING_MS).
-      // duration===0 (instant/test-harness mode) never arms it — no spring
-      // debt exists to detect, mirroring the fling branch's own early
-      // special-case for the identical reason (see its own comment above).
-      // MUST clear any timer this same branch already had pending before
-      // scheduling a new one — a real wheel stream fires far faster than
-      // WHEEL_CLIFF_SILENCE_MS apart, so without this, every event in the
-      // stream would leave its OWN still-scheduled timer behind (the
-      // top-of-function cancel above only fires for NON-wheel commands),
-      // producing a cascade of stale timers that start firing mid-stream
-      // against whatever the CURRENT (not their own arm-time) state
-      // happens to be — repeatedly snapping the spring throughout the
-      // whole stream instead of a single clean arrest after real silence.
-      if (isWheelScrollBy && duration !== 0) {
-        if (wheelCliffTimerRef.current !== null) {
-          clearTimeout(wheelCliffTimerRef.current);
-          wheelCliffTimerRef.current = null;
-        }
-        lastWheelDeltaAbsPxRef.current = wheelDeltaAbsPx;
-        if (wheelStreamPairedRef.current) {
-          wheelCliffTimerRef.current = setTimeout(() => {
-            wheelCliffTimerRef.current = null;
-            // The stream this timer was watching is over either way —
-            // silence has now elapsed, whether or not it qualifies as a
-            // catch below. A wheel command arriving after this point starts
-            // a fresh stream that must re-earn pairing from scratch.
-            wheelStreamPairedRef.current = false;
-            lastWheelEventAtRef.current = 0;
-
-            const live = scrollY.get();
-            const outstandingPx = Math.abs(scrollOffsetRef.current - live);
-            const shouldStop = shouldCliffStop(
-              { lastDeltaAbsPx: lastWheelDeltaAbsPxRef.current, outstandingPx },
-              { deltaFloorPx: WHEEL_CLIFF_DELTA_FLOOR_PX, outstandingFloorPx: WHEEL_CLIFF_OUTSTANDING_FLOOR_PX },
-            );
-            if (!shouldStop) return;
-
-            // Touch-arrest idiom, copied from handleContentPointerDown below
-            // (see its own comment for the full rationale on jump() over
-            // stop(), and on each of these four writes) — a caught wheel
-            // stream gets the identical treatment a touch grab already gets.
-            // updatePinnedState is the one addition beyond the touch path:
-            // touch bypasses applyScrollCommand entirely, but this jump
-            // happens INSIDE it, so the pin-state sync every other command
-            // here gets must run for this one too.
-            scrollY.jump(live);
-            scrollYSpringTargetRef.current = null;
-            flingActiveRef.current = false;
-            const resynced = scrollY.get();
-            scrollOffsetRef.current = resynced;
-            setScrollOffset(resynced);
-            updatePinnedState(resynced, maxScrollRef.current);
-          }, WHEEL_CLIFF_SILENCE_MS);
-        }
-      }
-    },
-    // F13 commit 4: stiffness/damping dropped from this list — the real
-    // inertia call (which used them for bounceStiffness/bounceDamping) now
-    // lives in startInertiaFlingRef, a stable ref this callback reads
-    // through .current rather than closing over directly.
-    [duration, transition, motionSeam, name, scrollY, anchor],
-  );
-
-  // Mirrors driveScrollYRef's ref pattern: the wheel/keyboard effects below
-  // subscribe once via `[]` deps for a stable listener across renders, so
-  // they read applyScrollCommand through a ref kept fresh every render
-  // rather than closing over a possibly-stale version from mount time.
-  const applyScrollCommandRef = useRef(applyScrollCommand);
-  applyScrollCommandRef.current = applyScrollCommand;
-
-  // Register this column's command applier so Scene's wheel handler can
-  // route a decided ScrollCommand straight here (replaces the old
-  // 'columnscroll' CustomEvent bridge). Kept fresh as applyScrollCommand's
-  // own deps change; only deletes on cleanup if we're still the registered
-  // handler for this name (guards a same-name remount race, mirroring this
-  // file's other name-keyed store patterns).
-  useEffect(() => {
-    scrollCommandRegistry.set(name, applyScrollCommand);
-    return () => {
-      if (scrollCommandRegistry.get(name) === applyScrollCommand) {
-        scrollCommandRegistry.delete(name);
-      }
-    };
-  }, [scrollCommandRegistry, name, applyScrollCommand]);
-
-  // Ref to the latest EFFECTIVE (padding-subtracted) viewport height for use
-  // in the keyboard handler (avoids stale closure — we want the current
-  // value at the time of the keypress). Page Up/Down's page size must match
-  // the same padding-adjusted basis as maxScroll (S6 padding cluster) — the
-  // raw viewportHeight overshoots by Scene's padding.
-  const viewportHeightRef = useRef(effectiveViewportHeight);
-  viewportHeightRef.current = effectiveViewportHeight;
-
-  // Keyboard scroll: intercept arrow/page/home/end keys when keyboard focus is
-  // inside this column. Standard scroll amounts match browser conventions.
-  // isInteractiveElement (S5 input controller, DELTA-1) is the CURATED
-  // exemption gate — a naive [role]/[tabindex] matcher would also exempt this
-  // column's own scrollable content wrapper (role="region", tabIndex=0 — D2)
-  // and the scrollbar thumb, breaking the tab-to-region-then-arrow-scroll path.
-  useEffect(() => {
-    const el = colRef.current;
-    if (!el) return;
-
-    const handler = (e: KeyboardEvent) => {
-      // Only handle when this column has focused content to scroll.
-      if (maxScrollRef.current <= 0) return;
-
-      if (isInteractiveElement(e.target as Element)) return;
-
-      const cmd = mapScrollKeyToCommand(e.key, e.shiftKey, viewportHeightRef.current);
-      if (!cmd) return; // Not a scroll key — don't intercept
-
-      applyScrollCommandRef.current(cmd);
-      e.preventDefault();
-    };
-
-    el.addEventListener("keydown", handler);
-    return () => el.removeEventListener("keydown", handler);
-  }, []);
-
-  // F11 commit 2: declarative scrollTo. Fires once per VALUE CHANGE to a
-  // non-null string — React's own dependency comparison on `scrollTo` (a
-  // primitive string) already gives one-shot semantics for free: setting
-  // the SAME id again while it's already the current value doesn't change
-  // the dependency, so this effect simply doesn't re-run (no extra
-  // "already navigated" tracking ref needed). `null` is inert (early
-  // return) and also resets the comparison baseline, so a LATER re-set of
-  // the same id (after passing through null) is a genuine new value change
-  // and fires again — the intended "clear then re-request" semantics.
-  useEffect(() => {
-    if (scrollTo === null) return;
-    const wrapper = contentWrapperRef.current;
-    if (!wrapper) return;
-
-    const target = findScrollToTarget(wrapper, scrollTo);
-    if (!target) {
-      console.warn(
-        `Scene: scrollTo target "${scrollTo}" not found within column "${name}" — no-op.`,
-      );
-      return;
-    }
-
-    // Transform-immune rect-delta measurement — the SAME technique
-    // remeasureGeometry and the F10/F10b intra-object anchoring use
-    // throughout this file, for the same reason: getBoundingClientRect
-    // alone would report a foreshortened size/position under any ancestor
-    // transform (H11), but the DELTA between two simultaneous reads in the
-    // same transform context cancels that out.
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const targetRect = target.getBoundingClientRect();
-    const targetOffsetTop = targetRect.top - wrapperRect.top;
-    const targetHeight = (target as HTMLElement).offsetHeight;
-
-    const nextOffset = computeNearestEdgeScrollOffset(
-      scrollOffsetRef.current,
-      viewportHeightRef.current,
-      targetOffsetTop,
-      targetHeight,
-      maxScrollRef.current,
-    );
-    // Routes through the SAME applyScrollCommand write path every other
-    // intent-driven command uses (springs; re-pins for free via its
-    // shared updatePinnedState call — see the "scrollTo" case's own
-    // comment there) rather than writing scrollOffsetRef/scrollY directly.
-    applyScrollCommandRef.current({ type: "scrollTo", offset: nextOffset });
-  }, [scrollTo, name]);
-
-  // Ref mirrors of render-time values, kept fresh every render so the
-  // ResizeObserver callback below (a stable closure, subscribed once on
-  // mount) always reads the current values instead of a stale snapshot.
-  const objectStatesRef = useRef(objectStates);
-  objectStatesRef.current = objectStates;
-  const objectGapRef = useRef(objectGap);
-  objectGapRef.current = objectGap;
-  const columnFocusedRef = useRef(columnFocused);
-  columnFocusedRef.current = columnFocused;
+  // Vertical scroll: the full wheel/keyboard/scrollbar/fling write path,
+  // maxScroll/pin-state tracking, and the declarative scrollTo effect —
+  // extracted to useColumnScroll (ui#24 Cluster C). Called here, before the
+  // focus/frozen-size cluster and useColumnAnchoring's own call below, so
+  // this hook's internal effects (registry, keyboard, scrollTo — all
+  // passive) register in the SAME relative position (before those two) they
+  // held prior to the extraction. Returns an interface object rather than
+  // writing through passed-in refs — see that hook's own doc comment for
+  // why (the swap-reset effect, touch's pointer handlers, and rendering
+  // below all consume pieces of it).
+  const {
+    scrollY,
+    scrollOffset,
+    setScrollOffset,
+    scrollOffsetRef,
+    maxScroll,
+    maxScrollRef,
+    viewportHeightRef,
+    contentHeightRef,
+    pinnedRef,
+    updatePinnedState,
+    driveScrollYRef,
+    applyScrollYDeltaRef,
+    applyScrollCommand,
+    scrollYSpringTargetRef,
+    flingActiveRef,
+    wheelCliffTimerRef,
+    wheelStreamPairedRef,
+    lastWheelEventAtRef,
+    resyncScrollMetricsRef,
+  } = useColumnScroll({
+    name,
+    anchor,
+    duration,
+    transition,
+    stiffness,
+    damping,
+    touchPower,
+    touchTimeConstant,
+    motionSeam,
+    columnFocused,
+    contentHeight,
+    effectiveViewportHeight,
+    scrollCommandRegistry,
+    colRef,
+    contentWrapperRef,
+    scrollTo,
+  });
 
   // Touch pan drag state (moved up from its original declaration point,
   // right before the touch pointer handlers below, so F9's content-growth
@@ -1597,415 +374,6 @@ export function SceneColumn({
   // lifecycle, scoped to gestures touchOwnershipRef decides "horizontal".
   const panVelocitySamplesRef = useRef<VelocitySample[]>([]);
 
-  // Bulk-remeasures every registered object's offsetTop/height relative to
-  // the content wrapper (the rect-delta technique — invariant under the
-  // wrapper's own animated `top`, since both rects shift together). Shared
-  // by the per-render layout effect below and the ResizeObserver callback.
-  // Returns true when the geometry actually changed (fingerprint bail-out —
-  // avoids forcing a re-render on every ResizeObserver callback when
-  // nothing moved).
-  //
-  // H11 fix (first-focus-only vertical marginTop swing): height uses
-  // `el.offsetHeight`, NOT `rect.height`. A column transitioning out of the
-  // depth deck (in-between position) carries an active translateZ/scale
-  // transform — the depth treatment's own perspective-projection shrink
-  // (computeDepthTreatment; ui#17 removed Motion's `layout` FLIP prop
-  // entirely, so this is no longer compounded by a second, FLIP-driven
-  // correction on top of it — the depth treatment's transform is the only
-  // one left), biggest on a column's FIRST focus (no frozenSize yet, so the
-  // box shape changes dramatically) — and getBoundingClientRect() reports
-  // that transform's PROJECTED size, not the true laid-out height. Unlike
-  // offsetTop's rect-delta (both rects share the same transform context, so
-  // it cancels out), there is no delta to cancel a direct scale factor
-  // applied to a raw dimension. offsetHeight is a layout metric, immune to
-  // any transform on the element or its ancestors — probe-verified (first-
-  // vs-second-focus trace): before this fix, first focus's marginTop
-  // overshot from ~301 to ~330 before settling back to 300 over ~500ms
-  // (second focus, with a real frozenSize already set, stayed flat at 300
-  // throughout); after, first focus converges monotonically, matching
-  // second focus's flat trace.
-  const remeasureGeometry = useCallback((): boolean => {
-    const wrapper = contentWrapperRef.current;
-    if (!wrapper) return false;
-    const wrapperRect = wrapper.getBoundingClientRect();
-    for (const [objName, el] of registeredEls.current) {
-      const rect = el.getBoundingClientRect();
-      const offsetTop = rect.top - wrapperRect.top;
-      const height = el.offsetHeight;
-      // ui#21: reported by SceneObject via register(), not DOM-measured —
-      // see GeometryEntry's own `heightTarget` doc comment for why.
-      const heightTarget = registeredHeightTargetsRef.current.get(objName);
-      // ui#17: offsetWidth, not rect.width — same H11 rationale as height
-      // above (a layout metric, immune to any transform on the element or
-      // its ancestors), now load-bearing for the owned width channel's
-      // target measurement, not just a defensive choice.
-      const width = el.offsetWidth;
-      geometryStore.current.set(objName, { offsetTop, height, heightTarget, width });
-      // F4 feature (c) debug-only mirror: exposes this store's per-object
-      // entries to the debug overlay's geometry-store inspector without
-      // giving it a live React-level handle into this column's internal
-      // ref. Imperative attribute write (not React-rendered), same
-      // rationale as data-ui-scene-scroll-offset's own writer below — this runs on
-      // every remeasure pass (potentially every ResizeObserver tick), and
-      // React-rendering it would force a re-render on every tick just to
-      // keep a debug-only number current. Unconditional (not gated on
-      // `debug`), matching data-ui-scene-scroll-offset's own precedent — a plain
-      // attribute write doesn't affect layout either way.
-      el.setAttribute("data-ui-scene-debug-geometry-offset-top", String(Math.round(offsetTop)));
-      el.setAttribute("data-ui-scene-debug-geometry-height", String(Math.round(height)));
-      el.setAttribute("data-ui-scene-debug-geometry-width", String(Math.round(width)));
-    }
-    const fingerprint = Array.from(geometryStore.current.entries())
-      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.heightTarget ?? g.height)}:${Math.round(g.width)}`)
-      .join(",");
-    const changed = fingerprint !== geometryFingerprintRef.current;
-    geometryFingerprintRef.current = fingerprint;
-    return changed;
-  }, []);
-
-  // F9 anchoring: a snapshot of geometryStore taken at the end of the last
-  // remeasureGeometryWithAnchorCompensation call — used as the "before"
-  // reference for the NEXT compensation event, instead of reading
-  // geometryStore.current live (see that wrapper's own comment for why:
-  // SceneObject's own per-render register/unregister cleanup can
-  // transiently wipe entries before this wrapper's layout effect runs).
-  const lastSettledGeometryRef = useRef<Map<string, GeometryEntry>>(new Map());
-
-  /**
-   * F10: the intra-object anchor candidate tracked at the end of the last
-   * remeasureGeometryWithAnchorCompensation call. `el` is tracked by
-   * reference (not name — descendant candidates don't have Scene-level
-   * identifiers) and re-measured via `el.isConnected` at the next settle;
-   * `offsetTop` is stored LOCAL to `objName`'s own object (candidate
-   * offsetTop minus the anchor object's own offsetTop), not
-   * content-wrapper-relative — see remeasureGeometryWithAnchorCompensation's
-   * own comment for why the local frame is what lets this compose
-   * additively with the object-level diff instead of double-counting.
-   *
-   * F12: `height` (offsetHeight, transform-immune — the H11 discipline) is
-   * the anchor's own measured height at settle time, used to detect
-   * in-place growth (vs. a sibling insertion) at the next settle. `witness`
-   * is the deepest in-view element intersecting the line just below the
-   * anchor's bottom edge, stored the same LOCAL-offsetTop way — the element
-   * whose movement reveals a prepend BETWEEN the anchor and itself, when the
-   * anchor itself hasn't moved or grown. See the compensation branch below
-   * for the full witness-fallback rationale.
-   */
-  const lastSettledIntraAnchorRef = useRef<{
-    objName: string;
-    el: Element;
-    offsetTop: number;
-    height: number;
-    witness: { el: Element; offsetTop: number } | null;
-  } | null>(null);
-
-  // F9 anchoring-as-default: wraps remeasureGeometry with content-growth
-  // scroll-position compensation, mirroring native browser scroll
-  // anchoring. Captures the anchor object's offsetTop BEFORE remeasuring,
-  // then diffs against its offsetTop AFTER — if a focused sibling earlier
-  // in DOM order changed height, everything after it (including the
-  // anchor) shifts by that delta, and applying the SAME delta to the
-  // scroll offset keeps the user's in-view content visually stable. See
-  // selectAnchorObject's own doc comment for why this operates at object
-  // granularity rather than arbitrary DOM nodes.
-  //
-  // Only meaningful for multi-focused-object stacking: a single-focused-
-  // object column's anchor is trivially that object, and its OWN growth
-  // never moves its OWN offsetTop (nothing precedes it in the content
-  // wrapper) — a structural no-op there, which is why the existing B2
-  // single-object content-growth test is unaffected by this addition.
-  //
-  // A displacement correction, never a navigation — applyScrollYDeltaRef
-  // (jump semantics, with in-flight-spring retargeting per adjudication 1)
-  // is the write path, never driveScrollYRef (which always springs in
-  // real mode).
-  const remeasureGeometryWithAnchorCompensation = useCallback((): boolean => {
-    if (!columnFocusedRef.current) {
-      const changed = remeasureGeometry();
-      lastSettledGeometryRef.current = new Map(geometryStore.current);
-      lastSettledIntraAnchorRef.current = null; // F10: nothing to track while unfocused
-      return changed;
-    }
-
-    // "Before" reads from the last-SETTLED snapshot (captured at the end
-    // of the PREVIOUS call to this same wrapper), never live geometryStore
-    // directly — probe-confirmed bug avoided here: SceneObject's own
-    // registration effect unregisters-then-reregisters on EVERY render
-    // (no deps array — see its own doc comment, "a focus-only change must
-    // be reflected in the registry the SAME commit"), and unregistering
-    // deletes that object's geometryStore entry as a side effect.
-    // Children's layout effects run BEFORE the parent's (React's
-    // bottom-up ordering), so by the time THIS wrapper's own layout
-    // effect runs, sibling children may have already wiped their entries
-    // for this same commit — geometryStore.current can transiently read
-    // empty/partial even though nothing about their geometry actually
-    // needs to change. The settled snapshot sidesteps this entirely.
-    const anchorName = selectAnchorObject(
-      objectStatesRef.current,
-      lastSettledGeometryRef.current,
-      scrollOffsetRef.current,
-      viewportHeightRef.current,
-    );
-    // Null-safety (forecast Finding 2): selectAnchorObject legally returns
-    // null (no focused object's geometry is known yet, e.g. mid-swap-
-    // commit) — skip compensation entirely rather than NaN-propagating.
-    const beforeOffsetTop = anchorName ? lastSettledGeometryRef.current.get(anchorName)?.offsetTop : undefined;
-
-    // F10: carry forward the element tracked at the end of the PREVIOUS
-    // settle, discarding it if it belonged to a DIFFERENT anchor object
-    // (the user scrolled to a different focused object between settles —
-    // its LOCAL offset would be meaningless against a different object's
-    // basis) or has since been disconnected (removed by the same content
-    // change this call is reacting to). Both are legal transient states,
-    // not errors: a fresh candidate is always re-selected at the end of
-    // this function regardless, so tracking self-heals on the very next
-    // call with no special-case recovery path needed.
-    const beforeIntra = lastSettledIntraAnchorRef.current;
-    const intraBefore =
-      beforeIntra && beforeIntra.objName === anchorName && beforeIntra.el.isConnected
-        ? beforeIntra
-        : null;
-
-    const changed = remeasureGeometry();
-
-    // F10: one wrapperRect read serves every intra-object measurement below
-    // (the "after" delta for intraBefore AND the fresh re-selection at the
-    // end) — mirrors remeasureGeometry's own single-read-per-pass
-    // technique. Safe to reuse across the scroll-offset writes in between:
-    // neither React's state-driven `top` (instant mode) nor Motion's
-    // rAF-batched MotionValue-driven `top` (real mode) mutates the
-    // wrapper's rendered position SYNCHRONOUSLY within this function call —
-    // both defer to a later commit/frame — so the wrapper never actually
-    // moves between these reads.
-    const wrapper = contentWrapperRef.current;
-    const wrapperRect = wrapper?.getBoundingClientRect();
-    const afterOffsetTop = anchorName ? geometryStore.current.get(anchorName)?.offsetTop : undefined;
-
-    if (anchorName !== null && beforeOffsetTop !== undefined && afterOffsetTop !== undefined) {
-      const delta = afterOffsetTop - beforeOffsetTop;
-      if (delta !== 0) {
-        // Clamp against a FRESHLY computed maxScroll, not maxScrollRef —
-        // probe-confirmed bug avoided here: maxScrollRef.current still
-        // reflects the STALE, pre-remeasure contentHeight React state
-        // (setContentHeight is only called AFTER this wrapper returns,
-        // later in the same layout effect), so clamping against it here
-        // would clip a genuine correction to the OLD, smaller bound
-        // before the new content's height is accounted for. Mirrors the
-        // A2 swap-reset effect's own established pattern for this exact
-        // staleness class ("Computing a fresh value directly from the
-        // just-remeasured geometry store sidesteps that lag entirely").
-        const freshContentHeight = computeFocusedContentHeight(
-          objectStatesRef.current,
-          geometryStore.current,
-          objectGapRef.current,
-        );
-        const freshMaxScroll = Math.max(
-          0,
-          viewportHeightRef.current > 0 ? freshContentHeight - viewportHeightRef.current : 0,
-        );
-        const corrected = Math.max(
-          0,
-          Math.min(freshMaxScroll, scrollOffsetRef.current + delta),
-        );
-        const appliedDelta = corrected - scrollOffsetRef.current;
-        scrollOffsetRef.current = corrected;
-        setScrollOffset(corrected);
-        applyScrollYDeltaRef.current(appliedDelta);
-        // F9 commit 2 scope addition: rebase the active touch drag's own
-        // baseline by the same delta so the gesture's math stays
-        // coherent through a mid-drag compensation event. Without this,
-        // handleContentPointerMove recomputes newOffset from
-        // dragStartOffset every pointermove tick — a STALE baseline
-        // relative to the just-applied compensation — silently
-        // overwriting the correction on the very next tick (a flash-
-        // then-revert). Rebasing dragStartOffset by the same delta
-        // preserves the user's finger-anchored expectation: the finger
-        // still tracks the SAME visual content it started on, just now
-        // correctly offset by however much content shifted above it.
-        if (isDragging.current) {
-          dragStartOffset.current += appliedDelta;
-        }
-      }
-
-      // F10: intra-object anchoring — a PREPEND inside the anchor object's
-      // own interior (adding content above the currently-tracked row) grows
-      // the object's total height but never moves the object's OWN
-      // offsetTop (nothing precedes the OBJECT itself), so the object-level
-      // pass above is structurally blind to it (same reason a sole
-      // focused object's own growth is a no-op there). Layered on top,
-      // never in place of it: intraBefore.offsetTop and
-      // afterIntraLocalOffsetTop are both expressed LOCAL to anchorName
-      // (candidate offsetTop minus the object's OWN offsetTop), which is
-      // what lets this branch's correction compose ADDITIVELY with the
-      // object-level one above rather than double-counting it — a
-      // content-wrapper-relative (global) delta for the SAME tracked
-      // candidate would already include whatever shifted the object itself,
-      // since a descendant's absolute position is anchorObjectOffsetTop +
-      // itsOwnLocalOffset; subtracting the object's own offsetTop on both
-      // sides of the diff cancels that shared term, isolating the
-      // object's-own-interior contribution only. scrollOffsetRef.current is
-      // read below AFTER the object-level write above (if any fired), so
-      // the two corrections stack rather than race.
-      if (intraBefore && wrapperRect) {
-        const afterIntraGlobalOffsetTop = intraBefore.el.getBoundingClientRect().top - wrapperRect.top;
-        const afterIntraLocalOffsetTop = afterIntraGlobalOffsetTop - afterOffsetTop;
-        const intraDelta = afterIntraLocalOffsetTop - intraBefore.offsetTop;
-        // Offset-exactly-0 suppression, MODE-SCOPED to anchor="none" (F11
-        // fix — Peri's CR-3, source-confirmed): F10's original suppression
-        // fired for every column, but a real anchor="end" reader who has
-        // scrolled all the way to offset 0 is holding their place in
-        // HISTORY, not "at the top with nothing above yet" the way a plain
-        // anchor="none" feed's offset-0 reader is. The anchor mode already
-        // declares content direction — "end" = the live edge (new content
-        // arrives ahead, at maxScroll; offset 0 is just far history) vs.
-        // "none"'s plain native-anchoring mirror (offset 0 IS the true
-        // top — mirrors native scroll anchoring, which never corrects at
-        // scrollTop 0 so newly-arrived top content stays discoverable
-        // there rather than being invisibly scrolled past). So anchor="end"
-        // compensates at ANY offset, including exactly 0; anchor="none"
-        // keeps the original suppression. Evaluated against the RUNNING
-        // offset (post any object-level write above), matching where this
-        // branch's own correction, if applied, would land.
-        // F12: shared write path for both intra-object corrections below
-        // (the anchor-delta branch and the witness-delta fallback) — the
-        // SAME fresh-maxScroll-then-clamp-then-apply sequence the
-        // object-level branch above uses, factored once so the witness
-        // fallback can never drift from the anchor branch's own mechanism.
-        const applyIntraCorrection = (delta: number) => {
-          const freshContentHeight = computeFocusedContentHeight(
-            objectStatesRef.current,
-            geometryStore.current,
-            objectGapRef.current,
-          );
-          const freshMaxScroll = Math.max(
-            0,
-            viewportHeightRef.current > 0 ? freshContentHeight - viewportHeightRef.current : 0,
-          );
-          const corrected = Math.max(0, Math.min(freshMaxScroll, scrollOffsetRef.current + delta));
-          const appliedDelta = corrected - scrollOffsetRef.current;
-          scrollOffsetRef.current = corrected;
-          setScrollOffset(corrected);
-          applyScrollYDeltaRef.current(appliedDelta);
-          // Same drag-rebase rationale as the object-level branch above —
-          // both branches' appliedDelta accumulate independently onto
-          // dragStartOffset when they compose in the same settle.
-          if (isDragging.current) {
-            dragStartOffset.current += appliedDelta;
-          }
-        };
-
-        if (intraDelta !== 0 && (anchor === "end" || scrollOffsetRef.current > 0)) {
-          applyIntraCorrection(intraDelta);
-        } else {
-          // F12: witness-element fallback, scoped to anchor="end" only (the
-          // anchor mode declares content direction — see the offset-0
-          // suppression comment above; a "none" column never witnesses).
-          // Handles the case F11's guard didn't: a STATIONARY element above
-          // the real prepend point (a "load earlier" affordance, a date
-          // header) is itself the tracked anchor, so it never moves on a
-          // prepend below it — intraDelta stays 0 and the branch above
-          // never fires. The witness (the deepest in-view element just
-          // below the anchor's bottom edge, recorded at the last settle —
-          // see the record site below) reveals that exact case: if IT moved
-          // while the anchor's own top AND height stayed put, something was
-          // inserted between them.
-          const witness = anchor === "end" && intraDelta === 0 ? intraBefore.witness : null;
-          if (witness && witness.el.isConnected) {
-            // Anchor's own height growing in place (e.g. an image loading
-            // inside it) is NOT a sibling insertion — that keeps native
-            // hold-the-top semantics, same as any other in-place growth.
-            // offsetHeight (not getBoundingClientRect, per H11) matches how
-            // `height` was captured at settle time.
-            const afterAnchorHeight = (intraBefore.el as HTMLElement).offsetHeight;
-            if (afterAnchorHeight === intraBefore.height) {
-              const afterWitnessGlobalOffsetTop = witness.el.getBoundingClientRect().top - wrapperRect.top;
-              const afterWitnessLocalOffsetTop = afterWitnessGlobalOffsetTop - afterOffsetTop;
-              const witnessDelta = afterWitnessLocalOffsetTop - witness.offsetTop;
-              if (witnessDelta !== 0) {
-                applyIntraCorrection(witnessDelta);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // F10b: re-select the DEEPEST candidate to track for the NEXT settle
-    // (recursive descent — F10's own one-level version stopped at the
-    // first branching level, which reproduces the exact object-level
-    // blindness one wrapper deeper: a real consumer pipeline can nest the
-    // actual rows two or more levels below where real siblings first
-    // appear, e.g. behind a list component's own root, alongside sticky
-    // siblings like a chat's Composer/PushBanner). Always freshly derived
-    // rather than carried forward, so a changed anchor or a disconnected
-    // previous candidate self-heals with no special-case recovery path.
-    // findDeepestIntraObjectAnchor operates in the GLOBAL (content-
-    // wrapper-relative) frame throughout its walk — the SAME frame
-    // wrapperRect/scrollOffsetRef.current already share — converting to
-    // the object-LOCAL frame intraBefore uses only at the end, once,
-    // rather than at every recursion level.
-    const anchorEl = anchorName ? registeredEls.current.get(anchorName) : undefined;
-    if (anchorEl && wrapperRect && afterOffsetTop !== undefined) {
-      const match = findDeepestIntraObjectAnchor(
-        anchorEl,
-        wrapperRect,
-        scrollOffsetRef.current,
-        viewportHeightRef.current,
-      );
-      if (match !== null) {
-        // F12: witness bookkeeping, scoped to anchor="end" (see the
-        // compensation branch above for the fallback rationale). The
-        // witness is the deepest in-view element intersecting a WINDOW
-        // from just below the anchor's own bottom edge to the end of the
-        // current viewport — reusing the SAME recursive descent as the
-        // anchor selection above. F12b: a single-point scan (a 0-height
-        // "viewport" at the line) dies in inter-sibling gaps (flex `gap`,
-        // margins) — the line can land in dead space between the anchor's
-        // wrapper and the next real sibling, so nothing intersects it and
-        // the descent stops one level up with no usable witness. Widening
-        // to a window means the same straddle predicate
-        // (`offsetTop < windowEnd && offsetTop + height > windowStart`)
-        // still excludes the anchor's own wrapper (its bottom edge sits at
-        // or before windowStart, so it fails the straddle) while landing on
-        // the first real element below it regardless of gap size —
-        // containers spanning the window still descend to their first
-        // qualifying child, same as before. No witness when that line falls
-        // at or past the bottom of the current viewport window — the anchor
-        // fills the rest of the visible area, so nothing below it is
-        // currently displaceable-and-visible, correctly a no-op. The line
-        // is always past the viewport's top edge here: match's own
-        // selection already guarantees
-        // match.offsetTop + match.height > scrollOffsetRef.current.
-        // Accepted bound (documented): a SECOND stationary element stacked
-        // between the anchor and the insert point re-creates the
-        // blindness — same class, revisit on evidence.
-        const witnessLine = match.offsetTop + match.height + 1;
-        const viewportEnd = scrollOffsetRef.current + viewportHeightRef.current;
-        const witnessMatch =
-          anchor === "end" && witnessLine < viewportEnd
-            ? findDeepestIntraObjectAnchor(anchorEl, wrapperRect, witnessLine, viewportEnd - witnessLine)
-            : null;
-        lastSettledIntraAnchorRef.current = {
-          objName: anchorName!,
-          el: match.el,
-          offsetTop: match.offsetTop - afterOffsetTop,
-          height: match.height,
-          witness:
-            witnessMatch !== null
-              ? { el: witnessMatch.el, offsetTop: witnessMatch.offsetTop - afterOffsetTop }
-              : null,
-        };
-      } else {
-        lastSettledIntraAnchorRef.current = null;
-      }
-    } else {
-      lastSettledIntraAnchorRef.current = null;
-    }
-
-    lastSettledGeometryRef.current = new Map(geometryStore.current);
-    return changed;
-  }, [remeasureGeometry]);
-
   // Compute the top offset during render using geometry captured in the
   // previous render's useLayoutEffect. This is accurate for focus swaps
   // (object content doesn't change when only focus changes) and avoids a
@@ -2037,23 +405,21 @@ export function SceneColumn({
   // ResizeObserver firing before focus is lost.
   //
   // F7 item 1 fix (a third missed gBCR site in the same H11 projection-
-  // contamination class, above): offsetWidth/offsetHeight, NOT
+  // contamination class — see remeasureGeometry's own comment for the
+  // established rule): offsetWidth/offsetHeight, NOT
   // getBoundingClientRect(). `columnFocused` (a plain prop) flips the
   // instant React processes the focus click, but the column's own zMV
   // (depth-deck translateZ) is a MotionValue — it hasn't moved yet on this
-  // exact commit, the very first one where columnFocused is newly true.
-  // getBoundingClientRect() on THIS commit still reads the column under
-  // its OLD, fully-settled depth-deck perspective projection (probe-
-  // confirmed: a column previously frozen at depth-1 read 226.34px here
-  // instead of its true 254px — 254 * (800/900) ≈ 226.34, the exact
-  // depth-1 projection factor). That wrong value gets frozen via
-  // setFrozenSize below, and if the column later re-enters the depth deck
-  // (e.g. a quick focus/unfocus double-click, interrupting before the real
-  // spring finishes), the frozen size is PROJECTED AGAIN by the depth-deck
-  // transform on render — 226.34 * (800/900) ≈ 201.2 — a compounding
-  // foreshortening, observed as the column settling ~12px too high.
-  // offsetWidth/offsetHeight are layout metrics, immune to any transform
-  // on the element or its ancestors, matching H11's established pattern.
+  // exact commit, the very first one where columnFocused is newly true, so
+  // getBoundingClientRect() here still reads the column under its OLD,
+  // fully-settled depth-deck perspective projection (probe-confirmed: a
+  // column previously frozen at depth-1 read 226.34px here instead of its
+  // true 254px — the exact depth-1 projection factor). That wrong value
+  // gets frozen via setFrozenSize below, and if the column later re-enters
+  // the depth deck (e.g. a quick focus/unfocus double-click, interrupting
+  // before the real spring finishes), the frozen size is PROJECTED AGAIN by
+  // the depth-deck transform on render — a compounding foreshortening,
+  // observed as the column settling ~12px too high.
   useLayoutEffect(() => {
     if (columnFocused && colRef.current) {
       const width = colRef.current.offsetWidth;
@@ -2123,43 +489,14 @@ export function SceneColumn({
   // height snapshot itself). useLayoutEffect fires synchronously pre-paint,
   // closing that one-frame gap.
   //
-  // Gate-requested regression test: NOT ADDED — verified, not just assumed,
-  // that this specific timing gap is structurally unobservable through any
-  // realistic focus-change interaction in the CURRENT architecture, so a
-  // useEffect-vs-useLayoutEffect pin here would be vacuous (green either
-  // way). Root cause: Scene's own S6 registration architecture ALWAYS
-  // triggers a nested, layout-effect-driven corrective re-render on every
-  // focus change (columnRegistryRef is one-commit-stale by construction —
-  // `deriveColumnStatesFromRegistry` reads registry state populated by the
-  // PREVIOUS commit's layout effects, so the post-commit correction in
-  // Scene.tsx's `forceRegistryCorrection` check is guaranteed to mismatch
-  // and fire on literally every commit that changes any column's focused
-  // prop, not just complex multi-column cases). React's documented behavior
-  // for a state update triggered FROM a layout effect is to flush ANY
-  // pending passive effects synchronously before starting that nested
-  // render pass — which flushes THIS effect too, regardless of whether it's
-  // declared as useEffect or useLayoutEffect, because it was scheduled in
-  // the same commit whose layout effects triggered the nested update.
-  // Probe-verified across FOUR independent trigger mechanisms (a plain
-  // rerender via the test harness's act()-wrapped root.render, a raw DOM
-  // click dispatched outside act(), a `flushSync`-wrapped state update, and
-  // a truly async `setTimeout`-triggered update polled every rAF) — all
-  // four show frozenSize already correctly populated on the very first
-  // frame where `data-ui-scene-column-position` resolves to "in-between"/outer, with
-  // useEffect reverted (DEFEAT-CHECK SEVER'd during this verification and
-  // restored after). Cross-checked the technique itself is sound with a
-  // Scene-independent minimal component (plain useEffect + flushSync), which
-  // DID show the expected one-tick-late gap — so this is a genuine masking
-  // effect specific to Scene's architecture, not a blind spot in the
-  // verification method. This is also consistent with item 5's finding that
-  // landing this fix did NOT resolve refocus-from-depth-deck-mid-spring's
-  // non-determinism — further evidence this exact gap was never the
-  // observable mechanism in that test either. useLayoutEffect is kept
-  // anyway: it's the semantically correct hook for a synchronous freeze
-  // (defense-in-depth against a future change to the registration
-  // architecture that removes the masking correction pass), it's zero-cost,
-  // and reverting it to chase a provable-red test would trade a strictly
-  // more correct hook choice for a weaker one with no compensating benefit.
+  // A dedicated useEffect-vs-useLayoutEffect regression test was
+  // investigated and not added — Scene's own S6 registration architecture
+  // always triggers a synchronous, layout-effect-driven corrective
+  // re-render on every focus change, which masks the difference between
+  // the two hooks (probe-verified across four independent trigger
+  // mechanisms), so such a test would be vacuous. Kept useLayoutEffect
+  // anyway: correct hook, zero cost, defense-in-depth against a future
+  // architecture change that removes the masking correction pass.
   useLayoutEffect(() => {
     if (columnFocused) {
       wasEverFocused.current = true;
@@ -2214,96 +551,34 @@ export function SceneColumn({
     }
   });
 
-  // Single shared ResizeObserver for this column: observes colRef plus every
-  // registered SceneObject element. Created once on mount; register/
-  // unregister (below) manage membership as objects mount/unmount. Catches
-  // content growth (e.g. an image finishing load) with no accompanying React
-  // render — the actual B2 fix. The synchronous per-render remeasure below
-  // handles the common case (focus/prop changes); this handles the rest.
-  useEffect(() => {
-    const observer = new ResizeObserver(() => {
-      // Always refresh the cache (cheap; corrected again by the next
-      // synchronous per-render remeasure regardless) so a column that later
-      // becomes focused starts from reasonably fresh geometry. F9: the
-      // anchor-compensation wrapper (not raw remeasureGeometry) — this is
-      // the async path content growth reaches with no accompanying React
-      // render (the B2 fix's own scenario), so it must apply anchoring
-      // compensation here directly, synchronously inside this callback,
-      // before any state update — ResizeObserver callbacks run pre-paint
-      // in the SAME rendering pass as the layout change that triggered
-      // them (same guarantee data-ui-scene-scroll-offset's writer already relies
-      // on), so a synchronous scrollY write here lands before that frame
-      // paints, matching the "same-frame, no visible motion" contract.
-      const changed = remeasureGeometryWithAnchorCompensation();
-
-      // Only unfocused columns' geometry (colHeight, marginTop) — none of
-      // it depends on the geometry store (computeTopOffset/
-      // computeFocusedContentHeight both early-return with zero focused
-      // objects, and computeWithinColumnDepths no longer reads the geometry
-      // store at all — ui#21 Slice 4 hygiene, see its own doc comment), so
-      // forcing a re-render here would be pure overhead. Worse,
-      // an unfocused in-between column sits under CSS perspective/translateZ
-      // depth treatment — a rect read after that transform has visually
-      // settled reports a foreshortened size, and forcing an otherwise-
-      // unnecessary render risks feeding that projected size into
-      // unrelated column-level layout math. Bail out entirely.
-      if (!columnFocusedRef.current) return;
-
-      setContentHeight(
-        computeFocusedContentHeight(objectStatesRef.current, geometryStore.current, objectGapRef.current),
-      );
-      const colEl = colRef.current;
-      if (colEl) {
-        // F7 item 1 fix: offsetWidth/offsetHeight, not getBoundingClientRect()
-        // — same projection-contamination class as the per-render snapshot
-        // effect above (this is the SAME lastObservedSize this ResizeObserver
-        // callback also writes to). columnFocusedRef.current being true only
-        // means the column's Z *target* is 0 — its zMV can still be mid-flight
-        // back from a depth-deck transform (e.g. a rapid refocus, this
-        // ResizeObserver callback firing before that spring settles).
-        lastObservedSize.current = { width: colEl.offsetWidth, height: colEl.offsetHeight };
-      }
-      // Fingerprint bail-out (forecast-gate adjudication): only force a
-      // re-render when the geometry actually changed.
-      if (changed) setGeometryVersion((v) => v + 1);
-    });
-    resizeObserverRef.current = observer;
-    if (colRef.current) observer.observe(colRef.current);
-    for (const el of registeredEls.current.values()) observer.observe(el);
-    return () => {
-      observer.disconnect();
-      resizeObserverRef.current = null;
-    };
-  }, [remeasureGeometryWithAnchorCompensation]);
-
-  // Measure the content wrapper synchronously after each render (useLayoutEffect
-  // fires before the browser paints) so geometry is fresh for the very next
-  // render — this is what removes the one-render lag that would otherwise
-  // corrupt a same-commit swap-reset decision reading maxScroll. The shared
-  // ResizeObserver above keeps geometry current between renders too.
-  // Compute focused content height from the sum of focused objects' heights
-  // (not the content wrapper's total height, which includes unfocused
-  // objects in flow). This ensures scroll range only covers focused content.
-  // F9: the anchor-compensation wrapper (not raw remeasureGeometry) — this
-  // is the sync path a React re-render (e.g. a focused sibling's content
-  // prop changing) reaches; useLayoutEffect fires pre-paint, same commit
-  // tier as the compensation write, so it lands before paint here too.
-  useLayoutEffect(() => {
-    const changed = remeasureGeometryWithAnchorCompensation();
-    if (!columnFocused) return;
-    setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));
-    // Mirrors the ResizeObserver sibling above (:1856) — without this, a
-    // newly-MOUNTED focused object's first render reads stale (missing)
-    // geometry (computeTopOffset falls back to `?? 0`, since it reads
-    // geometry captured by the PREVIOUS render's layout effects — see that
-    // function's own comment). This effect's remeasure call above DOES
-    // correct geometryStore with the new object's real geometry, but if its
-    // content height happens to coincide with what was already accounted
-    // for, setContentHeight no-ops (React bails on an identical state
-    // update) and nothing else forces the re-render computeTopOffset needs
-    // to pick up the corrected geometry — the entrance freezes permanently,
-    // not just late by one frame.
-    if (changed) setGeometryVersion((v) => v + 1);
+  // Geometry remeasurement, F9/F10/F12 scroll-anchoring compensation, and
+  // the shared ResizeObserver + per-render remeasure effects that drive
+  // them — extracted to useColumnAnchoring (ui#24 Cluster E). Called here,
+  // after the focus/frozen-size cluster above and before the swap-reset
+  // effect below, so this hook's two internal effects (the ResizeObserver
+  // useEffect and the per-render useLayoutEffect) register in the SAME
+  // relative order they ran in before the extraction — React schedules a
+  // component's effects in hook-call order, and a custom hook's internal
+  // hooks are inserted at its call site.
+  useColumnAnchoring({
+    objectStates,
+    objectGap,
+    columnFocused,
+    anchor,
+    geometryStore,
+    registeredEls,
+    registeredHeightTargetsRef,
+    contentWrapperRef,
+    colRef,
+    resizeObserverRef,
+    lastObservedSize,
+    scrollOffsetRef,
+    viewportHeightRef,
+    applyScrollYDeltaRef,
+    dragStartOffset,
+    isDragging,
+    setScrollOffset,
+    setContentHeight,
   });
 
   // Swap-reset scroll model (A2): decides this column's scroll offset
@@ -2490,41 +765,17 @@ export function SceneColumn({
   // Never-focused columns measure their content wrapper directly.
   let effectiveContentHeight = columnFocused ? contentHeight : frozenContentHeight;
   if (effectiveContentHeight === 0 && contentWrapperRef.current) {
-    // offsetHeight (not getBoundingClientRect().height, H11), kept as
-    // defensive-only and NOT provably reachable at paint (gate-requested
-    // follow-up investigated, documented below) — this wrapper sits inside
-    // the outer column's own translateZ/scale transform (the depth-deck
-    // treatment's perspective-projection shrink on first focus, per
-    // computeDepthTreatment — see remeasureGeometry's matching fix, which
-    // HAS a proven paint-time effect), so IN PRINCIPLE getBoundingClientRect()
-    // could report a perspective-projected/scaled size here too, while
-    // offsetHeight (a layout metric, immune to transforms on the element or
-    // any ancestor) would not.
-    //
-    // In practice: extensively probe-verified (render-by-render
-    // instrumentation, multiple trigger shapes — mount, an unrelated prop
-    // change forcing a fresh render post-settle, a permanently-never-
-    // focused deck card) that this specific branch never observably reaches
-    // paint with a distorted value in this codebase's rendering pipeline.
-    // The raw DOM values genuinely DO diverge at rest (confirmed via a
-    // direct, non-render-time measurement: a settled depth-1 deck card's
-    // wrapper read 266.67px via getBoundingClientRect() vs the true 300px
-    // via offsetHeight) — but SceneColumn's OWN render-time code never
-    // catches that distortion: the outer column's z-transform is applied by
-    // Motion's `animate` prop via Motion's OWN internal update cycle,
-    // running AFTER React's commit, so by the time ANY subsequent React
-    // render synchronously reads this DOM (which is when this branch
-    // executes), the transform structurally reads back as its
-    // NOT-YET-(re)applied state (effectively z:0) — not the settled,
-    // distorting value. This held across every trigger shape tried,
-    // including forcing a fresh render well after the transform had
-    // visually settled. offsetHeight is kept anyway (harmless, zero
-    // marginal cost, and correct IF this timing relationship ever changes —
-    // e.g. a future Motion version, or a change to how z is driven), but a
-    // useEffect-vs-useLayoutEffect-style red/green pin is not available
-    // here the way it is for remeasureGeometry's sibling fix — there is no
-    // reachable interaction path where reverting this line is provably
-    // observable.
+    // offsetHeight (not getBoundingClientRect(), H11) — defensive-only: this
+    // wrapper sits inside the outer column's own translateZ/scale depth-deck
+    // transform, so getBoundingClientRect() COULD in principle report a
+    // projected/scaled size here. In practice, extensively probe-verified
+    // that this branch never observably reaches paint with a distorted
+    // value — Motion applies the transform via its own post-commit update
+    // cycle, so any React render that synchronously reads this DOM always
+    // sees the NOT-YET-(re)applied state. No defeat-check pin is possible
+    // here (no reachable interaction path makes reverting this line
+    // observable) — kept anyway: zero marginal cost, and correct if this
+    // timing relationship ever changes.
     effectiveContentHeight = contentWrapperRef.current.offsetHeight;
   }
   // Centers within effectiveViewportHeight (padding-subtracted, same basis
@@ -3060,37 +1311,13 @@ export function SceneColumn({
   // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
   // objects overlapping in 2D screen space must never change relative paint
   // order — a z-crossing (moving from "behind" toward "in front") is only
-  // legal once the pair is disjoint.
-  //
-  // ATTEMPTED AND REVERTED (F2): promoted z to a real MotionValue (zMV,
-  // still in place below) and gated a front-ward retarget behind a
-  // requestAnimationFrame poll against every other registered column's live
-  // getBoundingClientRect (via a ColumnElementsContext read side on the S6
-  // registry), releasing the spring once disjoint — the shape the plan
-  // specified. VERIFIED NOT SAFE TO SHIP: the poll's resolution takes a
-  // variable number of REAL animation frames (for the exact scenario this
-  // exists to protect, the FIRST check — one synchronous tick after
-  // retarget, before x/y have moved at all — sees the column still
-  // overlapping its anchor by definition, so the slow multi-frame path is
-  // the COMMON case, not a corner case). This fundamentally races this
-  // suite's synchronous single-frame test-pinning methodology
-  // (pinAllRegisteredAnimations silently skips a key that hasn't
-  // registered yet — see its own doc comment): under isolated runs the poll
-  // reliably resolved before the test's one waitForAnimationFrame + freeze
-  // call (10/10 identical), but under full-suite load it consistently did
-  // not (3/3 runs, ~4% pixel mismatch on refocus-from-depth-deck-mid-spring
-  // — a real regression, not noise). Also could not construct a scenario
-  // (2 attempts, including a 4-column leapfrog probe) where skipping the
-  // gate entails an actual invariant violation on today's F1-fixed
-  // codebase — this codebase's DOM-order convention (consumers declare
-  // columns in left-to-right visual intent order) plus every
-  // depth-treated value sharing one spring transition already keeps paint
-  // order consistent in every case tried. Reverted the gating; kept the
-  // zMV promotion itself (harmless, and gives z the same
-  // pinnable/observable motion-seam treatment topOffset/scrollY/cameraX
-  // already have). Documenting per this branch's own established fallback
-  // (see B14/H11-site-2, 7ca9eab) rather than shipping either a fabricated
-  // defeat-check or a mechanism proven to break test determinism.
+  // legal once the pair is disjoint. The invariant is enforced structurally
+  // by DOM order today (see computeStackDepths), not by any gating here —
+  // an RAF-poll-based front-ward-retarget gate was tried and reverted:
+  // unsafe under concurrent test-suite load (see commit history for the
+  // full investigation). zMV below is kept only for its debug-observability
+  // value (pinnable/observable motion-seam treatment, same as
+  // topOffset/scrollY/cameraX).
   const zMV = useMotionValue(depthZ);
   // F4 active-springs debug panel: register the MotionValue itself, same
   // rationale as topOffsetMV/scrollY above.
@@ -3200,16 +1427,13 @@ export function SceneColumn({
       // source: MotionValue.set() never calls .stop()). A coasting inertia
       // fling from a prior release could still be running here, so it must
       // be stopped explicitly before 1:1 tracking begins.
-      // jump() (not stop()) — fix-round, residual-velocity re-fling defect:
-      // .stop() halts the animation but leaves scrollY's internal velocity-
-      // tracking state (prevFrameValue/prevUpdatedAt) untouched, so a grab
-      // followed by a release within motion's MAX_VELOCITY_DELTA (30ms)
-      // window would still read the fling's PRE-GRAB velocity and re-fling
-      // on release even though the finger never moved. jump(currentValue)
-      // resets that tracking state (probe-confirmed: getVelocity() reads 0
-      // immediately after, even within the same synchronous tick) while
-      // also stopping the animation (jump's endAnimation default calls
-      // .stop() internally) — a strict superset of the old .stop() call.
+      // jump() (not stop()) — .stop() halts the animation but leaves
+      // scrollY's internal velocity-tracking state untouched, which would
+      // let a same-tick grab->release still read the fling's PRE-GRAB
+      // velocity and re-fling despite no finger movement; jump() resets
+      // that state too (a strict superset of .stop() — its endAnimation
+      // default calls .stop() internally). Full regression history:
+      // tests/scene-touch.test.tsx's "residual-velocity regression" test.
       scrollY.jump(scrollY.get());
       // F9: this jump can interrupt a still-in-flight wheel/keyboard/
       // scrollbar-driven spring (e.g. a PageDown mid-spring, grabbed
@@ -3644,20 +1868,17 @@ export function SceneColumn({
             // touch-action, the island's interior vertical touch-pan is
             // no longer blocked by any Scene-owned ancestor.
             touchAction: columnFocused && isScrollable ? "pan-x pinch-zoom" : "auto",
-            // CLICK-TARGETING FIX (ui#21 rider 5 escalation, real
-            // regression): makes this element ITS OWN stacking-context
-            // root instead of an ordinary positioned participant in
-            // whatever context sits above it. A root's own background
-            // paints FIRST, before its negative z-index descendants — so
-            // a sandwiched object's own inner node (negative z-index, a
-            // descendant of this element) now paints ABOVE this
-            // element's own box at any point neither covers, restoring
-            // the object as the real hit-test target for its own
-            // exclusive peek sliver. Deliberately `isolation: isolate`,
-            // not an explicit z-index or a transform — isolation has no
-            // grouping/3D side effects and sits BELOW the column's
-            // own preserve-3d participation (SceneColumn's own anchor,
-            // above this element), so column-level 3D/paint-order
+            // CLICK-TARGETING FIX: makes this element ITS OWN
+            // stacking-context root, so a sandwiched object's own
+            // negative-z-index inner node paints ABOVE this element's own
+            // box (a root's background paints first) and stays the real
+            // hit-test target for its own exclusive peek sliver — full
+            // history: tests/scene-within-column-deck.test.tsx's
+            // "sandwiched card click-targeting" describe block. Deliberately
+            // `isolation: isolate`, not an explicit z-index or a transform —
+            // isolation has no grouping/3D side effects and sits BELOW the
+            // column's own preserve-3d participation (SceneColumn's own
+            // anchor, above this element), so column-level 3D/paint-order
             // behavior is untouched by construction.
             isolation: "isolate",
           }}

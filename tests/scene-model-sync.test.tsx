@@ -20,7 +20,8 @@
  * handleContentPointerDown) — the very first pointermove after the grab
  * then computes `dragStartOffset.current - deltaY`, snapping the visual
  * back to the stale release position regardless of how far the coast had
- * actually travelled since. The same staleness also reaches
+ * actually travelled since (Michael's frozen snapshot measured
+ * wrapperStyleTop jumping 370px on the next grab). The same staleness also reaches
  * wheel/keyboard/scrollbar (applyScrollCommand's scrollBy/page branch
  * reads `scrollOffsetRef.current + cmd.delta`) and the F9/F10
  * content-growth compensation clamps — this file exercises BOTH the touch

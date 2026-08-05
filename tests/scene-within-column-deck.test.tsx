@@ -633,6 +633,22 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
   // object split landed); updated once the split introduced the object node,
   // matching the exact evolution ui#17's own zero-pixel-flip tests went
   // through when its column-level split landed.
+  //
+  // heightOverrideActive history: an earlier version of the in-flow branch
+  // ALSO checked `heightTarget !== heightTargetRef.current`, to close a
+  // one-render window on the FIRST render of a leaving-sandwiched transition
+  // (heightSettled, a lagging state, hadn't yet flipped false for THIS new
+  // transition — a real 96px discontinuity these tests caught RED-FIRST,
+  // before the contentRef/naturalHeight-as-state fixes existed). REVERTED
+  // (real regression found and fixed via the F9 content-growth-anchoring
+  // suite): that check fires for ANY heightTarget change, including a
+  // permanently-in-flow, never-sandwiched object's own ordinary content
+  // resize (e.g. "top" growing 300->500 while already focused and
+  // settled) — treating a normal auto-height change as override-worthy.
+  // Retested against these same tests after the contentRef/naturalHeight-
+  // as-state fixes landed: those fixes alone already close the original
+  // 96px window, so the extra check was solving an already-solved problem
+  // while breaking an unrelated one.
   test("unfocus direction: object-local layout-box geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
       const [middleFocused, setMiddleFocused] = useState(true);
