@@ -3,10 +3,10 @@
  *
  * SceneObject's focus-ring anchor carried a bare Tailwind `group` class
  * (ui#21, commit 86df8f7) so its own `group-focus-visible:` ring variant
- * could target the panel below. Tailwind's bare `group-*:` variant compiles
+ * could target the object below. Tailwind's bare `group-*:` variant compiles
  * to `:where(.group):hover &` — it matches ANY ancestor with class `.group`,
  * not just the nearest one. Since the anchor wraps a SceneObject's entire
- * panel and all consumer content, hovering ANYWHERE inside a SceneObject's
+ * card and all consumer content, hovering ANYWHERE inside a SceneObject's
  * rendered card set `:hover` on the anchor, which then falsely activated any
  * unrelated consumer's own bare-group-hover pairing nested anywhere in that
  * subtree — the production symptom (feed #2360-#2363, ui#p26): hovering
@@ -52,7 +52,7 @@ describe("SceneObject Tailwind group namespace (ui#26): consumer bare-group isol
     // Non-vacuity precondition: the anchor actually carries the named
     // group — proves the rename landed, so a false pass can't happen
     // simply because the group class vanished entirely.
-    const anchor = scene.querySelector('[data-scene-id="host"]') as HTMLElement;
+    const anchor = scene.querySelector('[data-ui-scene-id="host"]') as HTMLElement;
     expect(anchor.className).toContain("group/scene-object");
 
     const target = getByTestId("consumer-target").element() as HTMLElement;

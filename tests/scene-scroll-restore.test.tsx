@@ -26,15 +26,15 @@ describe("Scene scroll position restore", () => {
     // The column should restore to offset 100.
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const columnRect = column.getBoundingClientRect();
 
     // Scroll down to 100px
@@ -59,8 +59,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -72,8 +72,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -92,8 +92,8 @@ describe("Scene scroll position restore", () => {
     const { rerender, getByTestId } = await render(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -104,8 +104,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -114,8 +114,8 @@ describe("Scene scroll position restore", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column='col']") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor='col']") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(0);
   });
@@ -125,15 +125,15 @@ describe("Scene scroll position restore", () => {
     // the saved scroll position is invalid — fall back to top (offset 0).
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const columnRect = column.getBoundingClientRect();
 
     // Scroll down to 300px
@@ -159,8 +159,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 300, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 300, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -172,8 +172,8 @@ describe("Scene scroll position restore", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 300, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 300, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -214,7 +214,7 @@ describe("Scene swap-reset scroll model", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
     const columnRect = column.getBoundingClientRect();
 
     // Scroll A down to 300px.
@@ -228,7 +228,7 @@ describe("Scene swap-reset scroll model", () => {
       }),
     );
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("300");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("300");
 
     // Swap focus from A to B within the same (always-focused) column.
     await rerender(
@@ -250,7 +250,7 @@ describe("Scene swap-reset scroll model", () => {
 
     // scrollOffset (distinct from topOffset, which independently shifts to
     // bring B into view) must reset to 0 — B's scroll position, not A's.
-    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("0");
   });
 
   test('resetAlignment="center" produces a roughly-centered non-zero starting offset on swap', async () => {
@@ -275,7 +275,7 @@ describe("Scene swap-reset scroll model", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
     await rerender(
       <TestWrapper fullPage>
@@ -296,7 +296,7 @@ describe("Scene swap-reset scroll model", () => {
     // B alone: contentHeight = 1200, viewport = 800 → maxScroll = 400.
     // center reset ≈ maxScroll / 2 = 200 (not 0 — the "top" default, and not
     // 0 from a stale pre-swap maxScroll of 0 either).
-    const scrollOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const scrollOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(scrollOffset).toBeCloseTo(200, -1);
   });
 
@@ -306,15 +306,15 @@ describe("Scene swap-reset scroll model", () => {
     // new (smaller) maxScroll, not reset to 0 and not left overshooting.
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // Let the initial mount fully settle (shared ResizeObserver's first
     // observe-triggered callback) before scrolling near the max, to avoid
@@ -333,15 +333,15 @@ describe("Scene swap-reset scroll model", () => {
       }),
     );
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("380");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("380");
 
     // Unfocus (park), shrinking content height from 1200 to 1000 (16.7%,
     // well under the 50% drastic threshold) while parked.
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: false, width: 400, height: 1000, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: true, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: false, width: 400, height: 1000, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: true, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -354,8 +354,8 @@ describe("Scene swap-reset scroll model", () => {
     await rerender(
       buildScene(
         [
-          { name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1000, testId: "content" }] },
-          { name: "col2", objects: [{ name: "panel2", focused: false, width: 400, height: 200, testId: "content2" }] },
+          { name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1000, testId: "content" }] },
+          { name: "col2", objects: [{ name: "object2", focused: false, width: 400, height: 200, testId: "content2" }] },
         ],
         { duration: 0 },
         { fullPage: true },
@@ -365,7 +365,7 @@ describe("Scene swap-reset scroll model", () => {
 
     // New maxScroll = 1000 - 800 = 200. The saved 380 must be clamped to
     // 200, not discarded to 0 and not left at the stale 380.
-    expect(column.getAttribute("data-scroll-offset")).toBe("200");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("200");
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-200);
   });
 
@@ -387,7 +387,7 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-a" name="col1">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -396,7 +396,7 @@ describe("Scene swap-reset scroll model", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = () => scene.querySelector("[data-column='col1']") as HTMLElement;
+    const column = () => scene.querySelector("[data-ui-scene-column-anchor='col1']") as HTMLElement;
     const columnRect = column().getBoundingClientRect();
 
     // Scroll to 1000px (2000 - 800 = 1200 max).
@@ -410,19 +410,19 @@ describe("Scene swap-reset scroll model", () => {
       }),
     );
     await waitForAnimationFrame();
-    expect(column().getAttribute("data-scroll-offset")).toBe("1000");
+    expect(column().getAttribute("data-ui-scene-scroll-offset")).toBe("1000");
 
     // Park: focus moves to a second column.
     await rerender(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-a" name="col1">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused>
+            <SceneObject name="object2" focused>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -436,7 +436,7 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused>
+            <SceneObject name="object2" focused>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -454,12 +454,12 @@ describe("Scene swap-reset scroll model", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn key="col1-b" name="col1">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 900 }} />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="col2">
-            <SceneObject name="panel2" focused={false}>
+            <SceneObject name="object2" focused={false}>
               <div data-testid="content2" style={{ width: 400, height: 200 }} />
             </SceneObject>
           </SceneColumn>
@@ -470,7 +470,7 @@ describe("Scene swap-reset scroll model", () => {
 
     // New maxScroll = 900 - 800 = 100. A restore-then-clamp bug would land
     // on 100; the correct drastic-resize reset lands on 0.
-    expect(column().getAttribute("data-scroll-offset")).toBe("0");
+    expect(column().getAttribute("data-ui-scene-scroll-offset")).toBe("0");
   });
 });
 
@@ -484,16 +484,16 @@ describe("Scene padding in scroll bounds", () => {
     // Without padding: 1200 - 800 = 400. With padding=16: 1200 - (800 - 32) = 432.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0, padding: 16 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     // With padding=16px top+bottom, viewport effective height = 800 - 32 = 768.
     // maxScroll = 1200 - 768 = 432. Without padding it would be 400.
     expect(maxScroll).toBeGreaterThan(400);
@@ -504,7 +504,7 @@ describe("Scene padding in scroll bounds", () => {
     // With padding=16px (32px total), effective viewport = 768px, so content overflows.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 780, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 780, testId: "content" }] }],
         { duration: 0, padding: 16 },
         { fullPage: true },
       ),
@@ -512,7 +512,7 @@ describe("Scene padding in scroll bounds", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     // With padding factored in, the content now overflows → scrollbar should appear.
-    const scrollbar = scene.querySelector("[data-scrollbar]");
+    const scrollbar = scene.querySelector("[data-ui-scene-scrollbar]");
     expect(scrollbar).not.toBeNull();
   });
 });
@@ -527,7 +527,7 @@ describe("Scene padding cluster (S6)", () => {
   test("marginTop centers focused content within the padded viewport, not the raw viewport", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 200, testId: "content" }] }],
         { duration: 0, padding: 60 },
         { fullPage: true },
       ),
@@ -570,7 +570,7 @@ describe("Scene padding cluster (S6)", () => {
     // awaitStyleFlush's own documented double-rAF fallback.
     await awaitStyleFlush();
 
-    const middleCol = getByTestId("middle-content").element().closest("[data-column]") as HTMLElement;
+    const middleCol = getByTestId("middle-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Read RAW values (frozen height from the inline style set by
     // inBetweenStyle, translateY from the raw transform) rather than
@@ -603,7 +603,7 @@ describe("Scene padding cluster (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0} padding={100}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 3000 }}>
                 <button data-testid="focusable-btn">click me</button>
               </div>
@@ -614,7 +614,7 @@ describe("Scene padding cluster (S6)", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
     const btn = getByTestId("focusable-btn").element() as HTMLElement;
     btn.focus();
@@ -625,7 +625,7 @@ describe("Scene padding cluster (S6)", () => {
 
     await waitForAnimationFrame();
 
-    const scrollOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const scrollOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     // Viewport is 800px tall (fullPage default), padding=100 top+bottom ->
     // effective viewport height = 600. PageDown should scroll by exactly
     // 600, not the raw 800 (maxScroll=3000-600=2400 leaves plenty of room,
@@ -636,14 +636,14 @@ describe("Scene padding cluster (S6)", () => {
   test("Scrollbar trackHeight accounts for padding (uses effective viewport height, not raw)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 3000, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 3000, testId: "content" }] }],
         { duration: 0, padding: 100 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const scrollbar = scene.querySelector("[data-scrollbar]") as HTMLElement;
+    const scrollbar = scene.querySelector("[data-ui-scene-scrollbar]") as HTMLElement;
     expect(scrollbar).not.toBeNull();
 
     // Viewport is 800px tall (fullPage default), padding=100 top+bottom ->
@@ -675,8 +675,8 @@ describe("Scene padding cluster (S6)", () => {
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const rightCol = getByTestId("content-right").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     const rightRect = rightCol.getBoundingClientRect();
     const middleRect = middleCol.getBoundingClientRect();
@@ -713,8 +713,8 @@ describe("Scene padding cluster (S6)", () => {
       );
 
       const scene = getByTestId("scene").element() as HTMLElement;
-      const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
-      const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+      const col1 = getByTestId("content1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+      const col2 = getByTestId("content2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
       const vpRect = scene.getBoundingClientRect();
 
       // At panOffset=0 (mount default): the leftmost focused column's left
@@ -752,7 +752,7 @@ describe("Scene padding cluster (S6)", () => {
     },
   );
 
-  // SKIPPED (ui#17, 2026-07-30, one bounded instrumented attempt): traced
+  // SKIPPED (ui#o23, 2026-07-30, one bounded instrumented attempt): traced
   // to source rather than a locatable small conditional fix. `padding` is
   // applied to the stage as a raw, unanimated CSS property (`padding:
   // padding || undefined` in Scene.tsx's stage style) — it is not a
@@ -773,7 +773,8 @@ describe("Scene padding cluster (S6)", () => {
   // deck spike, same day) also found no real app scenario changes padding
   // mid-session — only a dev-only tuning slider does — which is why a
   // skip-and-follow-up disposition is acceptable here rather than blocking
-  // ui#17 on a new channel. See the ticket's own follow-up observation.
+  // ui#17 on a new channel. See ui#o23 for the full instrumentation trace
+  // and fix shape.
   test.skip("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
     const build = (padding: number) => (
       <TestWrapper fullPage>
@@ -796,7 +797,7 @@ describe("Scene padding cluster (S6)", () => {
     await wait(500);
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
+    const col1 = getByTestId("content1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const vpRect = scene.getBoundingClientRect();
 
     const leftInsetBefore = col1.getBoundingClientRect().left - vpRect.left;
@@ -818,7 +819,7 @@ describe("Scene padding cluster (S6)", () => {
     expect(allIdentical).toBe(false);
 
     await wait(1500);
-    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const leftInsetAfter = col1.getBoundingClientRect().left - vpRect.left;
     expect(leftInsetAfter).toBeCloseTo(32, 0);
 
@@ -911,14 +912,14 @@ describe("Scrollbar ARIA", () => {
   test("scrollbar thumb has role=scrollbar", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const scrollbar = scene.querySelector("[data-scrollbar]");
+    const scrollbar = scene.querySelector("[data-ui-scene-scrollbar]");
     expect(scrollbar).not.toBeNull();
 
     // The thumb inside the scrollbar track should have role="scrollbar"
@@ -929,7 +930,7 @@ describe("Scrollbar ARIA", () => {
   test("scrollbar thumb has aria-valuenow, aria-valuemin, aria-valuemax", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -950,7 +951,7 @@ describe("Scrollbar ARIA", () => {
   test("D4: scrollbar thumb has tabindex=0", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -964,7 +965,7 @@ describe("Scrollbar ARIA", () => {
   test("D4: scrollbar thumb has aria-controls pointing to the content wrapper's stable id", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -972,7 +973,7 @@ describe("Scrollbar ARIA", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement | null;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     expect(thumb?.getAttribute("aria-controls")).toBe(contentWrapper.id);
     expect(contentWrapper.id).toBe("scene-column-content-col");
   });
@@ -980,15 +981,15 @@ describe("Scrollbar ARIA", () => {
   test("D4: pressing ArrowDown while the scrollbar thumb has focus scrolls the column (keyboard ops through the shared command path)", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 400, height: 1200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 400, height: 1200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
 
     // A scroll to -40 alone doesn't discriminate D4's OWN handler from a
@@ -1034,7 +1035,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1051,7 +1052,7 @@ describe("Scene consumer scroll override", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     // The SceneObject constrains to 400px. Column content (400px) fits in the
     // 800px viewport — no column-level scrollbar should appear.
-    const scrollbar = scene.querySelector("[data-scrollbar]");
+    const scrollbar = scene.querySelector("[data-ui-scene-scrollbar]");
     expect(scrollbar).toBeNull();
   });
 
@@ -1077,7 +1078,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage height={500}>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: "100cqh", overflowY: "auto" }}
@@ -1100,7 +1101,7 @@ describe("Scene consumer scroll override", () => {
     // produce via cqh's no-container fallback — see the note above).
     expect(island.getBoundingClientRect().height).toBe(500);
 
-    const scrollbar = scene.querySelector("[data-scrollbar]");
+    const scrollbar = scene.querySelector("[data-ui-scene-scrollbar]");
     expect(scrollbar).toBeNull();
   });
 
@@ -1124,7 +1125,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1143,8 +1144,8 @@ describe("Scene consumer scroll override", () => {
     );
 
     const island = getByTestId("scroll-container").element() as HTMLElement;
-    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
-    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const islandRect = island.getBoundingClientRect();
 
     const notPrevented = island.dispatchEvent(
@@ -1173,7 +1174,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1208,7 +1209,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1228,8 +1229,8 @@ describe("Scene consumer scroll override", () => {
 
     const island = getByTestId("scroll-container").element() as HTMLElement;
     island.scrollTop = island.scrollHeight - island.clientHeight; // bottom edge
-    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
-    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const islandRect = island.getBoundingClientRect();
 
     island.dispatchEvent(
@@ -1253,7 +1254,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto", overscrollBehaviorY: "contain" }}
@@ -1273,8 +1274,8 @@ describe("Scene consumer scroll override", () => {
 
     const island = getByTestId("scroll-container").element() as HTMLElement;
     island.scrollTop = island.scrollHeight - island.clientHeight; // bottom edge
-    const siblingCol = getByTestId("sibling-content").element().closest("[data-column]") as HTMLElement;
-    const siblingContentWrapper = siblingCol.querySelector("[data-column-content]") as HTMLElement;
+    const siblingCol = getByTestId("sibling-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const siblingContentWrapper = siblingCol.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const islandRect = island.getBoundingClientRect();
 
     const notPrevented = island.dispatchEvent(
@@ -1297,7 +1298,7 @@ describe("Scene consumer scroll override", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="island-col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1321,10 +1322,10 @@ describe("Scene consumer scroll override", () => {
     );
 
     const island = getByTestId("scroll-container").element() as HTMLElement;
-    const colA = getByTestId("content-a").element().closest("[data-column]") as HTMLElement;
-    const colAContent = colA.querySelector("[data-column-content]") as HTMLElement;
-    const colB = getByTestId("content-b").element().closest("[data-column]") as HTMLElement;
-    const colBContent = colB.querySelector("[data-column-content]") as HTMLElement;
+    const colA = getByTestId("content-a").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colAContent = colA.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const colB = getByTestId("content-b").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const colBContent = colB.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const islandRect = island.getBoundingClientRect();
     const colARect = colA.getBoundingClientRect();
 

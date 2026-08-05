@@ -87,7 +87,7 @@ function firePointer(
 }
 
 /**
- * Polls data-scroll-offset until it exceeds `threshold`, or returns null on
+ * Polls data-ui-scene-scroll-offset until it exceeds `threshold`, or returns null on
  * timeout. Used to deterministically catch a fling mid-overshoot (a fixed
  * wall-clock wait would be a timing race — the boundary-catch spring can
  * settle back into bounds before or after an arbitrary delay depending on
@@ -100,7 +100,7 @@ async function waitForOffsetAbove(
 ): Promise<number | null> {
   const start = performance.now();
   while (performance.now() - start < timeoutMs) {
-    const v = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const v = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     if (v > threshold) return v;
     await new Promise((r) => setTimeout(r, 2));
   }
@@ -117,7 +117,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -126,8 +126,8 @@ describe("Scene touch — 1:1 finger drag", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -139,18 +139,18 @@ describe("Scene touch — 1:1 finger drag", () => {
     // exactly 150, per the "content follows the finger" convention).
     firePointer(contentWrapper, "pointermove", startX, startY - 150);
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("150");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("150");
     expect(parseFloat(contentWrapper.style.top || "0")).toBe(-150);
 
     // Continue dragging further up — still 1:1 from the ORIGINAL start point.
     firePointer(contentWrapper, "pointermove", startX, startY - 300);
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("300");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("300");
 
     firePointer(contentWrapper, "pointerup", startX, startY - 300);
     await waitForAnimationFrame();
     // Release settles (no inertia in instant mode) at the clamped release position.
-    expect(column.getAttribute("data-scroll-offset")).toBe("300");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("300");
   });
 
   test("drag is clamped to [0, maxScroll]", async () => {
@@ -158,7 +158,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 1000 }} />
             </SceneObject>
           </SceneColumn>
@@ -167,9 +167,9 @@ describe("Scene touch — 1:1 finger drag", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     expect(maxScroll).toBeGreaterThan(0);
 
     const rect = contentWrapper.getBoundingClientRect();
@@ -181,12 +181,12 @@ describe("Scene touch — 1:1 finger drag", () => {
     // Drag WAY past maxScroll — should clamp, not overshoot.
     firePointer(contentWrapper, "pointermove", startX, startY - (maxScroll + 5000));
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe(String(maxScroll));
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe(String(maxScroll));
 
     // Drag back past 0 — should clamp at 0, not go negative.
     firePointer(contentWrapper, "pointermove", startX, startY + 5000);
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("0");
 
     firePointer(contentWrapper, "pointerup", startX, startY + 5000);
   });
@@ -196,7 +196,7 @@ describe("Scene touch — 1:1 finger drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -205,8 +205,8 @@ describe("Scene touch — 1:1 finger drag", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -234,7 +234,7 @@ describe("Scene touch — 1:1 finger drag", () => {
     await waitForAnimationFrame();
 
     // A mouse drag must NOT move the scroll offset — mouse stays native.
-    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("0");
   });
 });
 
@@ -268,8 +268,8 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
 
     const { rerender, getByTestId } = await render(build(300));
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // Start the drag and move up 350px — well past "top" (only 300px tall),
     // so "bottom" becomes the anchor: offset lands at 350, window [350,1150)
@@ -278,7 +278,7 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     await waitForAnimationFrame();
     firePointer(contentWrapper, "pointermove", 200, 650); // deltaY=-350
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("350");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("350");
 
     // Content grows above the anchor WHILE still dragging (isDragging still
     // true — no pointerup/pointercancel yet). "bottom"'s offsetTop shifts
@@ -286,7 +286,7 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     // (350 -> 550) same-frame, and must rebase dragStartOffset by the same
     // +200 so the gesture's own math stays coherent going forward.
     await rerender(build(500));
-    expect(column.getAttribute("data-scroll-offset")).toBe("550");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("550");
 
     // Continue the SAME drag (same dragStartY=1000, never restarted) to
     // clientY=600 — a further 50px up from the previous 650, i.e. 400px up
@@ -297,7 +297,7 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     // + the 200px compensation, both preserved).
     firePointer(contentWrapper, "pointermove", 200, 600);
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("600");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("600");
 
     firePointer(contentWrapper, "pointerup", 200, 600);
   });
@@ -328,15 +328,15 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     const existingIds = Array.from({ length: 50 }, (_, i) => i);
     const { rerender, getByTestId } = await render(build(existingIds));
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // Drag to offset 1000 (dragStartY=1000, finger moves up to clientY=0).
     firePointer(contentWrapper, "pointerdown", 200, 1000);
     await waitForAnimationFrame();
     firePointer(contentWrapper, "pointermove", 200, 0); // deltaY=-1000
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("1000");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("1000");
     // Poll the wrapper's OWN rendered top before the prepend below — same
     // rationale as scene.test.tsx's F10 tests: a raw pointer event's
     // React-state write (instant mode's combinedTop) needs an actual commit
@@ -350,7 +350,7 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     const prependedIds = Array.from({ length: 20 }, (_, i) => -20 + i);
     await rerender(build([...prependedIds, ...existingIds]));
     // Intra-object compensation applies +1400 (20 * 70) same-frame: 1000 -> 2400.
-    expect(column.getAttribute("data-scroll-offset")).toBe("2400");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("2400");
 
     // Continue the SAME drag (dragStartY still 1000, never restarted) a
     // further 50px up, to clientY=-50. Without the rebase, this recomputes
@@ -361,7 +361,7 @@ describe("Scene touch — content-growth compensation during an active drag (F9)
     // baseline + the 1400 compensation, both preserved).
     firePointer(contentWrapper, "pointermove", 200, -50);
     await waitForAnimationFrame();
-    expect(column.getAttribute("data-scroll-offset")).toBe("2450");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("2450");
 
     firePointer(contentWrapper, "pointerup", 200, -50);
   });
@@ -378,7 +378,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -394,7 +394,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -404,9 +404,9 @@ describe("Scene touch — release inertia", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -421,7 +421,7 @@ describe("Scene touch — release inertia", () => {
     }
     const releaseY = startY - 5 * 40;
     firePointer(contentWrapper, "pointerup", startX, releaseY);
-    const releaseOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const releaseOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(releaseOffset).toBeGreaterThan(0);
 
     // Shortly after release, inertia should have carried it further —
@@ -429,7 +429,7 @@ describe("Scene touch — release inertia", () => {
     // stopping dead (this is C5's defeat-check target: severing the
     // animate() call collapses this to "still at releaseOffset").
     await wait(150);
-    const midFlight = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const midFlight = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(midFlight).toBeGreaterThan(releaseOffset);
 
     // Settle: after the friction phase overshoots (a legitimate transient —
@@ -438,7 +438,7 @@ describe("Scene touch — release inertia", () => {
     // "clamped rubber-band" physics, not a bug), the boundary spring must
     // converge the FINAL rest value back to maxScroll.
     await wait(2500);
-    const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const settled = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(Math.abs(settled - maxScroll)).toBeLessThan(1);
   });
 
@@ -455,7 +455,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -468,7 +468,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -478,8 +478,8 @@ describe("Scene touch — release inertia", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -499,7 +499,7 @@ describe("Scene touch — release inertia", () => {
     // spring pulls it back). Grabbing here mid-overshoot is realistic and is
     // exactly the round-2 defect's precondition (see below).
     await wait(80);
-    const preGrabOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const preGrabOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // Grab, then release IMMEDIATELY at the SAME position — no pointermove,
     // no await between the two dispatches, so the wall-clock gap is well
@@ -507,7 +507,7 @@ describe("Scene touch — release inertia", () => {
     firePointer(contentWrapper, "pointerdown", startX, startY - 5 * 40);
     firePointer(contentWrapper, "pointerup", startX, startY - 5 * 40);
 
-    const atGrabOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const atGrabOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     // The grab+immediate-release itself shouldn't have moved things far from
     // where the fling was coasting.
     expect(Math.abs(atGrabOffset - preGrabOffset)).toBeLessThan(20);
@@ -519,7 +519,7 @@ describe("Scene touch — release inertia", () => {
     // ALSO move it hundreds of px, just via boundary-spring physics instead.
     // A correctly zeroed-and-skipped release leaves it parked either way.
     await wait(300);
-    const heldOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const heldOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(Math.abs(heldOffset - atGrabOffset)).toBeLessThan(5);
   });
 
@@ -538,7 +538,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -551,7 +551,7 @@ describe("Scene touch — release inertia", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -561,9 +561,9 @@ describe("Scene touch — release inertia", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -599,7 +599,7 @@ describe("Scene touch — release inertia", () => {
     // decelerating fling (round 2's fix already guarantees no velocity-
     // driven motion here) — just a direct correction to maxScroll.
     await wait(1500);
-    const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const settled = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(Math.abs(settled - maxScroll)).toBeLessThan(1);
   });
 });
@@ -637,7 +637,7 @@ describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
         <MotionSeamContext.Provider value={recorder}>
           <Scene touchPower={touchPower} touchTimeConstant={touchTimeConstant}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 6000 }} />
               </SceneObject>
             </SceneColumn>
@@ -648,8 +648,8 @@ describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -661,14 +661,14 @@ describe("Scene touch — tunable inertia params (F13 commit 3)", () => {
       await new Promise((r) => requestAnimationFrame(r));
     }
     firePointer(contentWrapper, "pointerup", startX, startY - 5 * 40);
-    const releaseOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const releaseOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     const controls = recorder.controls.get("scrollY:col");
     expect(controls).toBeDefined();
     const duration = controls!.duration;
 
     await wait(300);
-    const offsetAt300 = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAt300 = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // cleanup() (not unmount()) between mounts within one test — matches
     // this suite's established pattern (scene.test.tsx) for remounting
@@ -729,8 +729,8 @@ describe("Scene touch — fling survives content-growth compensation (F13 commit
     const { rerender, getByTestId } = await render(build(300));
     await waitForAnimationFrame();
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -747,14 +747,14 @@ describe("Scene touch — fling survives content-growth compensation (F13 commit
     firePointer(contentWrapper, "pointerup", startX, startY - 6 * 80);
 
     // Confirm a real fling actually started (still coasting shortly after release).
-    const offsetAtRelease = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetAtRelease = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     await wait(30);
-    const offsetSoonAfter = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetSoonAfter = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(offsetSoonAfter).not.toBe(offsetAtRelease);
 
     // Content grows above the anchor WHILE the fling is actively coasting.
     await rerender(build(500));
-    const offsetRightAfterGrowth = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetRightAfterGrowth = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // The pre-commit-4 bug: a plain jump() stops ANY in-flight Motion
     // animation, so the coast would freeze here permanently. Surviving
@@ -764,14 +764,14 @@ describe("Scene touch — fling survives content-growth compensation (F13 commit
     // `flingActiveRef.current` branch collapses this back to the frozen
     // plain-jump path).
     await wait(150);
-    const offsetLater = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offsetLater = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(offsetLater).not.toBe(offsetRightAfterGrowth);
 
     // Eventually settles within the FRESH (post-growth) bounds — never
     // stranded past the new maxScroll.
     await wait(2500);
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
-    const settled = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
+    const settled = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(settled).toBeGreaterThanOrEqual(0);
     expect(settled).toBeLessThanOrEqual(maxScroll + 1);
   });
@@ -814,8 +814,8 @@ describe("Scene touch — fling survives content-growth compensation (F13 commit
     const { rerender, getByTestId } = await render(build(300));
     await waitForAnimationFrame();
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -883,8 +883,8 @@ describe("Scene touch — focus change during active scroll", () => {
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -926,7 +926,7 @@ describe("Scene touch — focus change during active scroll", () => {
     // independently driving scrollY), this would never converge at all —
     // that's the property this test proves.
     await wait(2500);
-    const settledOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "-1");
+    const settledOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "-1");
     expect(settledOffset).toBeLessThan(2);
   });
 });
@@ -948,7 +948,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 300 }} />
             </SceneObject>
           </SceneColumn>
@@ -977,7 +977,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -986,7 +986,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     expect(getComputedStyle(contentWrapper).touchAction).toBe("pan-x pinch-zoom");
   });
 
@@ -995,7 +995,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 data-testid="scroll-container"
                 style={{ width: 400, height: 400, overflowY: "auto" }}
@@ -1009,7 +1009,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     expect(getComputedStyle(contentWrapper).touchAction).toBe("auto");
   });
 
@@ -1018,7 +1018,7 @@ describe("Scene touch — touch-action CSS and thumb hit target", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1045,7 +1045,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1054,7 +1054,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1076,7 +1076,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1085,7 +1085,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1114,7 +1114,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1123,7 +1123,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1154,7 +1154,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               {/* Content fits the viewport — maxScroll is 0, isScrollable is false. */}
               <div data-testid="content" style={{ width: 400, height: 100 }} />
             </SceneObject>
@@ -1164,7 +1164,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1205,9 +1205,9 @@ describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
-    const column = contentWrapper.closest("[data-column]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
+    const column = contentWrapper.closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1228,9 +1228,9 @@ describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {
     expect(stageLeftAfter).toBeCloseTo(stageLeftBefore - 80, 0);
 
     // The column's OWN vertical scroll never engaged — horizontal ownership
-    // was decided, not vertical. data-scroll-offset is written on the
-    // column element itself ([data-column]), not its content wrapper.
-    expect(column.getAttribute("data-scroll-offset")).toBe("0");
+    // was decided, not vertical. data-ui-scene-scroll-offset is written on the
+    // column element itself ([data-ui-scene-column-anchor]), not its content wrapper.
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("0");
   });
 
   test("Scene-level triad: a horizontal drag starting OUTSIDE any column's scrollable content (a parked column) also pans the camera", async () => {
@@ -1262,8 +1262,8 @@ describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
-    // col3 is parked — its content is NOT inside a [data-column-content]
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
+    // col3 is parked — its content is NOT inside a [data-ui-scene-column-content]
     // wrapper (that only renders for the column's OWN scrollable state);
     // touch directly on the object's own element instead.
     const parked = getByTestId("content3").element() as HTMLElement;
@@ -1302,8 +1302,8 @@ describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const stage = scene.querySelector("[data-stage]") as HTMLElement;
-    const contentWrapper = scene.querySelector("[data-column-content]") as HTMLElement;
+    const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
+    const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const rect = contentWrapper.getBoundingClientRect();
     const startX = rect.left + rect.width / 2;
     const startY = rect.top + 50;
@@ -1333,7 +1333,7 @@ describe("Scene touch — scrollbar thumb drag", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 400, height: 2000 }} />
             </SceneObject>
           </SceneColumn>
@@ -1342,9 +1342,9 @@ describe("Scene touch — scrollbar thumb drag", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
     const thumb = scene.querySelector("[role='scrollbar']") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     expect(maxScroll).toBeGreaterThan(0);
 
     const thumbRect = thumb.getBoundingClientRect();
@@ -1363,7 +1363,7 @@ describe("Scene touch — scrollbar thumb drag", () => {
     firePointer(thumb, "pointermove", startX, startY + 100, 1);
     await waitForAnimationFrame();
 
-    const offset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const offset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
     expect(offset).toBeGreaterThan(0);
     expect(thumb.getAttribute("aria-valuenow")).toBe(String(offset));
 

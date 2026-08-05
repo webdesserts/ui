@@ -60,7 +60,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -98,7 +98,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -127,7 +127,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -174,7 +174,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -203,7 +203,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
       <TestWrapper fullPage>
         <Scene slowMo>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -230,9 +230,10 @@ describe("mid-animation capture (focus → unfocus)", () => {
     await wait(250);
 
     // Tighter tolerance because slower springs produce less jitter between frames.
-    // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter; S7
-    // rewrites this test on the motionSeam pinnable pipeline — see
-    // plans/Scene Assessment 2026-07-14 fix plan.
+    // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter — a
+    // member of the ui#o25/o27/o30/o35/o36 rotating load-sensitive
+    // visual-flake family (Scene Test Audit 2026-08-03); still wait()-based,
+    // not converted to the motionSeam pinnable pipeline.
     //
     // NOTE: `maxDiffPixelRatio` is not a real option on ScreenshotMatcherOptions
     // — it's silently ignored, so every occurrence of it in this file was
@@ -269,7 +270,7 @@ describe("camera pan mid-capture", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="nav-panel" focused>
+            <SceneObject name="nav-object" focused>
               <div
                 style={{
                   width: 160,
@@ -289,7 +290,7 @@ describe("camera pan mid-capture", () => {
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="article">
-            <SceneObject name="article-panel" focused>
+            <SceneObject name="article-object" focused>
               <div
                 style={{
                   width: 400,
@@ -345,7 +346,7 @@ describe("camera pan mid-capture", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused>
+              <SceneObject name="nav-object" focused>
                 <div
                   style={{
                     width: 160,
@@ -365,7 +366,7 @@ describe("camera pan mid-capture", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
-              <SceneObject name="article-panel" focused>
+              <SceneObject name="article-object" focused>
                 <div
                   style={{
                     width: 400,
@@ -398,7 +399,7 @@ describe("camera pan mid-capture", () => {
         <TestWrapper fullPage>
           <Scene>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused={false}>
+              <SceneObject name="nav-object" focused={false}>
                 <div
                   style={{
                     width: 160,
@@ -418,7 +419,7 @@ describe("camera pan mid-capture", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
-              <SceneObject name="article-panel" focused>
+              <SceneObject name="article-object" focused>
                 <div
                   style={{
                     width: 400,
@@ -450,7 +451,9 @@ describe("camera pan mid-capture", () => {
     // clipped on the left/top/bottom during the pan because preserve-3d +
     // translateZ creates an implicit stacking context that clips overflow.
     // This just waits for that registration to actually settle — safe to
-    // over-wait since nothing can progress once pinned.
+    // over-wait since nothing can progress once pinned. Not converted to
+    // waitForSceneSettled/settleThenClick: this test wants a frozen
+    // mid-pan frame, the opposite of the scene's settled state.
     await waitForAnimationsToSettle(() => recorder.controls.size);
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
@@ -477,7 +480,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -525,10 +528,12 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // that correction doesn't exist for this fixture — the position change here
   // is an instant CSS layout snap, not an animation. Kept skipped rather than
   // ship a "passing" test that always captures the settled state under a
-  // misleading name. See plans/Scene Assessment 2026-07-14 fix plan (S7 line)
-  // for the sibling captures this reasoning does NOT apply to (the
-  // depth-deck tests below have a real, documented WAAPI filter/opacity
-  // track — Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
+  // misleading name. This reasoning does NOT apply to the sibling depth-deck
+  // tests below (they have a real, documented WAAPI filter/opacity track —
+  // Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
+  // Tracked under ui#o94 (structural no-freezable-animation finding) — the
+  // fragility here is structural (no freezable track exists for this
+  // fixture), not load-contention.
   it.skip("layout-flip-frozen-at-50pct", async () => {
     // Start unfocused (duration=0), then focus with default spring. motion's
     // layout FLIP uses WAAPI for the positional correction, so we can freeze
@@ -538,7 +543,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -567,7 +572,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -594,7 +599,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
     await waitForAnimationFrame();
 
     // Freeze all WAAPI animations at 50% — captures the FLIP correction mid-way.
-    // If motion's layout FLIP uses WAAPI for this transition, the panel will
+    // If motion's layout FLIP uses WAAPI for this transition, the object will
     // appear halfway through its positional correction (between off-screen and
     // centered). If no WAAPI animations are found, frozen is empty and the
     // screenshot shows the fully-settled state — that's a finding too.
@@ -616,7 +621,10 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // that DOES register, cameraX, converges visually well before any fraction
   // of its reported duration that would still look "mid-flight"). A wait()
   // here captures the same settled state camera-pan-mid-spring's approach
-  // would produce, just non-deterministically. Kept skipped.
+  // would produce, just non-deterministically. Kept skipped. Tracked under
+  // ui#o94 (structural no-freezable-animation finding) — same
+  // structural-not-load-contention caveat as layout-flip-frozen-at-50pct's
+  // citation above.
   it.skip("layout-flip-mid-spring-wait", async () => {
     // Alternative timed-wait approach for comparison. Captures the FLIP
     // animation at ~100ms using only wait() — useful to see how the rAF-based
@@ -626,7 +634,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div
                 style={{
                   width: 400,
@@ -655,7 +663,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
       <TestWrapper fullPage>
         <Scene slowMo>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,
@@ -698,7 +706,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
 // and animated in from the right.
 //
 // Captured with duration=0 so the test is fast, but the resting-state assertion
-// is the same either way — what matters is that the panel is centered at rest,
+// is the same either way — what matters is that the column is centered at rest,
 // not partially offscreen or at position 0.
 // ---------------------------------------------------------------------------
 
@@ -720,7 +728,7 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
     // Three objects in one focused column: top and bottom focused, middle in
     // the within-column depth deck at depth-1. Snapshots the resting state.
     // Locks in the peek-offset position, zIndex, opacity, and grayscale for
-    // the middle object's panel (ui#21 — translateZ was removed entirely
+    // the middle object's own object node (ui#21 — translateZ was removed entirely
     // for object-level depth cards, see the z-index paint-order channel
     // amendment; this baseline predates that split and needs a designer's
     // eyes before regenerating, not touched here).
@@ -960,7 +968,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     // intermediate values on the way — a plain-div snap would jump straight
     // to 0.8 on the very first sampled frame.
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 300,
       height: 150,
       display: "flex",
@@ -975,16 +983,16 @@ describe("within-column depth-deck spring regressions (H8)", () => {
         <Scene duration={slow ? undefined : 0} slowMo={slow}>
           <SceneColumn name="content">
             <SceneObject name="a" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+              <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
             </SceneObject>
             <SceneObject name="x" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+              <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
             </SceneObject>
             <SceneObject name="m" focused={mFocused}>
-              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+              <div style={{ ...objectStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
             </SceneObject>
             <SceneObject name="y" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+              <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -993,10 +1001,10 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     const { container, rerender } = await render(scene(false, false));
     await waitForAnimationFrame();
 
-    // ui#21 anchor/panel split: the depth-card opacity treatment lives on
-    // the PANEL now, not the zero-footprint anchor `data-scene-id` used
+    // ui#21 anchor/object split: the depth-card opacity treatment lives on
+    // the OBJECT NODE now, not the zero-footprint anchor `data-ui-scene-id` used
     // to carry it.
-    const xEl = () => container.querySelector('[data-scene-object="x"]') as HTMLElement;
+    const xEl = () => container.querySelector('[data-ui-scene-object="x"]') as HTMLElement;
     // Sanity: starts at depth-2 (opacity 0.6, per depth.ts's formula).
     expect(Number(getComputedStyle(xEl()).opacity)).toBeCloseTo(0.6, 2);
 
@@ -1049,10 +1057,10 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   // red-before/green-after pin for the objectDepthAnimate fix specifically
   // — defeat-checked (objectDepthAnimate forced to undefined, back when
   // that was the object-level depth-treatment mechanism, before the
-  // height/margin channel + panel peek-transform rework) and it stayed
+  // height/margin channel + object peek-transform rework) and it stayed
   // green: with no z differentiation at all, every object sits at z:0
   // (browser default), so DOM order alone already keeps paint order
-  // consistent (X's own height/margin channels and its panel's
+  // consistent (X's own height/margin channels and its object node's
   // depth-scaled peek-offset transform still spring independently of any
   // depth-treatment mechanism, so X still moves through the same overlap
   // geometry — it just isn't visually dimmed/receded while doing so; the
@@ -1065,7 +1073,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   // it happens to be provably load-bearing against today's specific bug.
   it("depth-reshape-paint-order-invariant", async () => {
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 300,
       height: 150,
       display: "flex",
@@ -1080,16 +1088,16 @@ describe("within-column depth-deck spring regressions (H8)", () => {
         <Scene duration={slow ? undefined : 0} slowMo={slow}>
           <SceneColumn name="content">
             <SceneObject name="a" focused>
-              <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
+              <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)" }}>A</div>
             </SceneObject>
             <SceneObject name="x" focused={false}>
-              <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
+              <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)" }}>X</div>
             </SceneObject>
             <SceneObject name="m" focused={mFocused}>
-              <div style={{ ...panelStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
+              <div style={{ ...objectStyle, background: "rgba(250,204,21,0.5)" }}>M</div>
             </SceneObject>
             <SceneObject name="y" focused>
-              <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
+              <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)" }}>Y</div>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -1100,15 +1108,15 @@ describe("within-column depth-deck spring regressions (H8)", () => {
 
     await rerender(scene(true, true));
 
-    // ui#21 anchor/panel split: overlap geometry and paint order are
-    // driven by the PANEL now (position:absolute, the peek-offset
+    // ui#21 anchor/object split: overlap geometry and paint order are
+    // driven by the OBJECT NODE now (position:absolute, the peek-offset
     // transform, and the zIndex channel) — the zero-footprint anchor
-    // `data-scene-id` collapses to zero height once sandwiched and no
+    // `data-ui-scene-id` collapses to zero height once sandwiched and no
     // longer reflects what's actually painted/overlapping on screen.
-    const xEl = container.querySelector('[data-scene-object="x"]') as HTMLElement;
-    const aEl = container.querySelector('[data-scene-object="a"]') as HTMLElement;
-    const mEl = container.querySelector('[data-scene-object="m"]') as HTMLElement;
-    const yEl = container.querySelector('[data-scene-object="y"]') as HTMLElement;
+    const xEl = container.querySelector('[data-ui-scene-object="x"]') as HTMLElement;
+    const aEl = container.querySelector('[data-ui-scene-object="a"]') as HTMLElement;
+    const mEl = container.querySelector('[data-ui-scene-object="m"]') as HTMLElement;
+    const yEl = container.querySelector('[data-ui-scene-object="y"]') as HTMLElement;
 
     const [vsA, vsM, vsY] = await Promise.all([
       sampleLivePaintOrder(xEl, aEl, 90),
@@ -1247,15 +1255,17 @@ describe("depth-deck bug-fix regressions", () => {
   // to this test because it's the only one of the three that also drives a
   // real `layout` FLIP, not just declarative animate-prop values) —
   // probably needs either a motion/react-side workaround or accepting this
-  // test at ~90%, not 100%, reliability.
+  // test at ~90%, not 100%, reliability. Tracked as the confirmed concrete
+  // member of ui#o25/ui#o36 (rotating load/timing-sensitive visual-flake
+  // class) in the Scene Test Audit's gap map.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
     // Then refocus Middle A with slowMo springs, freeze at 30% to capture a
-    // mid-spring frame. The panel should be between its deck transform and the
+    // mid-spring frame. The object should be between its deck transform and the
     // focused row center — NOT starting from Right's left edge (bug 2a).
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1272,21 +1282,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused={false}>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (deck)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1311,21 +1321,21 @@ describe("depth-deck bug-fix regressions", () => {
             <Scene slowMo>
               <SceneColumn name="left">
                 <SceneObject name="left-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                     Left (focused)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="middle-a">
                 <SceneObject name="middle-a-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                     Middle A (refocusing)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
                 <SceneObject name="right-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                     Right (focused)
                   </div>
                 </SceneObject>
@@ -1341,7 +1351,9 @@ describe("depth-deck bug-fix regressions", () => {
       // opacity/filter/z, and the rAF-driven cameraX/column-z seam tracks) to
       // the SAME 30% fraction the instant each one registered, so every
       // track reads as "the same instant" regardless of how long motion's
-      // own scheduling took to get there.
+      // own scheduling took to get there. Not converted to
+      // waitForSceneSettled/settleThenClick: this test wants a frozen
+      // mid-spring frame, the opposite of the scene's settled state.
       await waitForAnimationsToSettle(
         () => recorder.controls.size + waapiPin.animations.length,
       );
@@ -1385,7 +1397,7 @@ describe("depth-deck bug-fix regressions", () => {
   // trade-off. See SceneColumn.tsx's zMV comment for the full writeup.
   it("refocus-from-depth-deck-paint-order-invariant", async () => {
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1402,21 +1414,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused={false}>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (deck)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1433,21 +1445,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene slowMo>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (refocusing)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1458,9 +1470,9 @@ describe("depth-deck bug-fix regressions", () => {
     );
     await waitForAnimationFrame();
 
-    const midA = container.querySelector('[data-column="middle-a"]') as HTMLElement;
-    const left = container.querySelector('[data-column="left"]') as HTMLElement;
-    const right = container.querySelector('[data-column="right"]') as HTMLElement;
+    const midA = container.querySelector('[data-ui-scene-column-anchor="middle-a"]') as HTMLElement;
+    const left = container.querySelector('[data-ui-scene-column-anchor="left"]') as HTMLElement;
+    const right = container.querySelector('[data-ui-scene-column-anchor="right"]') as HTMLElement;
 
     const fractions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
     const vsLeft = samplePaintOrder(container as HTMLElement, midA, left, fractions, recorder);
@@ -1493,7 +1505,7 @@ describe("depth-deck bug-fix regressions", () => {
     // grayscale(0.25), proving bug 2b is fixed — if filter still snapped
     // instantly it would already be at grayscale(0.25).
     document.documentElement.style.colorScheme = "dark";
-    const panelStyle: React.CSSProperties = {
+    const objectStyle: React.CSSProperties = {
       width: 250,
       height: 200,
       display: "flex",
@@ -1510,21 +1522,21 @@ describe("depth-deck bug-fix regressions", () => {
           <Scene duration={0}>
             <SceneColumn name="left">
               <SceneObject name="left-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                   Left (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="middle-a">
               <SceneObject name="middle-a-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                   Middle A (focused)
                 </div>
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
               <SceneObject name="right-obj" focused>
-                <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                   Right (focused)
                 </div>
               </SceneObject>
@@ -1550,21 +1562,21 @@ describe("depth-deck bug-fix regressions", () => {
             <Scene>
               <SceneColumn name="left">
                 <SceneObject name="left-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(99,102,241,0.5)", border: "2px solid rgba(99,102,241,0.9)" }}>
                     Left (focused)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="middle-a">
                 <SceneObject name="middle-a-obj" focused={false}>
-                  <div style={{ ...panelStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(239,68,68,0.5)", border: "2px solid rgba(239,68,68,0.9)" }}>
                     Middle A (unfocusing)
                   </div>
                 </SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
                 <SceneObject name="right-obj" focused>
-                  <div style={{ ...panelStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
+                  <div style={{ ...objectStyle, background: "rgba(52,211,153,0.5)", border: "2px solid rgba(52,211,153,0.9)" }}>
                     Right (focused)
                   </div>
                 </SceneObject>
@@ -1579,7 +1591,9 @@ describe("depth-deck bug-fix regressions", () => {
       // mid-spring, not snapped — waapiPin and recorder's pinFraction already
       // guaranteed that the instant each track registered; this just waits
       // for motion's own scheduling to actually get there (safe to over-wait,
-      // see waitForAnimationsToSettle's doc comment).
+      // see waitForAnimationsToSettle's doc comment). Not converted to
+      // waitForSceneSettled/settleThenClick: this test wants a frozen
+      // mid-spring frame, the opposite of the scene's settled state.
       await waitForAnimationsToSettle(
         () => recorder.controls.size + waapiPin.animations.length,
       );
@@ -1609,7 +1623,7 @@ describe("first-paint resting state", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="content">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div
                 style={{
                   width: 400,

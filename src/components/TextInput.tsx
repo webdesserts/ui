@@ -57,7 +57,7 @@ const inputSizes: Record<ButtonSize, string> = {
 
 /**
  * The accent ring, shown only for KEYBOARD focus. The selector fires when
- * <html> carries `data-focus-source="keyboard"` (set by installFocusModalityTracker)
+ * <html> carries `data-ui-focus-source="keyboard"` (set by installFocusModalityTracker)
  * AND the wrapper contains the focused input — so tab → ring, click → no ring,
  * mirroring a Button's :focus-visible. `outline` composes with the border;
  * `z-1` (wrapper is relative) keeps the ring from being clipped by neighbors.
@@ -70,10 +70,10 @@ const inputSizes: Record<ButtonSize, string> = {
  */
 const wrapperKeyboardRing = [
   "outline-none",
-  "[[data-focus-source=keyboard]_&]:has-[input:focus]:outline-solid",
-  "[[data-focus-source=keyboard]_&]:has-[input:focus]:outline-2",
-  "[[data-focus-source=keyboard]_&]:has-[input:focus]:outline-accent",
-  "[[data-focus-source=keyboard]_&]:has-[input:focus]:z-1",
+  "[[data-ui-focus-source=keyboard]_&]:has-[input:focus]:outline-solid",
+  "[[data-ui-focus-source=keyboard]_&]:has-[input:focus]:outline-2",
+  "[[data-ui-focus-source=keyboard]_&]:has-[input:focus]:outline-accent",
+  "[[data-ui-focus-source=keyboard]_&]:has-[input:focus]:z-1",
 ].join(" ");
 
 /**

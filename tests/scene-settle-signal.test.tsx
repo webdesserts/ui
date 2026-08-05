@@ -12,10 +12,10 @@ import {
 } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
-// data-scene-settled (criterion 1)
+// data-ui-scene-settled (criterion 1)
 // ---------------------------------------------------------------------------
 
-describe("data-scene-settled", () => {
+describe("data-ui-scene-settled", () => {
   test("is true at rest, nothing ever having animated", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
@@ -30,7 +30,7 @@ describe("data-scene-settled", () => {
     );
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
   });
 
   test("flips false while a focus-triggered owned channel is mid-transition, true again once settled", async () => {
@@ -73,14 +73,14 @@ describe("data-scene-settled", () => {
 
     const scene = getByTestId("scene").element() as HTMLElement;
     await wait(1000);
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
 
     getByTestId("focus-right").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
 
     await wait(1000);
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
   });
 });
 
@@ -107,7 +107,7 @@ describe("onTransitionEnd", () => {
     expect(fired.length).toBe(0);
   });
 
-  test("does not fire for a non-focus-driven settle (a content-resize settle), while data-scene-settled still behaves correctly (required discriminator, addendum v1 decision 5)", async () => {
+  test("does not fire for a non-focus-driven settle (a content-resize settle), while data-ui-scene-settled still behaves correctly (required discriminator, addendum v1 decision 5)", async () => {
     const fired: unknown[] = [];
 
     function Harness() {
@@ -135,17 +135,17 @@ describe("onTransitionEnd", () => {
     );
     const scene = getByTestId("scene").element() as HTMLElement;
     await wait(1000);
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
 
     // Content-resize settle: no `focused` prop anywhere ever changes.
     getByTestId("grow").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    // data-scene-settled still behaves (criterion 1 is mechanism-broad —
+    // data-ui-scene-settled still behaves (criterion 1 is mechanism-broad —
     // it flips false for ANY owned-channel claim, focus-driven or not).
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
 
     await wait(1000);
-    expect(scene.getAttribute("data-scene-settled")).toBe("true");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
     // onTransitionEnd (criterion 8, focus-transition-narrow) must NOT have
     // fired — the settle was real, but never focus-driven.
     expect(fired.length).toBe(0);
@@ -315,7 +315,7 @@ describe("onTransitionEnd", () => {
 // Inertness gating (criteria 3/4/9)
 // ---------------------------------------------------------------------------
 
-describe("transition-scoped inertness", () => {
+describe("inertness gating: settled-unfocused objects (see 'double interruption' for the mid-transition case)", () => {
   test("settled-unfocused object's content stays inert; already-focused object click is a no-op", async () => {
     let activateCount = 0;
 
@@ -349,7 +349,7 @@ describe("transition-scoped inertness", () => {
     );
 
     const contentB = getByTestId("content-b-btn").element() as HTMLElement;
-    const objectA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
+    const objectA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
 
     // b is settled-unfocused: its content stays inert.
     const bInnerWrapper = contentB.parentElement as HTMLElement;
@@ -408,7 +408,7 @@ describe("transition-scoped inertness", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     await wait(1000);
 
-    const leftObject = getByTestId("content-left").element().closest("[data-scene-id]") as HTMLElement;
+    const leftObject = getByTestId("content-left").element().closest("[data-ui-scene-id]") as HTMLElement;
     const leftRect = leftObject.getBoundingClientRect();
     const leftX = leftRect.x + leftRect.width / 2;
     const leftY = leftRect.y + leftRect.height / 2;
@@ -417,7 +417,7 @@ describe("transition-scoped inertness", () => {
     // object (settled-focused -> in-transition -> settled-unfocused).
     getByTestId("focus-right").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
 
     // Mid-transition: a real hit-tested click at "left"'s own position must
     // have NO effect — the whole scene is inert while ANY focus transition
@@ -499,12 +499,12 @@ describe("two-phase focus", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     await wait(1000);
 
-    const rightAnchor = getByTestId("content-right").element().closest("[data-scene-id]") as HTMLElement;
+    const rightAnchor = getByTestId("content-right").element().closest("[data-ui-scene-id]") as HTMLElement;
     const rightBtn = getByTestId("right-btn").element() as HTMLElement;
 
     getByTestId("focus-right").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
     // Phase 1: mid-transition, DOM focus is on the anchor — the content
     // wrapper (and the button inside it) is still inert, so the anchor
     // (outside the inert wrapper) is the only valid focus target.
@@ -573,10 +573,10 @@ describe("double interruption", () => {
     // animations inert NOBODY — transitionPending only arms on a genuine
     // focus-arrangement change, so "anchor" stays fully interactive
     // through the ambient-only phase, even though the scene is not
-    // data-scene-settled.
+    // data-ui-scene-settled.
     getByTestId("grow").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
     expect(anchorInnerWrapper.hasAttribute("inert")).toBe(false);
 
     // Land a genuine focus change mid-flight of the ambient claim — NOW
@@ -690,7 +690,7 @@ describe("double interruption", () => {
 
     getByTestId("swap").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitForAnimationFrame();
-    expect(scene.getAttribute("data-scene-settled")).toBe("false");
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
 
     // Interrupt mid-transition with a live duration->0 flip (simulating
     // prefers-reduced-motion toggling mid-transition).

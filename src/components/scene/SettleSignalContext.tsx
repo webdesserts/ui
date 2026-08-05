@@ -41,7 +41,7 @@ import { createContext } from "react";
  * a per-channel-keyed registry: `useOwnedAnimation()`'s claim/retire guard
  * (ownedAnimation.ts) already proved interruption-correct per channel, so
  * the aggregate zero-crossing this pair produces is exactly what ui#20's
- * `data-scene-settled`/`onTransitionEnd`/inertness-gating layer (Scene.tsx,
+ * `data-ui-scene-settled`/`onTransitionEnd`/inertness-gating layer (Scene.tsx,
  * SceneObject.tsx) needs — see Scene.tsx's own `transitionPending` doc
  * comment for how that layer is built on top of this signal.
  */

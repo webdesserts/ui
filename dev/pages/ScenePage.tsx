@@ -895,7 +895,7 @@ function TouchDebugOverlay() {
     el.style.touchAction = "pan-x";
     const plain = getComputedStyle(el).touchAction;
     el.remove();
-    const live = document.querySelector("[data-column-content]");
+    const live = document.querySelector("[data-ui-scene-column-content]");
     const liveTa = live ? getComputedStyle(live).touchAction : "?";
     setTaLine(`touch-action: set "pan-x pinch-zoom" → computed "${compound}" · set "pan-x" → "${plain}" · live column → "${liveTa}"`);
   }, []);
@@ -909,8 +909,8 @@ function TouchDebugOverlay() {
     let raf = 0;
 
     const findContent = (target: Element | null): Element | null => {
-      const col = target?.closest("[data-column]");
-      return col?.querySelector("[data-column-content]") ?? null;
+      const col = target?.closest("[data-ui-scene-column-anchor]");
+      return col?.querySelector("[data-ui-scene-column-content]") ?? null;
     };
 
     let colInfo = "";
@@ -918,8 +918,8 @@ function TouchDebugOverlay() {
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
       content = findContent(e.target as Element);
       if (!content) return;
-      const col = content.closest("[data-column]");
-      colInfo = `col=${col?.getAttribute("data-column")} maxScroll=${col?.getAttribute("data-max-scroll") ?? "none"} ta=${getComputedStyle(content).touchAction}`;
+      const col = content.closest("[data-ui-scene-column-anchor]");
+      colInfo = `col=${col?.getAttribute("data-ui-scene-column-anchor")} maxScroll=${col?.getAttribute("data-ui-scene-max-scroll") ?? "none"} ta=${getComputedStyle(content).touchAction}`;
       startY = e.clientY;
       startContentTop = content.getBoundingClientRect().top;
       releaseContentTop = null;
@@ -936,11 +936,11 @@ function TouchDebugOverlay() {
     // with contentTop and which stay put — (1) wrapperStyleTop is the raw
     // CSS `top` value Motion writes directly onto the content wrapper
     // (composedTop = -(topOffsetMV + scrollY) — if THIS jumps while
-    // data-scroll-offset (scrollY) barely moves, the culprit is
+    // data-ui-scene-scroll-offset (scrollY) barely moves, the culprit is
     // topOffsetMV/topOffset, not the scroll pipeline); (2) colRectTop is
-    // the OUTER [data-column] element's page position (should be rock
+    // the OUTER [data-ui-scene-column-anchor] element's page position (should be rock
     // stable — nothing in this demo moves a column); (3) stageRectTop is
-    // the [data-stage] element's page position (camera pan only ever
+    // the [data-ui-scene-stage] element's page position (camera pan only ever
     // writes `left`, never `top` — stageTransform is captured too in case
     // something unexpected touches it); (4) sceneRectTop is the
     // [data-testid="scene"] VIEWPORT's own page position — if the WHOLE
@@ -983,9 +983,9 @@ function TouchDebugOverlay() {
       if (composerFrozen) return;
       const composer = document.querySelector("[data-testid='composer']");
       if (!composer) return;
-      const col = composer.closest("[data-column]");
-      const off = parseFloat(col?.getAttribute("data-scroll-offset") ?? "0");
-      const max = parseFloat(col?.getAttribute("data-max-scroll") ?? "0");
+      const col = composer.closest("[data-ui-scene-column-anchor]");
+      const off = parseFloat(col?.getAttribute("data-ui-scene-scroll-offset") ?? "0");
+      const max = parseFloat(col?.getAttribute("data-ui-scene-max-scroll") ?? "0");
       // A rubber-band OVERSCROLL (off > max, e.g. mid-fling boundary
       // catch) legitimately moves the composer by exactly the overscroll
       // amount — probe-confirmed (Chromium, off-max Δ matched the
@@ -1000,11 +1000,11 @@ function TouchDebugOverlay() {
       const curTop = composer.getBoundingClientRect().top;
       if (!inOverscroll && composerPrevTop !== null && Math.abs(curTop - composerPrevTop) > COMPOSER_EPSILON_PX) {
         composerFrozen = true;
-        const contentWrapper = col?.querySelector("[data-column-content]") as HTMLElement | null;
+        const contentWrapper = col?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
         setComposerLine(
           `🚨 COMPOSER MOVED (should be pinned):\n` +
             `composerTop ${composerPrevTop.toFixed(2)}→${curTop.toFixed(2)} (Δ${(curTop - composerPrevTop).toFixed(2)})\n` +
-            `off ${col?.getAttribute("data-scroll-offset") ?? "?"} · max ${col?.getAttribute("data-max-scroll") ?? "?"} · ` +
+            `off ${col?.getAttribute("data-ui-scene-scroll-offset") ?? "?"} · max ${col?.getAttribute("data-ui-scene-max-scroll") ?? "?"} · ` +
             `wrapperStyleTop ${parseFloat(contentWrapper?.style.top || "0").toFixed(1)}`,
         );
         return;
@@ -1023,14 +1023,14 @@ function TouchDebugOverlay() {
     };
     const sample = () => {
       if (!content || startY === null) return;
-      const col = content.closest("[data-column]");
-      const stage = document.querySelector("[data-stage]");
+      const col = content.closest("[data-ui-scene-column-anchor]");
+      const stage = document.querySelector("[data-ui-scene-stage]");
       const scene = document.querySelector("[data-testid='scene']");
       const cur = {
         top: content.getBoundingClientRect().top,
         y: lastClientY,
-        off: col?.getAttribute("data-scroll-offset") ?? null,
-        max: col?.getAttribute("data-max-scroll") ?? null,
+        off: col?.getAttribute("data-ui-scene-scroll-offset") ?? null,
+        max: col?.getAttribute("data-ui-scene-max-scroll") ?? null,
         vv: window.visualViewport?.height ?? 0,
         pageY: window.scrollY,
         // A stable page landmark OUTSIDE the Scene: the page's own <h1>.

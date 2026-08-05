@@ -14,7 +14,7 @@ import { TextInput } from "@/src";
 
 afterEach(() => {
   document.documentElement.style.colorScheme = "";
-  delete document.documentElement.dataset.focusSource;
+  delete document.documentElement.dataset.uiFocusSource;
 });
 
 // A fixed width keeps every snapshot the same size regardless of placeholder
@@ -59,7 +59,7 @@ async function restPointer(container: Element) {
 async function captureFocused(container: Element, source: "keyboard" | "pointer") {
   const wrapper = wrapperOf(container);
   const input = container.querySelector("input")!;
-  document.documentElement.dataset.focusSource = source;
+  document.documentElement.dataset.uiFocusSource = source;
   const restore = slowTransitions();
   input.focus();
   await waitForAnimationFrame();

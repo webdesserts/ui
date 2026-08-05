@@ -113,14 +113,14 @@ describe("decideWheelTargetColumn", () => {
 
   test("A10 fallback: exactly one scrollable focused column anywhere wins unconditionally, regardless of cursor position", () => {
     const viewport = makeViewport(`
-      <div data-column="a" data-column-focused="true" data-max-scroll="100"></div>
-      <div data-column="b" data-column-focused="true"></div>
+      <div data-ui-scene-column-anchor="a" data-ui-scene-column-focused="true" data-ui-scene-max-scroll="100"></div>
+      <div data-ui-scene-column-anchor="b" data-ui-scene-column-focused="true"></div>
     `);
     try {
       // Cursor position far outside either column — the fallback shouldn't
       // even need to hit-test since there's exactly one candidate.
       const result = decideWheelTargetColumn(viewport, -9999, -9999);
-      expect(result).toBe(viewport.querySelector("[data-column='a']"));
+      expect(result).toBe(viewport.querySelector("[data-ui-scene-column-anchor='a']"));
     } finally {
       viewport.remove();
     }
@@ -128,15 +128,15 @@ describe("decideWheelTargetColumn", () => {
 
   test("multiple scrollable focused columns: falls back to hit-testing the element under the cursor", () => {
     const a = document.createElement("div");
-    a.setAttribute("data-column", "a");
-    a.setAttribute("data-column-focused", "true");
-    a.setAttribute("data-max-scroll", "100");
+    a.setAttribute("data-ui-scene-column-anchor", "a");
+    a.setAttribute("data-ui-scene-column-focused", "true");
+    a.setAttribute("data-ui-scene-max-scroll", "100");
     Object.assign(a.style, { position: "fixed", left: "0px", top: "0px", width: "50px", height: "50px" });
 
     const b = document.createElement("div");
-    b.setAttribute("data-column", "b");
-    b.setAttribute("data-column-focused", "true");
-    b.setAttribute("data-max-scroll", "100");
+    b.setAttribute("data-ui-scene-column-anchor", "b");
+    b.setAttribute("data-ui-scene-column-focused", "true");
+    b.setAttribute("data-ui-scene-max-scroll", "100");
     Object.assign(b.style, { position: "fixed", left: "200px", top: "0px", width: "50px", height: "50px" });
 
     const viewport = document.createElement("div");
@@ -155,8 +155,8 @@ describe("decideWheelTargetColumn", () => {
 
   test("zero scrollable focused columns: returns null even if something is under the cursor", () => {
     const notScrollable = document.createElement("div");
-    notScrollable.setAttribute("data-column", "a");
-    notScrollable.setAttribute("data-column-focused", "true");
+    notScrollable.setAttribute("data-ui-scene-column-anchor", "a");
+    notScrollable.setAttribute("data-ui-scene-column-focused", "true");
     Object.assign(notScrollable.style, { position: "fixed", left: "0px", top: "0px", width: "50px", height: "50px" });
 
     const viewport = document.createElement("div");
@@ -179,7 +179,7 @@ describe("decideWheelTargetColumn", () => {
 describe("interiorCanConsume", () => {
   function makeBoundary(): HTMLElement {
     const boundary = document.createElement("div");
-    boundary.setAttribute("data-column", "test");
+    boundary.setAttribute("data-ui-scene-column-anchor", "test");
     document.body.appendChild(boundary);
     return boundary;
   }
@@ -254,11 +254,11 @@ describe("interiorCanConsume", () => {
     }
   });
 
-  test("no scroll container in the path declines — including a [data-column-content]-alike wrapper carrying no overflow CSS (defensive: today's production wrapper never matches by attribute alone)", () => {
+  test("no scroll container in the path declines — including a [data-ui-scene-column-content]-alike wrapper carrying no overflow CSS (defensive: today's production wrapper never matches by attribute alone)", () => {
     const boundary = makeBoundary();
     const contentWrapperAlike = document.createElement("div");
-    contentWrapperAlike.setAttribute("data-column-content", "");
-    // No overflow CSS set — mirrors production ([data-column-content] itself
+    contentWrapperAlike.setAttribute("data-ui-scene-column-content", "");
+    // No overflow CSS set — mirrors production ([data-ui-scene-column-content] itself
     // carries no overflow declaration today) but give it real overflow
     // (scrollHeight > clientHeight) so this proves overflow-y is the actual
     // gate, not an incidental size coincidence.
@@ -476,23 +476,23 @@ describe("isInteractiveElement", () => {
     expect(isInteractiveElement(el)).toBe(false);
   });
 
-  test("DELTA-1: an element bearing [data-column-content] with tabindex=0 is NOT interactive (the region wrapper itself)", () => {
+  test("DELTA-1: an element bearing [data-ui-scene-column-content] with tabindex=0 is NOT interactive (the region wrapper itself)", () => {
     const el = document.createElement("div");
-    el.setAttribute("data-column-content", "");
+    el.setAttribute("data-ui-scene-column-content", "");
     el.setAttribute("role", "region");
     el.setAttribute("tabindex", "0");
     expect(isInteractiveElement(el)).toBe(false);
   });
 
-  test("fix round: a bare tabindex=0 element NESTED inside [data-column-content] (a consumer widget, not the wrapper itself) IS interactive", () => {
+  test("fix round: a bare tabindex=0 element NESTED inside [data-ui-scene-column-content] (a consumer widget, not the wrapper itself) IS interactive", () => {
     // The content-wrapper exemption is a SELF-ONLY check — every consumer's
-    // actual content lives inside [data-column-content] by construction, so
+    // actual content lives inside [data-ui-scene-column-content] by construction, so
     // an ancestor-inclusive closest() check here would wrongly exempt every
     // nested focusable widget (a roving-tabindex list item, a focusable
     // message bubble) from the generic tabindex rule too, hijacking its own
     // arrow/Space keys for column scroll.
     const wrapper = document.createElement("div");
-    wrapper.setAttribute("data-column-content", "");
+    wrapper.setAttribute("data-ui-scene-column-content", "");
     const widget = document.createElement("div");
     widget.setAttribute("tabindex", "0");
     wrapper.appendChild(widget);
@@ -504,9 +504,9 @@ describe("isInteractiveElement", () => {
     }
   });
 
-  test("DELTA-1: an element NESTED under [data-scrollbar] with tabindex=0 is NOT interactive (the scrollbar thumb)", () => {
+  test("DELTA-1: an element NESTED under [data-ui-scene-scrollbar] with tabindex=0 is NOT interactive (the scrollbar thumb)", () => {
     const track = document.createElement("div");
-    track.setAttribute("data-scrollbar", "");
+    track.setAttribute("data-ui-scene-scrollbar", "");
     const thumb = document.createElement("div");
     thumb.setAttribute("role", "scrollbar");
     thumb.setAttribute("tabindex", "0");

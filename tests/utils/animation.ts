@@ -47,7 +47,7 @@ export function waitForAnimationFrame(): Promise<void> {
  * value is a pure test-read-timing artifact, never a painted frame).
  * Named for the BEHAVIOR it waits for (not the mechanism), anticipating a
  * future settle-signal primitive (ui#20) as a possible replacement — landed,
- * and NOT a fit for this specific job: `data-scene-settled`
+ * and NOT a fit for this specific job: `data-ui-scene-settled`
  * (`waitForSceneSettled`, this file) waits for the scene to fully settle,
  * which can take many frames for a real spring, while this function's own
  * contract is a single-tick flush wait for Motion's rAF-batched writes to
@@ -607,7 +607,7 @@ export function assertPaintOrderInvariant(
 }
 
 /**
- * Waits until a Scene's own `data-scene-settled` attribute reads `"true"`
+ * Waits until a Scene's own `data-ui-scene-settled` attribute reads `"true"`
  * (ui#20 criterion 1 — no owned animation currently active), polling real
  * animation frames up to `timeoutMs`. Bounded wait (~600ms per ui#o20) —
  * throws a legible error naming the wait bound on timeout, rather than
@@ -616,15 +616,15 @@ export function assertPaintOrderInvariant(
  * `measureSettleDurationMs`, scene.test.tsx).
  *
  * `scene` is the viewport element itself (`getByTestId("scene").element()`)
- * — the element `data-scene-settled` is actually rendered on.
+ * — the element `data-ui-scene-settled` is actually rendered on.
  */
 export async function waitForSceneSettled(scene: HTMLElement, options: { timeoutMs?: number } = {}): Promise<void> {
   const { timeoutMs = 600 } = options;
   const start = performance.now();
-  while (scene.getAttribute("data-scene-settled") !== "true") {
+  while (scene.getAttribute("data-ui-scene-settled") !== "true") {
     if (performance.now() - start > timeoutMs) {
       throw new Error(
-        `waitForSceneSettled: scene never settled within ${timeoutMs}ms (data-scene-settled stayed "${scene.getAttribute("data-scene-settled")}")`,
+        `waitForSceneSettled: scene never settled within ${timeoutMs}ms (data-ui-scene-settled stayed "${scene.getAttribute("data-ui-scene-settled")}")`,
       );
     }
     await waitForAnimationFrame();

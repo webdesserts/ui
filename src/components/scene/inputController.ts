@@ -61,7 +61,7 @@ export function normalizeWheelDeltaX(e: WheelEvent, viewportWidth: number): numb
  * Decides which column element a wheel event should scroll.
  *
  * A10 fallback: if exactly one focused column in the viewport is scrollable
- * (`[data-column-focused='true'][data-max-scroll]`), it wins unconditionally
+ * (`[data-ui-scene-column-focused='true'][data-ui-scene-max-scroll]`), it wins unconditionally
  * — wheel input anywhere in the viewport scrolls it, so there are no dead
  * margins when only one column can possibly respond. With zero or multiple
  * scrollable focused columns, falls back to hit-testing the element under
@@ -74,17 +74,17 @@ export function decideWheelTargetColumn(
   clientY: number,
 ): Element | null {
   const scrollableFocused = viewport.querySelectorAll(
-    "[data-column-focused='true'][data-max-scroll]",
+    "[data-ui-scene-column-focused='true'][data-ui-scene-max-scroll]",
   );
   if (scrollableFocused.length === 1) {
     return scrollableFocused[0]!;
   }
 
   const target = document.elementFromPoint(clientX, clientY);
-  const column = target?.closest("[data-column]") ?? null;
+  const column = target?.closest("[data-ui-scene-column-anchor]") ?? null;
   if (!column) return null;
-  if (column.getAttribute("data-column-focused") !== "true") return null;
-  if (!column.hasAttribute("data-max-scroll")) return null;
+  if (column.getAttribute("data-ui-scene-column-focused") !== "true") return null;
+  if (!column.hasAttribute("data-ui-scene-max-scroll")) return null;
   return column;
 }
 
@@ -97,7 +97,7 @@ export function decideWheelTargetColumn(
  * `overflow-y: auto|scroll` (opting in to browser-managed scrolling) AND
  * `scrollHeight > clientHeight` (there's actually something to scroll — an
  * `overflow-y: auto` element with fitting content never matches).
- * `[data-column-content]` itself carries no `overflow` CSS today (confirmed
+ * `[data-ui-scene-column-content]` itself carries no `overflow` CSS today (confirmed
  * by reading its style block), so it never accidentally matches here — this
  * is intentionally NOT special-cased by attribute; a defensive test covers
  * the case in case a future edit adds `overflow` there.
@@ -275,15 +275,15 @@ export function isInteractiveElement(el: Element): boolean {
 
   // The column's own content wrapper is navigable-but-not-interactive — but
   // ONLY the wrapper itself, a SELF-ONLY check (fix round, gate finding):
-  // every consumer's actual content lives inside [data-column-content] by
+  // every consumer's actual content lives inside [data-ui-scene-column-content] by
   // construction, so an ancestor-inclusive closest() check here would
   // wrongly exempt every NESTED focusable widget too (a roving-tabindex
   // list item, a focusable message bubble), hijacking its own arrow/Space
   // keys for column scroll. The scrollbar thumb is the opposite case:
-  // [data-scrollbar] lives on the TRACK, an ANCESTOR of the thumb itself, so
+  // [data-ui-scene-scrollbar] lives on the TRACK, an ANCESTOR of the thumb itself, so
   // closest() (ancestor-inclusive) is correct and necessary there.
-  const isContentWrapperItself = el.hasAttribute("data-column-content");
-  const isWithinScrollbar = el.closest("[data-scrollbar]") !== null;
+  const isContentWrapperItself = el.hasAttribute("data-ui-scene-column-content");
+  const isWithinScrollbar = el.closest("[data-ui-scene-scrollbar]") !== null;
   if (!isContentWrapperItself && !isWithinScrollbar) {
     const tabindex = el.getAttribute("tabindex");
     if (tabindex !== null && Number(tabindex) >= 0) return true;
@@ -487,7 +487,7 @@ export function selectAnchorObject(
  * the `anchor="end"` follow-the-end pin state machine — probe-measured,
  * not guessed. A single real fractional wheel tick (deltaY=499.7 against a
  * maxScroll of 500.5) landed 1.3px short of the reported maxScroll in
- * testing: `data-max-scroll` resolves through `offsetHeight`, an integer
+ * testing: `data-ui-scene-max-scroll` resolves through `offsetHeight`, an integer
  * per the CSSOM spec (it rounds the true fractional layout box), while a
  * wheel-driven offset stays exactly fractional — so the design doc's
  * proposed "within 1px" would have missed a genuinely natural scroll-to-

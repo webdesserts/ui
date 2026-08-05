@@ -92,7 +92,7 @@ function buildRows(ids: number[], viewportHeight = 300) {
  * (and same duration={0}-lands-same-tick guarantee) as this repo's
  * existing F9/F10/F12 tests. */
 async function scrollColumnTo(scene: HTMLElement, column: HTMLElement, targetOffset: number) {
-  const currentOffset = Number(column.getAttribute("data-scroll-offset") ?? "0");
+  const currentOffset = Number(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
   const columnRect = column.getBoundingClientRect();
   scene.dispatchEvent(
     new WheelEvent("wheel", {
@@ -103,12 +103,12 @@ async function scrollColumnTo(scene: HTMLElement, column: HTMLElement, targetOff
       cancelable: true,
     }),
   );
-  const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+  const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
   await expect.poll(() => parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-targetOffset, 5);
-  expect(column.getAttribute("data-scroll-offset")).toBe(String(targetOffset));
+  expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe(String(targetOffset));
 }
 
-/** Forces exactly ONE genuine ResizeObserver firing on [data-column] (the
+/** Forces exactly ONE genuine ResizeObserver firing on [data-ui-scene-column-anchor] (the
  * SAME observed element SceneColumn's shared ResizeObserver watches) via a
  * real, tiny size change — not a synthetic stand-in. `grow` toggles which
  * direction (the corresponding `shrinkColumnBack` call reverts it). Two
@@ -185,8 +185,8 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
     const ids = Array.from({ length: rowCount }, (_, i) => i);
     const { getByTestId } = await render(buildRows(ids));
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const contentWrapper = column.querySelector("[data-column-content]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const contentWrapper = column.querySelector("[data-ui-scene-column-content]") as HTMLElement;
 
     // window [250, 550) — row 2 ([200,300)) is the topmost intersecting
     // level-1 candidate; ITS OWN children (h4 [200,230), p [230,300))
@@ -211,7 +211,7 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
       stub.activate();
       await growColumnPadding(column);
 
-      expect(column.getAttribute("data-scroll-offset")).toBe("250");
+      expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("250");
       expect(parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-250, 5);
 
       // Pass 2: fully truthful (stub deactivated first) — this settle's
@@ -223,7 +223,7 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
       stub.deactivate();
       await shrinkColumnBack(column);
 
-      expect(column.getAttribute("data-scroll-offset")).toBe("250");
+      expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("250");
       expect(parseFloat(contentWrapper.style.top || "0")).toBeCloseTo(-250, 5);
     } finally {
       stub.restore();
@@ -240,7 +240,7 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
     const existingIds = Array.from({ length: rowCount }, (_, i) => i);
     const { getByTestId, rerender } = await render(buildRows(existingIds));
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
     await scrollColumnTo(scene, column, 250);
     const currentRow = getByTestId("row-2").element() as HTMLElement;
@@ -263,7 +263,7 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
       stub.restore();
     }
 
-    expect(column.getAttribute("data-scroll-offset")).toBe("250");
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe("250");
 
     // A real prepend now, via a SINGLE combined array (established
     // convention — see this file's header comment) — the self-healed
@@ -272,7 +272,7 @@ describe("Scene F14 anchor store-time verification — reselection-flip regressi
     const prependedIds = Array.from({ length: 3 }, (_, i) => -3 + i);
     await rerender(buildRows([...prependedIds, ...existingIds]));
 
-    expect(column.getAttribute("data-scroll-offset")).toBe(String(250 + prependedIds.length * ROW_HEIGHT));
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe(String(250 + prependedIds.length * ROW_HEIGHT));
   });
 });
 
@@ -317,7 +317,7 @@ describe("Scene F14 anchor store-time verification — legitimate padding-gap ca
     const existingIds = Array.from({ length: rowCount }, (_, i) => i);
     const { getByTestId, rerender } = await render(buildPaddedRows(existingIds));
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Row 1 spans [350, 700). window [400, 550) intersects the row itself
     // (350 < 550 && 700 > 400) but neither its h4 [600,630) nor its p
@@ -331,7 +331,7 @@ describe("Scene F14 anchor store-time verification — legitimate padding-gap ca
     // Must compensate by exactly the prepended height (2 * 350 = 700) — if
     // the "gave up" termination were wrongly discarded here, this would
     // stay at 400 instead (native hold-the-top, the pre-F10 blindness).
-    expect(column.getAttribute("data-scroll-offset")).toBe(
+    expect(column.getAttribute("data-ui-scene-scroll-offset")).toBe(
       String(400 + prependedIds.length * PADDED_ROW_HEIGHT),
     );
   });

@@ -81,7 +81,7 @@ function watchScrollYOverBound(
  * through the real pipeline.
  */
 async function driveWheelStream(scene: HTMLElement, frames: number, sign: 1 | -1 = 1) {
-  const colRect = scene.querySelector("[data-column]")!.getBoundingClientRect();
+  const colRect = scene.querySelector("[data-ui-scene-column-anchor]")!.getBoundingClientRect();
   const x = colRect.left + colRect.width / 2;
   const y = colRect.top + 100;
   for (let i = 0; i < frames; i++) {
@@ -112,7 +112,7 @@ describe("Scene spring-chase — bounded under a real wheel stream (F17 commit 1
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
+              <SceneObject name="object" focused>
                 <div data-testid="content" style={{ width: 400, height: 1882 }} />
               </SceneObject>
             </SceneColumn>
@@ -123,8 +123,8 @@ describe("Scene spring-chase — bounded under a real wheel stream (F17 commit 1
     await waitForAnimationFrame();
 
     const scene = getByTestId("scene").element() as HTMLElement;
-    const column = scene.querySelector("[data-column]") as HTMLElement;
-    const maxScroll = parseFloat(column.getAttribute("data-max-scroll") ?? "0");
+    const column = scene.querySelector("[data-ui-scene-column-anchor]") as HTMLElement;
+    const maxScroll = parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0");
     expect(maxScroll).toBeGreaterThan(0);
 
     const scrollY = recorder.values.get("scrollY:col");
@@ -133,7 +133,7 @@ describe("Scene spring-chase — bounded under a real wheel stream (F17 commit 1
     let worstOverBound = 0;
     const unsubscribe = watchScrollYOverBound(
       scrollY!,
-      () => parseFloat(column.getAttribute("data-max-scroll") ?? "0"),
+      () => parseFloat(column.getAttribute("data-ui-scene-max-scroll") ?? "0"),
       (overBound) => {
         worstOverBound = Math.max(worstOverBound, overBound);
       },
@@ -162,7 +162,7 @@ describe("Scene spring-chase — bounded under a real wheel stream (F17 commit 1
     // within bounds, not just that the stream itself stayed bounded.
     for (let i = 0; i < 60; i++) await waitForAnimationFrame();
     unsubscribe();
-    const finalOffset = parseFloat(column.getAttribute("data-scroll-offset") ?? "0");
+    const finalOffset = parseFloat(column.getAttribute("data-ui-scene-scroll-offset") ?? "0");
 
     // Generous tolerance: comfortably above the correction's own reaction
     // lag (empirically 40-160px in isolation; occasionally 300-450px

@@ -13,7 +13,7 @@ import { waitForAnimationFrame } from "./animation";
 /**
  * Polls via requestAnimationFrame until `hasChanged()` first returns
  * true (default predicate: `el.style.position` differs from its value
- * at call time). The panel's flip — and any Scene-derived state a
+ * at call time). The object's flip — and any Scene-derived state a
  * bystander column's own geometry depends on (position, stackDepth) —
  * reaches SceneColumn through context values that are NOT synchronous
  * with the raw `focused` prop change that triggers them: a registry-
@@ -31,7 +31,7 @@ import { waitForAnimationFrame } from "./animation";
  * Layout-box geometry (ui#17 target-derived-aiming round, Part B's
  * structurally final form, superseding an earlier gBCR-rebased-against-
  * anchor draft of this same helper): `offsetLeft`/`offsetTop` (relative
- * to `offsetParent`, which is verified elsewhere to be the panel's own
+ * to `offsetParent`, which is verified elsewhere to be the object's own
  * anchor on BOTH sides of the flip — position:relative and
  * position:absolute both resolve to it) plus `offsetWidth`/
  * `offsetHeight`. Transform-free BY CONSTRUCTION: stage/camera
@@ -84,7 +84,7 @@ export async function captureFlipCommit(
     }
     before = captureBox();
   }
-  throw new Error(`change predicate never became true within ${timeoutMs}ms (initial panel position: "${initialPosition}")`);
+  throw new Error(`change predicate never became true within ${timeoutMs}ms (initial object position: "${initialPosition}")`);
 }
 
 export interface GBCRBox {

@@ -113,7 +113,7 @@ let focusModalityTrackerInstalled = false;
 
 /**
  * Track whether focus is arriving via keyboard or pointer, recording it as
- * `data-focus-source="keyboard" | "pointer"` on <html>. Lets a component show a
+ * `data-ui-focus-source="keyboard" | "pointer"` on <html>. Lets a component show a
  * focus ring for keyboard users only (tab → ring) while staying ring-free on
  * click — the behavior buttons get from `:focus-visible`, which the browser
  * forces ON for text inputs, so they need this manual signal instead.
@@ -126,7 +126,7 @@ export function installFocusModalityTracker(): void {
   focusModalityTrackerInstalled = true;
 
   const setSource = (source: "keyboard" | "pointer") => () => {
-    document.documentElement.dataset.focusSource = source;
+    document.documentElement.dataset.uiFocusSource = source;
   };
   // Capture phase so the modality is recorded before focus styles resolve.
   document.addEventListener("keydown", setSource("keyboard"), true);

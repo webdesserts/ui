@@ -20,25 +20,25 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
-              <button data-testid="btn-in-panel">action</button>
+            <SceneObject name="object" focused={false}>
+              <button data-testid="btn-in-object">action</button>
             </SceneObject>
           </SceneColumn>
         </Scene>
       </TestWrapper>,
     );
 
-    // Panel is not focused — button should not have keyboard focus.
-    const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+    // Object is not focused — button should not have keyboard focus.
+    const btn = getByTestId("btn-in-object").element() as HTMLElement;
     expect(document.activeElement).not.toBe(btn);
 
-    // Transition: make the panel focused.
+    // Transition: make the object focused.
     await rerender(
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
-              <button data-testid="btn-in-panel">action</button>
+            <SceneObject name="object" focused>
+              <button data-testid="btn-in-object">action</button>
             </SceneObject>
           </SceneColumn>
         </Scene>
@@ -56,7 +56,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div>no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -69,7 +69,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div>no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -83,7 +83,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -95,7 +95,7 @@ describe("SceneObject keyboard focus management", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">no buttons here</div>
             </SceneObject>
           </SceneColumn>
@@ -103,7 +103,7 @@ describe("SceneObject keyboard focus management", () => {
       </TestWrapper>,
     );
 
-    const outer = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
+    const outer = getByTestId("content").element().closest("[data-ui-scene-id]") as HTMLElement;
     expect(document.activeElement).toBe(outer);
   });
 
@@ -114,8 +114,8 @@ describe("SceneObject keyboard focus management", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused={false}>
-                <button data-testid="btn-in-panel">action</button>
+              <SceneObject name="object" focused={false}>
+                <button data-testid="btn-in-object">action</button>
               </SceneObject>
             </SceneColumn>
           </Scene>
@@ -127,15 +127,15 @@ describe("SceneObject keyboard focus management", () => {
         <TestWrapper fullPage>
           <Scene duration={0}>
             <SceneColumn name="col">
-              <SceneObject name="panel" focused>
-                <button data-testid="btn-in-panel">action</button>
+              <SceneObject name="object" focused>
+                <button data-testid="btn-in-object">action</button>
               </SceneObject>
             </SceneColumn>
           </Scene>
         </TestWrapper>,
       );
 
-      const btn = getByTestId("btn-in-panel").element() as HTMLElement;
+      const btn = getByTestId("btn-in-object").element() as HTMLElement;
       expect(document.activeElement).toBe(btn);
       // ui#20 remap: two-phase focus (F2) now calls .focus() TWICE on a
       // focus-gain — phase 1 lands on the anchor immediately (mid-
@@ -169,7 +169,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -178,7 +178,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper).not.toBeNull();
     expect(contentWrapper.getAttribute("role")).toBe("region");
   });
@@ -192,7 +192,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 1200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -201,7 +201,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("tabindex")).toBe("0");
   });
 
@@ -212,7 +212,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -221,7 +221,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.hasAttribute("tabindex")).toBe(false);
   });
 
@@ -232,7 +232,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -241,7 +241,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.hasAttribute("role")).toBe(false);
     expect(contentWrapper.hasAttribute("aria-label")).toBe(false);
   });
@@ -252,7 +252,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -261,7 +261,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.getAttribute("aria-label")).toBe("nav content");
   });
 
@@ -272,7 +272,7 @@ describe("SceneColumn scroll accessibility", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content" style={{ height: 200 }}>content</div>
             </SceneObject>
           </SceneColumn>
@@ -281,7 +281,7 @@ describe("SceneColumn scroll accessibility", () => {
     );
 
     const content = getByTestId("content").element();
-    const contentWrapper = content.closest("[data-column-content]") as HTMLElement;
+    const contentWrapper = content.closest("[data-ui-scene-column-content]") as HTMLElement;
     expect(contentWrapper.id).toBe("scene-column-content-nav");
   });
 });
@@ -349,18 +349,18 @@ describe("Scene spring physics", () => {
     await waitForAnimationFrame();
 
     // After all changes, only obj-c should be focused — column must be focused
-    // (position: relative) and obj-c must have data-focused=true.
-    const colEl = getByTestId("content-c").element().closest("[data-column]") as HTMLElement;
-    expect(colEl.getAttribute("data-column-focused")).toBe("true");
+    // (position: relative) and obj-c must have data-ui-scene-focused=true.
+    const colEl = getByTestId("content-c").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(colEl.getAttribute("data-ui-scene-column-focused")).toBe("true");
 
-    const objC = getByTestId("content-c").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objC.getAttribute("data-focused")).toBe("true");
+    const objC = getByTestId("content-c").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objC.getAttribute("data-ui-scene-focused")).toBe("true");
 
-    const objA = getByTestId("content-a").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objA.getAttribute("data-focused")).toBe("false");
+    const objA = getByTestId("content-a").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objA.getAttribute("data-ui-scene-focused")).toBe("false");
 
-    const objB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
-    expect(objB.getAttribute("data-focused")).toBe("false");
+    const objB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(objB.getAttribute("data-ui-scene-focused")).toBe("false");
   });
 });
 
@@ -411,7 +411,7 @@ describe("Scene reduced motion", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -420,18 +420,18 @@ describe("Scene reduced motion", () => {
     );
 
     // The column should still be correctly focused regardless of reduced motion.
-    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
-    expect(col.getAttribute("data-column-focused")).toBe("true");
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(col.getAttribute("data-ui-scene-column-focused")).toBe("true");
 
-    const obj = getByTestId("content").element().closest("[data-scene-id]") as HTMLElement;
-    expect(obj.getAttribute("data-focused")).toBe("true");
+    const obj = getByTestId("content").element().closest("[data-ui-scene-id]") as HTMLElement;
+    expect(obj.getAttribute("data-ui-scene-focused")).toBe("true");
 
     restore();
   });
 
-  test("reduced motion: scene viewport has data-reduced-motion attribute when prefers-reduced-motion is active", async () => {
+  test("reduced motion: scene viewport has data-ui-scene-reduced-motion attribute when prefers-reduced-motion is active", async () => {
     // When prefers-reduced-motion is active, the scene's viewport element should
-    // have a data-reduced-motion attribute so consumers and tests can verify
+    // have a data-ui-scene-reduced-motion attribute so consumers and tests can verify
     // the mode is being detected.
     const restore = mockReducedMotion();
 
@@ -439,7 +439,7 @@ describe("Scene reduced motion", () => {
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -449,18 +449,18 @@ describe("Scene reduced motion", () => {
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
     // This attribute is added by the implementation when reduced motion is detected.
-    expect(scene.hasAttribute("data-reduced-motion")).toBe(true);
+    expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(true);
 
     restore();
   });
 
-  test("reduced motion: scene viewport does NOT have data-reduced-motion attribute when motion is allowed", async () => {
+  test("reduced motion: scene viewport does NOT have data-ui-scene-reduced-motion attribute when motion is allowed", async () => {
     // Without prefers-reduced-motion, the attribute should be absent.
     const { getByTestId } = await render(
       <TestWrapper fullPage>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -469,7 +469,7 @@ describe("Scene reduced motion", () => {
     );
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
-    expect(scene.hasAttribute("data-reduced-motion")).toBe(false);
+    expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(false);
   });
 });
 
@@ -484,7 +484,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -522,7 +522,7 @@ describe("useCamera", () => {
           <TestWrapper fullPage>
             <Scene duration={0}>
               <SceneColumn name="col">
-                <SceneObject name="panel" focused>
+                <SceneObject name="object" focused>
                   <div data-testid="content" style={{ width: 200, height: 150 }} />
                 </SceneObject>
               </SceneColumn>
@@ -549,7 +549,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0} padding={24}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -561,7 +561,7 @@ describe("useCamera", () => {
     await waitForAnimationFrame();
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]") as HTMLElement;
+    const column = content.closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const columnRect = column.getBoundingClientRect();
 
     const reader = getByTestId("camera-reader").element() as HTMLElement;
@@ -581,7 +581,7 @@ describe("useCamera", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -713,7 +713,7 @@ describe("Scene className (S6)", () => {
         <style>{`.scene-column-test-override { flex-basis: 333px !important; }`}</style>
         <Scene duration={0}>
           <SceneColumn name="col" className="scene-column-test-override">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content" style={{ width: 200, height: 150 }} />
             </SceneObject>
           </SceneColumn>
@@ -722,7 +722,7 @@ describe("Scene className (S6)", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]") as HTMLElement;
+    const column = content.closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     expect(column.className).toContain("scene-column-test-override");
     // A real !important override wins over SceneColumn's own inline
@@ -749,7 +749,7 @@ describe("Scene className (S6)", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const obj = content.closest("[data-scene-id]") as HTMLElement;
+    const obj = content.closest("[data-ui-scene-id]") as HTMLElement;
 
     expect(obj.className).toContain("scene-object-test-override");
     // A real !important override wins over SceneObject's own inline

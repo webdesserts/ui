@@ -147,12 +147,12 @@ describe("Scene mobile — two-column chat shape (375px)", () => {
       <TestWrapper fullPage width={MOBILE_WIDTH} height={MOBILE_HEIGHT}>
         <Scene duration={0}>
           <SceneColumn name="list">
-            <SceneObject name="list-panel" focused>
+            <SceneObject name="list-object" focused>
               <ChatList />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="detail">
-            <SceneObject name="detail-panel" focused={false}>
+            <SceneObject name="detail-object" focused={false}>
               <ChatDetail />
             </SceneObject>
           </SceneColumn>
@@ -169,12 +169,12 @@ describe("Scene mobile — two-column chat shape (375px)", () => {
       <TestWrapper fullPage width={MOBILE_WIDTH} height={MOBILE_HEIGHT}>
         <Scene duration={0}>
           <SceneColumn name="list">
-            <SceneObject name="list-panel" focused={false}>
+            <SceneObject name="list-object" focused={false}>
               <ChatList />
             </SceneObject>
           </SceneColumn>
           <SceneColumn name="detail">
-            <SceneObject name="detail-panel" focused>
+            <SceneObject name="detail-object" focused>
               <ChatDetail />
             </SceneObject>
           </SceneColumn>

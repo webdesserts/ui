@@ -10,14 +10,14 @@ import { buildScene } from "./utils/sceneFixtures";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the computed style of the column wrapper ([data-column]) containing
+/** Returns the computed style of the column wrapper ([data-ui-scene-column-anchor]) containing
  *  the element located by data-testid. */
 async function getColumnStyle(
   getByTestId: Awaited<ReturnType<typeof render>>["getByTestId"],
   testId: string,
 ): Promise<CSSStyleDeclaration> {
   const content = getByTestId(testId).element() as HTMLElement;
-  const column = content.closest("[data-column]") as HTMLElement;
+  const column = content.closest("[data-ui-scene-column-anchor]") as HTMLElement;
   return window.getComputedStyle(column);
 }
 
@@ -39,12 +39,12 @@ function RightColumnWrapper() {
 // ---------------------------------------------------------------------------
 
 describe("SceneObject", () => {
-  test("renders with data-scene-id attribute", async () => {
+  test("renders with data-ui-scene-id attribute", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -52,19 +52,19 @@ describe("SceneObject", () => {
       </TestWrapper>,
     );
 
-    // The SceneObject outer wrapper should have data-scene-id set to the name prop.
+    // The SceneObject outer wrapper should have data-ui-scene-id set to the name prop.
     const content = getByTestId("content").element() as HTMLElement;
-    const outer = content.closest("[data-scene-id]");
+    const outer = content.closest("[data-ui-scene-id]");
     expect(outer).not.toBeNull();
-    expect(outer?.getAttribute("data-scene-id")).toBe("panel");
+    expect(outer?.getAttribute("data-ui-scene-id")).toBe("object");
   });
 
-  test("renders with data-focused=true when focused", async () => {
+  test("renders with data-ui-scene-focused=true when focused", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -73,16 +73,16 @@ describe("SceneObject", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const outer = content.closest("[data-scene-id]");
-    expect(outer?.getAttribute("data-focused")).toBe("true");
+    const outer = content.closest("[data-ui-scene-id]");
+    expect(outer?.getAttribute("data-ui-scene-focused")).toBe("true");
   });
 
-  test("renders with data-focused=false when unfocused", async () => {
+  test("renders with data-ui-scene-focused=false when unfocused", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -91,8 +91,8 @@ describe("SceneObject", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const outer = content.closest("[data-scene-id]");
-    expect(outer?.getAttribute("data-focused")).toBe("false");
+    const outer = content.closest("[data-ui-scene-id]");
+    expect(outer?.getAttribute("data-ui-scene-focused")).toBe("false");
   });
 
   test("unfocused SceneObject content is inert", async () => {
@@ -100,7 +100,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -120,7 +120,7 @@ describe("SceneObject", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -139,12 +139,12 @@ describe("SceneObject", () => {
 // ---------------------------------------------------------------------------
 
 describe("SceneColumn", () => {
-  test("renders with data-column attribute", async () => {
+  test("renders with data-ui-scene-column-anchor attribute", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -153,17 +153,17 @@ describe("SceneColumn", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]");
+    const column = content.closest("[data-ui-scene-column-anchor]");
     expect(column).not.toBeNull();
-    expect(column?.getAttribute("data-column")).toBe("nav");
+    expect(column?.getAttribute("data-ui-scene-column-anchor")).toBe("nav");
   });
 
-  test("column with focused child has data-column-focused=true", async () => {
+  test("column with focused child has data-ui-scene-column-focused=true", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -172,16 +172,16 @@ describe("SceneColumn", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]");
-    expect(column?.getAttribute("data-column-focused")).toBe("true");
+    const column = content.closest("[data-ui-scene-column-anchor]");
+    expect(column?.getAttribute("data-ui-scene-column-focused")).toBe("true");
   });
 
-  test("column with no focused children has data-column-focused=false", async () => {
+  test("column with no focused children has data-ui-scene-column-focused=false", async () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused={false}>
+            <SceneObject name="object" focused={false}>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -190,8 +190,8 @@ describe("SceneColumn", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    const column = content.closest("[data-column]");
-    expect(column?.getAttribute("data-column-focused")).toBe("false");
+    const column = content.closest("[data-ui-scene-column-anchor]");
+    expect(column?.getAttribute("data-ui-scene-column-focused")).toBe("false");
   });
 });
 
@@ -204,7 +204,7 @@ describe("Scene auto-wrapping", () => {
     const { getByTestId } = await render(
       <TestWrapper>
         <Scene>
-          <SceneObject name="panel" focused>
+          <SceneObject name="object" focused>
             <div data-testid="content">content</div>
           </SceneObject>
         </Scene>
@@ -212,11 +212,11 @@ describe("Scene auto-wrapping", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    // Should find a [data-column] ancestor wrapping the SceneObject.
-    const column = content.closest("[data-column]");
+    // Should find a [data-ui-scene-column-anchor] ancestor wrapping the SceneObject.
+    const column = content.closest("[data-ui-scene-column-anchor]");
     expect(column).not.toBeNull();
     // The implicit column should use the SceneObject's name.
-    expect(column?.getAttribute("data-column")).toBe("panel");
+    expect(column?.getAttribute("data-ui-scene-column-anchor")).toBe("object");
   });
 
   test("SceneColumns pass through without wrapping", async () => {
@@ -224,7 +224,7 @@ describe("Scene auto-wrapping", () => {
       <TestWrapper>
         <Scene>
           <SceneColumn name="nav">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div data-testid="content">content</div>
             </SceneObject>
           </SceneColumn>
@@ -233,11 +233,11 @@ describe("Scene auto-wrapping", () => {
     );
 
     const content = getByTestId("content").element() as HTMLElement;
-    // There should be exactly one [data-column] in the ancestry (not nested).
+    // There should be exactly one [data-ui-scene-column-anchor] in the ancestry (not nested).
     let el: Element | null = content.parentElement;
     let columnCount = 0;
     while (el) {
-      if (el.hasAttribute("data-column")) columnCount++;
+      if (el.hasAttribute("data-ui-scene-column-anchor")) columnCount++;
       el = el.parentElement;
     }
     expect(columnCount).toBe(1);
@@ -279,8 +279,8 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
-    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+    const left = getByTestId("left-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(left.getAttribute("data-ui-scene-column-position")).toBe("outer-left");
   });
 
   test("a column returned from a custom component still participates in classification", async () => {
@@ -300,8 +300,8 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
-    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+    const left = getByTestId("left-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(left.getAttribute("data-ui-scene-column-position")).toBe("outer-left");
   });
 
   test("a column containing a div-wrapped focused object still classifies as focused (column-level only)", async () => {
@@ -329,8 +329,8 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
-    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+    const left = getByTestId("left-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(left.getAttribute("data-ui-scene-column-position")).toBe("outer-left");
   });
 
   test("a focus-only toggle on a div-wrapped object updates column registration in the same commit", async () => {
@@ -357,8 +357,8 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    const left = getByTestId("left-content").element().closest("[data-column]") as HTMLElement;
-    expect(left.getAttribute("data-column-position")).toBeNull();
+    const left = getByTestId("left-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(left.getAttribute("data-ui-scene-column-position")).toBeNull();
 
     await rerender(
       <TestWrapper fullPage>
@@ -379,7 +379,7 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    expect(left.getAttribute("data-column-position")).toBe("outer-left");
+    expect(left.getAttribute("data-ui-scene-column-position")).toBe("outer-left");
   });
 
   test("column classification respects true DOM order, not registration order (J1)", async () => {
@@ -400,8 +400,8 @@ describe("Scene registration architecture (S6)", () => {
       </TestWrapper>,
     );
 
-    const aCol = getByTestId("a-content").element().closest("[data-column]") as HTMLElement;
-    const bCol = getByTestId("b-content").element().closest("[data-column]") as HTMLElement;
+    const aCol = getByTestId("a-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const bCol = getByTestId("b-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Manipulate the DOM directly (outside React) to physically move "b"
     // before "a" — real document order changes without React's own
@@ -436,7 +436,7 @@ describe("Scene registration architecture (S6)", () => {
     // second -> "a" should classify as outer-RIGHT (after the focused
     // column). Registration/insertion order (a registered before b,
     // unaffected by the DOM move) would wrongly keep "a" at outer-left.
-    expect(aCol.getAttribute("data-column-position")).toBe("outer-right");
+    expect(aCol.getAttribute("data-ui-scene-column-position")).toBe("outer-right");
   });
 
   test("registerColumn warns when a different element claims an existing column name (J2)", async () => {
@@ -479,7 +479,7 @@ describe("Scene registration architecture (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 100, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -508,7 +508,7 @@ describe("Scene registration architecture (S6)", () => {
       <TestWrapper fullPage>
         <Scene duration={0}>
           <SceneColumn name="col">
-            <SceneObject name="panel" focused>
+            <SceneObject name="object" focused>
               <div style={{ width: 100, height: 100 }} />
             </SceneObject>
           </SceneColumn>
@@ -540,7 +540,7 @@ describe("SceneColumn flex layout", () => {
   test("focused column has flex: 0 1 auto and position: relative", async () => {
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -560,7 +560,7 @@ describe("SceneColumn flex layout", () => {
     // The Camera viewport clips its visibility, not opacity:0.
     const { getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -634,8 +634,8 @@ describe("SceneColumn flex layout", () => {
       </TestWrapper>,
     );
 
-    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
-    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+    const col1 = getByTestId("content1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     const width1 = col1.getBoundingClientRect().width;
     const width2 = col2.getBoundingClientRect().width;
@@ -658,14 +658,14 @@ describe("SceneColumn unfocused freeze", () => {
     // non-zero width and height (the frozen dimensions).
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 300, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 300, height: 200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     // Measure dimensions while focused
-    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const focusedWidth = col.getBoundingClientRect().width;
     const focusedHeight = col.getBoundingClientRect().height;
     expect(focusedWidth).toBeGreaterThan(0);
@@ -674,7 +674,7 @@ describe("SceneColumn unfocused freeze", () => {
     // Lose focus — the column should freeze at its last size
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 300, height: 200, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 300, height: 200, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -691,7 +691,7 @@ describe("SceneColumn unfocused freeze", () => {
   test("unfocused column stays in DOM", async () => {
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -699,22 +699,22 @@ describe("SceneColumn unfocused freeze", () => {
 
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
     // Column should still be present in the DOM after losing focus
-    const col = getByTestId("content").element().closest("[data-column]");
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]");
     expect(col).not.toBeNull();
-    expect(col?.getAttribute("data-column-focused")).toBe("false");
+    expect(col?.getAttribute("data-ui-scene-column-focused")).toBe("false");
   });
 
   test("re-focusing column returns it to flex layout (position: relative)", async () => {
     const { rerender, getByTestId } = await render(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -723,7 +723,7 @@ describe("SceneColumn unfocused freeze", () => {
     // Lose focus
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: false, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: false, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
@@ -732,13 +732,13 @@ describe("SceneColumn unfocused freeze", () => {
     // Regain focus
     await rerender(
       buildScene(
-        [{ name: "col", objects: [{ name: "panel", focused: true, width: 200, height: 150, testId: "content" }] }],
+        [{ name: "col", objects: [{ name: "object", focused: true, width: 200, height: 150, testId: "content" }] }],
         { duration: 0 },
         { fullPage: true },
       ),
     );
 
-    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const style = window.getComputedStyle(col);
     expect(style.position).toBe("relative");
     // Inline frozen width/height should be cleared
@@ -770,8 +770,8 @@ describe("SceneColumn unfocused freeze", () => {
       ),
     );
 
-    const col1 = getByTestId("content1").element().closest("[data-column]") as HTMLElement;
-    const col2 = getByTestId("content2").element().closest("[data-column]") as HTMLElement;
+    const col1 = getByTestId("content1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const col2 = getByTestId("content2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // col1 is now outer-left — stays in flex row at position: relative
     expect(window.getComputedStyle(col1).position).toBe("relative");
@@ -844,13 +844,13 @@ describe("SceneColumn unfocused freeze", () => {
           </button>
           <Scene>
             <SceneColumn name="nav">
-              <SceneObject name="nav-panel" focused style={{ width: 160, height: "100%" }}>
+              <SceneObject name="nav-object" focused style={{ width: 160, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="article">
               <SceneObject
-                name="article-panel"
+                name="article-object"
                 focused={articleFocused}
                 style={{ width: 480, height: "100%" }}
                 onActivate={() => setArticleFocused(true)}
@@ -859,7 +859,7 @@ describe("SceneColumn unfocused freeze", () => {
               </SceneObject>
             </SceneColumn>
             <SceneColumn name="sidebar">
-              <SceneObject name="sidebar-panel" focused style={{ width: 160, height: "100%" }}>
+              <SceneObject name="sidebar-object" focused style={{ width: 160, height: "100%" }}>
                 <div style={{ width: "100%", height: "100%" }} />
               </SceneObject>
             </SceneColumn>
@@ -876,7 +876,7 @@ describe("SceneColumn unfocused freeze", () => {
     toggleBtn.click();
     await wait(600);
 
-    const articleCol = getByTestId("article-content").element().closest("[data-column]") as HTMLElement;
+    const articleCol = getByTestId("article-content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // The interrupt: refocus (starts the zMV spring back toward 0), a real
     // 100ms gap (long enough for the ResizeObserver callback to fire while
@@ -897,12 +897,12 @@ describe("SceneColumn unfocused freeze", () => {
     // Rendered height is the true size projected ONCE by the depth deck's
     // own perspective (800 * 800/900 ≈ 711.1), not projected TWICE (a buggy
     // ~711px frozen size projected again would render ~632px). ui#17
-    // anchor/panel split: the z/perspective projection paints on the panel
+    // anchor/column split: the z/perspective projection paints on the column
     // node now, not the zero-footprint anchor `articleCol` itself (which
     // carries the un-projected frozen height checked above) — see the
-    // panel's own JSX comment for why.
-    const articlePanel = articleCol.querySelector("[data-scene-column]") as HTMLElement;
+    // column's own JSX comment for why.
+    const articleColumnNode = articleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
     const projectedOnce = 800 * (800 / 900);
-    expect(articlePanel.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
+    expect(articleColumnNode.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
   });
 });

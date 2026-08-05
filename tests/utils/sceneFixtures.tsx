@@ -29,12 +29,6 @@ export type SceneObjectSpec = {
 export type SceneColumnSpec = {
   name: string;
   objects: SceneObjectSpec[];
-  /**
-   * PASSTHROUGH ONLY, mirroring `sceneProps` above — never injected or
-   * defaulted. Lets a call site set SceneColumn props (`anchor`, `onScroll`,
-   * `objectGap`, etc.) that the dominant shape doesn't cover by default.
-   */
-  columnProps?: Partial<ComponentProps<typeof SceneColumn>>;
 };
 
 /**
@@ -55,7 +49,7 @@ export function buildScene(
     <TestWrapper {...wrapperProps}>
       <Scene {...sceneProps}>
         {columns.map((column) => (
-          <SceneColumn key={column.name} name={column.name} {...column.columnProps}>
+          <SceneColumn key={column.name} name={column.name}>
             {column.objects.map((object) => (
               <SceneObject key={object.name} name={object.name} focused={object.focused} onActivate={object.onActivate}>
                 <div

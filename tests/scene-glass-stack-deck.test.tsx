@@ -12,13 +12,13 @@ import { captureFlipCommit, findGbcrOutliers, gbcrDeltasOf, type GBCRBox } from 
 import { buildScene } from "./utils/sceneFixtures";
 
 // ---------------------------------------------------------------------------
-// Glass-stack deck rework (ui#17): anchor/panel flip geometry and channel
+// Glass-stack deck rework (ui#17): anchor/column flip geometry and channel
 // coordination. Representative fixtures throughout (constraint 4) — width
 // declared directly on SceneObject's own style prop, never a child div.
 // ---------------------------------------------------------------------------
 
 describe("Glass-stack deck: zero-pixel flip", () => {
-  test("unfocus direction: panel-local geometry has no discontinuity at the flip commit", async () => {
+  test("unfocus direction: column-node-local geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
       const [midFocused, setMidFocused] = useState(true);
       return (
@@ -28,13 +28,13 @@ describe("Glass-stack deck: zero-pixel flip", () => {
           </button>
           <Scene>
             <SceneColumn name="left">
-              <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="middle">
-              <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="middle-object" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
-              <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
           </Scene>
         </TestWrapper>
@@ -44,15 +44,15 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
-    const panelEl = anchorEl.querySelector("[data-scene-column]") as HTMLElement;
+    const anchorEl = document.querySelector('[data-ui-scene-id="middle-object"]')!.closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const columnNodeEl = anchorEl.querySelector("[data-ui-scene-column]") as HTMLElement;
 
     (getByTestId("toggle").element() as HTMLElement).click();
     // Layout-box geometry (Part B's final form) — transform-free by
     // construction, so neither stage/camera translation nor the
     // depth-deck's own Z-projection can register as a false discontinuity
     // here — see captureFlipCommit's own doc comment.
-    const { before, after } = await captureFlipCommit(panelEl, 2000, undefined, anchorEl);
+    const { before, after } = await captureFlipCommit(columnNodeEl, 2000, undefined, anchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -60,7 +60,7 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     expect(Math.abs(after.height - before.height)).toBeLessThan(1);
   });
 
-  test("refocus direction (was-focused-before): panel-local geometry has no discontinuity at the flip commit", async () => {
+  test("refocus direction (was-focused-before): column-node-local geometry has no discontinuity at the flip commit", async () => {
     function Demo() {
       const [midFocused, setMidFocused] = useState(true);
       return (
@@ -70,13 +70,13 @@ describe("Glass-stack deck: zero-pixel flip", () => {
           </button>
           <Scene>
             <SceneColumn name="left">
-              <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="middle">
-              <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="middle-object" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
-              <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
           </Scene>
         </TestWrapper>
@@ -86,8 +86,8 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const anchorEl = document.querySelector('[data-scene-id="middle-panel"]')!.closest("[data-column]") as HTMLElement;
-    const panelEl = anchorEl.querySelector("[data-scene-column]") as HTMLElement;
+    const anchorEl = document.querySelector('[data-ui-scene-id="middle-object"]')!.closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const columnNodeEl = anchorEl.querySelector("[data-ui-scene-column]") as HTMLElement;
 
     // Deck first (was-focused-before, matching the spike's own validated
     // trace-refocus.log scenario), let it fully settle, THEN test the
@@ -98,7 +98,7 @@ describe("Glass-stack deck: zero-pixel flip", () => {
     (getByTestId("toggle").element() as HTMLElement).click();
     // Layout-box geometry (Part B's final form) — see the unfocus-direction
     // test above.
-    const { before, after } = await captureFlipCommit(panelEl, 2000, undefined, anchorEl);
+    const { before, after } = await captureFlipCommit(columnNodeEl, 2000, undefined, anchorEl);
 
     expect(Math.abs(after.left - before.left)).toBeLessThan(1);
     expect(Math.abs(after.top - before.top)).toBeLessThan(1);
@@ -112,16 +112,16 @@ function GapMathDemo({ midAFocused, midBFocused }: { midAFocused: boolean; midBF
     <TestWrapper fullPage>
       <Scene>
         <SceneColumn name="left">
-          <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+          <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
         </SceneColumn>
         <SceneColumn name="mid-a">
-          <SceneObject name="mid-a-panel" focused={midAFocused} style={{ width: 200, height: 200 }}>content</SceneObject>
+          <SceneObject name="mid-a-object" focused={midAFocused} style={{ width: 200, height: 200 }}>content</SceneObject>
         </SceneColumn>
         <SceneColumn name="mid-b">
-          <SceneObject name="mid-b-panel" focused={midBFocused} style={{ width: 200, height: 200 }}>content</SceneObject>
+          <SceneObject name="mid-b-object" focused={midBFocused} style={{ width: 200, height: 200 }}>content</SceneObject>
         </SceneColumn>
         <SceneColumn name="right">
-          <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+          <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
         </SceneColumn>
       </Scene>
     </TestWrapper>
@@ -141,16 +141,16 @@ describe("Glass-stack deck: gap-math", () => {
   test("floor: no deck at all (both middle columns focused)", async () => {
     await render(<GapMathDemo midAFocused midBFocused />);
     await wait(500);
-    const floorLeft = document.querySelector('[data-scene-id="left-panel"]')!.closest("[data-column]")!.getBoundingClientRect();
-    const floorRight = document.querySelector('[data-scene-id="right-panel"]')!.closest("[data-column]")!.getBoundingClientRect();
+    const floorLeft = document.querySelector('[data-ui-scene-id="left-object"]')!.closest("[data-ui-scene-column-anchor]")!.getBoundingClientRect();
+    const floorRight = document.querySelector('[data-ui-scene-id="right-object"]')!.closest("[data-ui-scene-column-anchor]")!.getBoundingClientRect();
     gapMathFloorGap = floorRight.left - floorLeft.right;
   });
 
   test("two settled deck anchors between the same two focused columns", async () => {
     await render(<GapMathDemo midAFocused={false} midBFocused={false} />);
     await wait(1000);
-    const deckedLeft = document.querySelector('[data-scene-id="left-panel"]')!.closest("[data-column]")!.getBoundingClientRect();
-    const deckedRight = document.querySelector('[data-scene-id="right-panel"]')!.closest("[data-column]")!.getBoundingClientRect();
+    const deckedLeft = document.querySelector('[data-ui-scene-id="left-object"]')!.closest("[data-ui-scene-column-anchor]")!.getBoundingClientRect();
+    const deckedRight = document.querySelector('[data-ui-scene-id="right-object"]')!.closest("[data-ui-scene-column-anchor]")!.getBoundingClientRect();
     gapMathDeckedGap = deckedRight.left - deckedLeft.right;
   });
 
@@ -210,18 +210,18 @@ describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", (
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    // Focused side: SceneObject's own outer wrapper (data-scene-id) — at
+    // Focused side: SceneObject's own outer wrapper (data-ui-scene-id) — at
     // rest the anchor's own width override is released, so the anchor
     // sizes naturally to wrap this node, matching obs-width-family.json's
     // own methodology for the focused-side proof.
-    const focusedEl = document.querySelector('[data-scene-id="focused-obj"]') as HTMLElement;
+    const focusedEl = document.querySelector('[data-ui-scene-id="focused-obj"]') as HTMLElement;
 
     // Decked side: columnWidthMV's own live value via the motion seam, NOT
     // any DOM read. Two dead ends found first (both defeat-check-caught,
     // 2026-07-31): (1) reading the SceneObject node is vacuous — it
-    // carries its own independent cqw width regardless of the panel's own
+    // carries its own independent cqw width regardless of the column's own
     // JS-driven state, so a permanently-stuck columnWidthOverrideActive
-    // left it green. (2) reading the PANEL's own gBCR/offsetWidth is ALSO
+    // left it green. (2) reading the COLUMN's own gBCR/offsetWidth is ALSO
     // vacuous under duration=0 specifically — the jump branch
     // (`if (duration === 0 || ...) { ...; setColumnWidthSettled(true); }`)
     // sets columnWidthSettled back to true SYNCHRONOUSLY within the same
@@ -229,7 +229,7 @@ describe("Glass-stack deck: viewport resize tracking at rest (ui#17 Slice 3)", (
     // (`inBetweenNow ? !columnWidthSettled : ...`) is already false by the
     // time any test observes it — the style binding renders "auto" before
     // a test can ever catch columnWidthTarget applied, so severing
-    // computeMeasuredWidth to a fixed stale value left even the panel
+    // computeMeasuredWidth to a fixed stale value left even the column
     // read green too. columnWidthMV itself persists its last-jumped value
     // regardless of whether the style override is currently applied,
     // so reading it directly exercises computeMeasuredWidth/geometryStore's
@@ -283,13 +283,13 @@ describe("Glass-stack deck: margin/width lockstep (forecast edit E2)", () => {
           <MotionSeamContext.Provider value={recorder}>
             <Scene>
               <SceneColumn name="left">
-                <SceneObject name="left-panel" focused style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
+                <SceneObject name="left-object" focused style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="middle">
-                <SceneObject name="middle-panel" focused={midFocused} style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
+                <SceneObject name="middle-object" focused={midFocused} style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
-                <SceneObject name="right-panel" focused style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
+                <SceneObject name="right-object" focused style={{ width: NATURAL_WIDTH, height: 300 }}>content</SceneObject>
               </SceneColumn>
             </Scene>
           </MotionSeamContext.Provider>
@@ -386,13 +386,13 @@ async function runStandardCameraToggle(direction: "unfocus" | "refocus"): Promis
         <MotionSeamContext.Provider value={recorder}>
           <Scene>
             <SceneColumn name="left">
-              <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="middle">
-              <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="middle-object" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
-              <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
           </Scene>
         </MotionSeamContext.Provider>
@@ -471,7 +471,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
   // Ports the ui#21 within-column arc's own settle-anchored/overlap-window
   // designs to this column-level pair, chosen PER DIRECTION from real
   // measured geometry (not assumed to mirror the vertical case):
-  // "unfocus direction" — middle's decked panel overlaps "right"'s panel
+  // "unfocus direction" — middle's decked column overlaps "right"'s column
   // PERMANENTLY once settled (measured: 176/180 sampled frames, identical
   // rects from frame ~60 on, never drifts further) — settle-anchored, but
   // with a LIVE-measured overlap centroid at settle (the vertical case's
@@ -486,7 +486,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
   // genuinely-transformed sibling still lost to DOM order under an intact
   // preserve-3d chain, retained purely for the perspective-projection
   // foreshortening visual cue). z-index is separately suppressed — a
-  // forced `zIndex: 10` on the in-between column's panel was confirmed
+  // forced `zIndex: 10` on the in-between column's own column node was confirmed
   // genuinely applied (computed style AND inline style both read "10")
   // and still had zero effect, consistent with the well-documented CSS
   // behavior that z-index has no effect on children of a
@@ -498,7 +498,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
   // comment, Scene.tsx), not by coincidence.
   //
   // Consequently: no mechanism sever is possible here without a
-  // production change (moving the panel out from under its preserve-3d
+  // production change (moving the column node out from under its preserve-3d
   // ancestor, or an explicit stacking-context escape) — that's a design
   // decision, not a test-repair task. These sensors guard RENDERED order
   // (design intent) regardless of mechanism, and their verification is an
@@ -509,7 +509,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
   // sensitive to it — not that some available mechanism can be forced
   // wrong (nothing here can be, short of restructuring the DOM).
   function ownerOf(el: Element | null): string | undefined {
-    return el?.closest("[data-column]")?.getAttribute("data-column") ?? undefined;
+    return el?.closest("[data-ui-scene-column-anchor]")?.getAttribute("data-ui-scene-column-anchor") ?? undefined;
   }
 
   async function pollForColumnZRetarget(recorder: ReturnType<typeof createMotionSeamRecorder>, zMV: { get: () => number }, zBefore: number) {
@@ -541,13 +541,13 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
           <MotionSeamContext.Provider value={recorder}>
             <Scene>
               <SceneColumn name="left">
-                <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="middle">
-                <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="middle-object" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
-                <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
             </Scene>
           </MotionSeamContext.Provider>
@@ -561,8 +561,8 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const middlePanel = document.querySelector('[data-column="middle"] [data-scene-column]') as HTMLElement;
-    const rightPanel = document.querySelector('[data-column="right"] [data-scene-column]') as HTMLElement;
+    const middleColumnNode = document.querySelector('[data-ui-scene-column-anchor="middle"] [data-ui-scene-column]') as HTMLElement;
+    const rightColumnNode = document.querySelector('[data-ui-scene-column-anchor="right"] [data-ui-scene-column]') as HTMLElement;
 
     const zBefore = zMV.get();
     recorder.controls.clear();
@@ -572,13 +572,13 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     // ui#20 criterion 6 migration: `z:middle` is one of the owned
     // MotionValue channels routed through useOwnedAnimation() (confirmed at
     // source — SceneColumn's zOwnedAnimation.animateTo call), so
-    // data-scene-settled becoming true is a direct, correct signal that
+    // data-ui-scene-settled becoming true is a direct, correct signal that
     // zMV itself has reached its final value — measured LIVE afterward
     // (not a frozen pre-click snapshot).
     await waitForSceneSettled(getByTestId("scene").element() as HTMLElement, { timeoutMs: 2000 });
 
-    const mRect = middlePanel.getBoundingClientRect();
-    const rRect = rightPanel.getBoundingClientRect();
+    const mRect = middleColumnNode.getBoundingClientRect();
+    const rRect = rightColumnNode.getBoundingClientRect();
     const left = Math.max(mRect.left, rRect.left);
     const right = Math.min(mRect.right, rRect.right);
     const top = Math.max(mRect.top, rRect.top);
@@ -590,11 +590,11 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const owner = ownerOf(document.elementsFromPoint(centroidX, centroidY)[0] ?? null);
 
     // Non-vacuity precondition: measured on unsevered code, this overlap
-    // is permanent once settled (a decked column's panel stays full-size,
+    // is permanent once settled (a decked column's own column node stays full-size,
     // tucked behind its focused neighbor) — a missing overlap here means
     // the fixture/geometry changed, not that the check should silently
     // pass.
-    expect(overlaps, `middle and right panels do not overlap at settle (middle=${JSON.stringify(mRect)} right=${JSON.stringify(rRect)}) — setup bug or design changed`).toBe(true);
+    expect(overlaps, `middle and right columns do not overlap at settle (middle=${JSON.stringify(mRect)} right=${JSON.stringify(rRect)}) — setup bug or design changed`).toBe(true);
 
     // Headline, externally anchored (not derived from zMV — the sever
     // corrupts that same signal too): "right" (focused, always in front)
@@ -614,13 +614,13 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
           <MotionSeamContext.Provider value={recorder}>
             <Scene>
               <SceneColumn name="left">
-                <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="middle">
-                <SceneObject name="middle-panel" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="middle-object" focused={midFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
               <SceneColumn name="right">
-                <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+                <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
               </SceneColumn>
             </Scene>
           </MotionSeamContext.Provider>
@@ -634,8 +634,8 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const zMV = recorder.values.get("z:middle");
     if (!zMV) throw new Error("z MotionValue was not registered for 'middle' — setup bug, not a timing race");
 
-    const middlePanel = document.querySelector('[data-column="middle"] [data-scene-column]') as HTMLElement;
-    const rightPanel = document.querySelector('[data-column="right"] [data-scene-column]') as HTMLElement;
+    const middleColumnNode = document.querySelector('[data-ui-scene-column-anchor="middle"] [data-ui-scene-column]') as HTMLElement;
+    const rightColumnNode = document.querySelector('[data-ui-scene-column-anchor="right"] [data-ui-scene-column]') as HTMLElement;
 
     const zBefore = zMV.get();
     recorder.controls.clear();
@@ -650,8 +650,8 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     const start = performance.now();
     for (let i = 0; i < 150; i++) {
       await waitForAnimationFrame();
-      const mRect = middlePanel.getBoundingClientRect();
-      const rRect = rightPanel.getBoundingClientRect();
+      const mRect = middleColumnNode.getBoundingClientRect();
+      const rRect = rightColumnNode.getBoundingClientRect();
       const left = Math.max(mRect.left, rRect.left);
       const right = Math.min(mRect.right, rRect.right);
       const top = Math.max(mRect.top, rRect.top);
@@ -672,7 +672,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     // still requiring a substantial, non-accidental sample count. A
     // zero-frame window must FAIL as "never observed overlap," not
     // silently pass.
-    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and right's panels — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
+    expect(overlapFrames, `only ${overlapFrames} overlap frames observed between middle's and right's columns — never observed genuine overlap (or an insufficient window)`).toBeGreaterThanOrEqual(10);
 
     // Headline, externally anchored (not derived from zMV): middle is
     // NEVER the top owner at the live overlap centroid during the overlap
@@ -697,7 +697,7 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
   // captureFlipCommit's own doc comment) at the second toggle's commit,
   // not the full outlier-detector methodology (that's Slice 3's extension
   // of this same test).
-  test("a second focus change landing mid-transition does not corrupt a bystander column's panel geometry", async () => {
+  test("a second focus change landing mid-transition does not corrupt a bystander column's own geometry", async () => {
     function Demo() {
       const [midAFocused, setMidAFocused] = useState(true);
       return (
@@ -707,16 +707,16 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
           </button>
           <Scene>
             <SceneColumn name="left">
-              <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="mid-b">
-              <SceneObject name="mid-b-panel" focused={false} style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="mid-b-object" focused={false} style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="mid-a">
-              <SceneObject name="mid-a-panel" focused={midAFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="mid-a-object" focused={midAFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
             <SceneColumn name="right">
-              <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+              <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
             </SceneColumn>
           </Scene>
         </TestWrapper>
@@ -726,7 +726,7 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
     const { getByTestId } = await render(<Demo />);
     await wait(500);
 
-    const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
+    const midBColumnNode = document.querySelector('[data-ui-scene-id="mid-b-object"]')!.closest("[data-ui-scene-column-anchor]")!.querySelector("[data-ui-scene-column]") as HTMLElement;
     const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
     // "mid-b" (DOM order: left, mid-b, mid-a, right) is anchored to
@@ -738,28 +738,28 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
     toggleBtn.click(); // mid-a starts unfocusing -> mid-b's stackDepth changes too
     await wait(150); // deliberately mid-spring, same timing the original layout-FLIP defect needed
 
-    const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
-    const midBAnchorEl = midBPanel.closest("[data-column]") as HTMLElement;
-    const initialMidBDepth = midBAnchorEl.getAttribute("data-stack-depth");
+    const midAColumnNode = document.querySelector('[data-ui-scene-id="mid-a-object"]')!.closest("[data-ui-scene-column-anchor]")!.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const midBAnchorEl = midBColumnNode.closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const initialMidBDepth = midBAnchorEl.getAttribute("data-ui-scene-stack-depth");
 
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
 
-    const midAAnchorEl = midAPanel.closest("[data-column]") as HTMLElement;
+    const midAAnchorEl = midAColumnNode.closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // "mid-a" itself: position flips synchronously-in-intent but not
     // synchronously-in-commit (same registry-correction lag every other
     // Scene-derived read in this file has shown) — poll for its own
     // style.position to actually change. Layout-box geometry (Part B's
     // final form) against mid-a's own anchor.
-    const midA = await captureFlipCommit(midAPanel, 2000, undefined, midAAnchorEl);
+    const midA = await captureFlipCommit(midAColumnNode, 2000, undefined, midAAnchorEl);
     // "mid-b": never itself toggles, so its own style.position never
     // changes — poll for its stackDepth-driven retarget instead (the
     // side-effect signal that its bystander geometry depends on).
     // Layout-box geometry (Part B's final form) against mid-b's own anchor.
     const midB = await captureFlipCommit(
-      midBPanel,
+      midBColumnNode,
       2000,
-      () => midBAnchorEl.getAttribute("data-stack-depth") !== initialMidBDepth,
+      () => midBAnchorEl.getAttribute("data-ui-scene-stack-depth") !== initialMidBDepth,
       midBAnchorEl,
     );
 
@@ -775,11 +775,11 @@ describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — g
 
 // ---------------------------------------------------------------------------
 // Full-methodology outlier detector (forecast edit E1's own extension,
-// Slice 3). RAW panel gBCR, deliberately NOT rebased against each panel's
+// Slice 3). RAW column-node gBCR, deliberately NOT rebased against each column node's
 // own anchor — team-lead's ruling: this detector's subject is what the user
 // SEES (camera, tuck, Z-projection, and reflow all compose into paint-space
 // geometry), complementing the FLIP tests' layout-space contract (Part B),
-// not duplicating it. A panel's layout-box position relative to its own
+// not duplicating it. A column node's layout-box position relative to its own
 // anchor is an architectural invariant BY CONSTRUCTION (that invariance IS
 // the zero-pixel-flip guarantee) — confirmed directly: a debug dump of the
 // layout-box form showed every sampled delta, for both mid-a and mid-b,
@@ -810,16 +810,16 @@ async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]
         </button>
         <Scene>
           <SceneColumn name="left">
-            <SceneObject name="left-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+            <SceneObject name="left-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
           </SceneColumn>
           <SceneColumn name="mid-b">
-            <SceneObject name="mid-b-panel" focused={false} style={{ width: 200, height: 300 }}>content</SceneObject>
+            <SceneObject name="mid-b-object" focused={false} style={{ width: 200, height: 300 }}>content</SceneObject>
           </SceneColumn>
           <SceneColumn name="mid-a">
-            <SceneObject name="mid-a-panel" focused={midAFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
+            <SceneObject name="mid-a-object" focused={midAFocused} style={{ width: 200, height: 300 }}>content</SceneObject>
           </SceneColumn>
           <SceneColumn name="right">
-            <SceneObject name="right-panel" focused style={{ width: 200, height: 300 }}>content</SceneObject>
+            <SceneObject name="right-object" focused style={{ width: 200, height: 300 }}>content</SceneObject>
           </SceneColumn>
         </Scene>
       </TestWrapper>
@@ -829,8 +829,8 @@ async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]
   const { getByTestId } = await render(<Demo />);
   await wait(500);
 
-  const midAPanel = document.querySelector('[data-scene-id="mid-a-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
-  const midBPanel = document.querySelector('[data-scene-id="mid-b-panel"]')!.closest("[data-column]")!.querySelector("[data-scene-column]") as HTMLElement;
+  const midAColumnNode = document.querySelector('[data-ui-scene-id="mid-a-object"]')!.closest("[data-ui-scene-column-anchor]")!.querySelector("[data-ui-scene-column]") as HTMLElement;
+  const midBColumnNode = document.querySelector('[data-ui-scene-id="mid-b-object"]')!.closest("[data-ui-scene-column-anchor]")!.querySelector("[data-ui-scene-column]") as HTMLElement;
   const toggleBtn = getByTestId("toggle").element() as HTMLElement;
 
   const sampleGbcr = (el: HTMLElement): GBCRBox => {
@@ -851,12 +851,12 @@ async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]
   // gives that delta a genuine neighbor, closing the gap. Defeat-check-
   // caught: a real ~149px width jump at the commit frame passed silently
   // under the old sampling shape before this fix.
-  const midASamples: GBCRBox[] = [sampleGbcr(midAPanel)];
-  const midBSamples: GBCRBox[] = [sampleGbcr(midBPanel)];
+  const midASamples: GBCRBox[] = [sampleGbcr(midAColumnNode)];
+  const midBSamples: GBCRBox[] = [sampleGbcr(midBColumnNode)];
   for (let i = 0; i < 3; i++) {
     await waitForAnimationFrame();
-    midASamples.push(sampleGbcr(midAPanel));
-    midBSamples.push(sampleGbcr(midBPanel));
+    midASamples.push(sampleGbcr(midAColumnNode));
+    midBSamples.push(sampleGbcr(midBColumnNode));
   }
 
   toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
@@ -864,8 +864,8 @@ async function runDoubleInterruptionGbcrSample(): Promise<{ midADeltas: number[]
   const start = performance.now();
   while (performance.now() - start < 1000) {
     await waitForAnimationFrame();
-    midASamples.push(sampleGbcr(midAPanel));
-    midBSamples.push(sampleGbcr(midBPanel));
+    midASamples.push(sampleGbcr(midAColumnNode));
+    midBSamples.push(sampleGbcr(midBColumnNode));
   }
 
   return { midADeltas: gbcrDeltasOf(midASamples), midBDeltas: gbcrDeltasOf(midBSamples) };
@@ -912,14 +912,14 @@ describe("Scene depth deck stacking", () => {
       ),
     );
 
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
-    expect(middleCol.getAttribute("data-column-position")).toBe("in-between");
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    expect(middleCol.getAttribute("data-ui-scene-column-position")).toBe("in-between");
   });
 
   test("in-between column stacks under right focused column (positioned near right)", async () => {
     // An in-between unfocused column should appear in roughly the same
     // horizontal area as the right focused column — stacked behind it
-    // (the closed-form anchor-relative offset the anchor/panel restructure
+    // (the closed-form anchor-relative offset the anchor/column restructure
     // uses, not the retired stackTargetLeft/DepthDeckContext mechanism).
     const { getByTestId } = await render(
       buildScene(
@@ -935,22 +935,22 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
-    const rightCol = getByTestId("content-right").element().closest("[data-column]") as HTMLElement;
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const rightCol = getByTestId("content-right").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // ui#17 selector audit: middleCol is decked (in-between) — its own
     // anchor is a permanent zero-footprint node (width target 0), so its
-    // gBCR reports the collapsed position, not the visible panel's. Read
-    // the panel instead for a decked column's own geometry (rightCol
+    // gBCR reports the collapsed position, not the visible column node's. Read
+    // the column node instead for a decked column's own geometry (rightCol
     // stays focused/position:relative pass-through, unaffected either
     // way).
-    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
-    const middleRect = middlePanel.getBoundingClientRect();
+    const middleColumnNode = middleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const middleRect = middleColumnNode.getBoundingClientRect();
     const rightRect = rightCol.getBoundingClientRect();
 
     // In-between column should overlap with the right focused column's area
     // — specifically, offset by exactly the default peekOffset (12px)
-    // foreshortened by the panel's own depth-1 perspective factor (ui#17
+    // foreshortened by the column node's own depth-1 perspective factor (ui#17
     // Slice 3 fold-in: the 50px slop was flagged by the E4 rider as a real
     // weakness — wide enough to pass even reading the wrong node, see the
     // measured-factor derivation the "peeks left by exactly peekOffset"
@@ -958,7 +958,7 @@ describe("Scene depth deck stacking", () => {
     //
     // E4-loop-closure finding: deriving the factor from `middleRect`
     // itself (the thing this assertion verifies) degenerates when
-    // middleRect is mistakenly the anchor instead of the panel — the
+    // middleRect is mistakenly the anchor instead of the column node — the
     // anchor's own width target is exactly 0 for a decked column, so
     // depth1Factor, expectedPeek, AND the anchor's own actual delta
     // (its -columnGap margin exactly cancels the gap, landing its left
@@ -966,11 +966,11 @@ describe("Scene depth deck stacking", () => {
     // together, passing vacuously regardless of which node is read
     // (verified directly: pointed at the anchor, this assertion stayed
     // green under the SAME self-derived-factor form). Fixed by deriving
-    // the factor from an INDEPENDENT panel measurement (middlePanel,
+    // the factor from an INDEPENDENT column-node measurement (middleColumnNode,
     // never reassigned) rather than from middleRect — an accidental
     // anchor-read now has nothing to self-consistently degenerate against.
     const naturalWidth = 300;
-    const depth1Factor = middlePanel.getBoundingClientRect().width / naturalWidth;
+    const depth1Factor = middleColumnNode.getBoundingClientRect().width / naturalWidth;
     const expectedPeek = 12 * depth1Factor;
     expect(Math.abs(rightRect.left - middleRect.left - expectedPeek)).toBeLessThan(2);
   });
@@ -992,7 +992,7 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const middleRect = middleCol.getBoundingClientRect();
 
     // The column's rendered (projected) width should be less than its frozen width (300px).
@@ -1059,8 +1059,8 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     const middleContent = getByTestId("content-middle").element();
-    const middleOuter = middleContent.closest("[data-column]") as HTMLElement;
-    const middleWrapper = middleContent.closest("[data-column-content]") as HTMLElement;
+    const middleOuter = middleContent.closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middleWrapper = middleContent.closest("[data-ui-scene-column-content]") as HTMLElement;
 
     // The outer column's rendered box is clipped down to the narrow
     // peek-width footprint (default peekOffset=12).
@@ -1139,8 +1139,8 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     const middleContent = getByTestId("content-middle").element();
-    const middleOuter = middleContent.closest("[data-column]") as HTMLElement;
-    const middleWrapper = middleContent.closest("[data-column-content]") as HTMLElement;
+    const middleOuter = middleContent.closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middleWrapper = middleContent.closest("[data-ui-scene-column-content]") as HTMLElement;
 
     // The outer column's rendered box is clipped down to the narrow
     // peek-width footprint (default peekOffset=12) — this half already
@@ -1186,22 +1186,22 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Depth increases going away from the right focused column.
     // col-middle2 is closer to col-right → depth-1 (shallower, closer to right)
     // col-middle1 is further from col-right → depth-2 (deeper, further back)
-    expect(middle1.getAttribute("data-stack-depth")).toBe("2");
-    expect(middle2.getAttribute("data-stack-depth")).toBe("1");
+    expect(middle1.getAttribute("data-ui-scene-stack-depth")).toBe("2");
+    expect(middle2.getAttribute("data-ui-scene-stack-depth")).toBe("1");
 
     // Depth-2 (middle1) should appear smaller than depth-1 (middle2). ui#17
-    // anchor/panel split: the perspective projection that shrinks apparent
-    // width lives on the panel node's own z-transform, not the anchor.
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    const rect1 = panel1.getBoundingClientRect();
-    const rect2 = panel2.getBoundingClientRect();
+    // anchor/column split: the perspective projection that shrinks apparent
+    // width lives on the column node's own z-transform, not the anchor.
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const rect1 = columnNode1.getBoundingClientRect();
+    const rect2 = columnNode2.getBoundingClientRect();
     expect(rect1.width).toBeLessThan(rect2.width);
   });
 
@@ -1223,18 +1223,18 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
     // Depth is measured from right focused column:
     // col-middle2 (adjacent to right) → depth-1, higher opacity
     // col-middle1 (further from right) → depth-2, lower opacity
-    // ui#17 anchor/panel split: opacity is an `animate`-driven depth-deck
-    // visual now applied on the panel node, not the anchor.
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    const opacity1 = parseFloat(window.getComputedStyle(panel1).opacity);
-    const opacity2 = parseFloat(window.getComputedStyle(panel2).opacity);
+    // ui#17 anchor/column split: opacity is an `animate`-driven depth-deck
+    // visual now applied on the column node, not the anchor.
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const opacity1 = parseFloat(window.getComputedStyle(columnNode1).opacity);
+    const opacity2 = parseFloat(window.getComputedStyle(columnNode2).opacity);
 
     // depth-2 (middle1) should have lower opacity than depth-1 (middle2)
     expect(opacity1).toBeLessThan(opacity2);
@@ -1261,30 +1261,18 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
-    // ui#17 selector audit: the depth-deck's translateZ lives on the PANEL
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    // ui#17 selector audit: the depth-deck's translateZ lives on the COLUMN
     // node (see zMV's own declaration in SceneColumn.tsx), not the
     // zero-footprint anchor — this test is specifically about that
     // transform, unlike the sibling "appears smaller than natural size"
     // test above (which explicitly doesn't care which node contributes
-    // the shrink), so it reads the panel.
-    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
-    // ui#17 Slice 3 fold-in: getComputedStyle().transform always resolves
-    // to a matrix/matrix3d string (verified directly — never contains the
-    // literal substring "translateZ", regardless of what functions
-    // produced it), so `toBeTruthy()` against it could never actually
-    // fail on a scale-based fake — the assertion this test's own name
-    // promises. style.transform (the inline value Motion writes) is
-    // functional notation and does contain "translateZ(" literally
-    // (verified directly: "translateX(-12px) translateZ(-100px)").
-    const transform = middlePanel.style.transform;
+    // the shrink), so it reads the column node.
+    const middleColumnNode = middleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
 
-    // Depth deck columns use perspective + translateZ for the depth visual
-    // effect, not CSS scale.
-    expect(transform).toContain("translateZ(");
     // Verify the column appears smaller than its natural 300px width.
     // Perspective projection reduces the apparent size of elements pushed back in Z.
-    const rect = middlePanel.getBoundingClientRect();
+    const rect = middleColumnNode.getBoundingClientRect();
     expect(rect.width).toBeLessThan(300);
   });
 
@@ -1304,11 +1292,11 @@ describe("Scene depth deck stacking", () => {
 
     await waitForAnimationFrame();
 
-    const middleCol = getByTestId("content-middle").element().closest("[data-column]") as HTMLElement;
-    // ui#17 anchor/panel split: the depth-deck greyscale filter is an
-    // `animate`-driven property on the panel node now, not the anchor.
-    const middlePanel = middleCol.querySelector("[data-scene-column]") as HTMLElement;
-    const filter = window.getComputedStyle(middlePanel).filter;
+    const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    // ui#17 anchor/column split: the depth-deck greyscale filter is an
+    // `animate`-driven property on the column node now, not the anchor.
+    const middleColumnNode = middleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const filter = window.getComputedStyle(middleColumnNode).filter;
 
     // depth-1 → grayscale(0.25)
     expect(filter).toContain("grayscale(0.25)");
@@ -1333,14 +1321,14 @@ describe("Scene depth deck stacking", () => {
 
     // col-middle2 is adjacent to col-right → depth-1 → grayscale(0.25)
     // col-middle1 is further from col-right → depth-2 → grayscale(0.5)
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    // ui#17 anchor/panel split: greyscale is a panel-node property now.
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    const filter1 = window.getComputedStyle(panel1).filter;
-    const filter2 = window.getComputedStyle(panel2).filter;
+    // ui#17 anchor/column split: greyscale is a column-node property now.
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const filter1 = window.getComputedStyle(columnNode1).filter;
+    const filter2 = window.getComputedStyle(columnNode2).filter;
 
     expect(filter2).toContain("grayscale(0.25)");
     expect(filter1).toContain("grayscale(0.5)");
@@ -1368,39 +1356,39 @@ describe("Scene depth deck stacking", () => {
     // again with the default peekOffset — cleanup() between renders keeps the
     // two mounts from colliding on shared data-testids within this one test.
     const flush = await render(scene(0));
-    // ui#17 anchor/panel split: the fan (columnAnimateX) and the perspective
-    // foreshortening (z) are both `animate`-driven properties on the panel
+    // ui#17 anchor/column split: the fan (columnAnimateX) and the perspective
+    // foreshortening (z) are both `animate`-driven properties on the column
     // node now, not the zero-footprint anchor — so this reads the REAL
-    // rendered gap between the PANELS (gBCR) rather than the anchor, same
+    // rendered gap between the COLUMN NODES (gBCR) rather than the anchor, same
     // rationale as the corruption fixture's own sharpened assertion this
     // session (measures what actually painted, stays meaningful regardless
     // of which channel(s) produce it).
-    const flushRightPanel = flush
+    const flushRightColumnNode = flush
       .getByTestId("content-right")
       .element()
-      .closest("[data-column]")!
-      .querySelector("[data-scene-column]") as HTMLElement;
-    const flushMiddlePanel = flush
+      .closest("[data-ui-scene-column-anchor]")!
+      .querySelector("[data-ui-scene-column]") as HTMLElement;
+    const flushMiddleColumnNode = flush
       .getByTestId("content-middle")
       .element()
-      .closest("[data-column]")!
-      .querySelector("[data-scene-column]") as HTMLElement;
+      .closest("[data-ui-scene-column-anchor]")!
+      .querySelector("[data-ui-scene-column]") as HTMLElement;
     await waitForAnimationFrame();
     await waitForAnimationFrame();
-    const flushGap = flushRightPanel.getBoundingClientRect().left - flushMiddlePanel.getBoundingClientRect().left;
+    const flushGap = flushRightColumnNode.getBoundingClientRect().left - flushMiddleColumnNode.getBoundingClientRect().left;
     await cleanup();
 
     const peeked = await render(scene(12));
-    const rightPanel = peeked
+    const rightColumnNode = peeked
       .getByTestId("content-right")
       .element()
-      .closest("[data-column]")!
-      .querySelector("[data-scene-column]") as HTMLElement;
-    const middlePanel = peeked
+      .closest("[data-ui-scene-column-anchor]")!
+      .querySelector("[data-ui-scene-column]") as HTMLElement;
+    const middleColumnNode = peeked
       .getByTestId("content-middle")
       .element()
-      .closest("[data-column]")!
-      .querySelector("[data-scene-column]") as HTMLElement;
+      .closest("[data-ui-scene-column-anchor]")!
+      .querySelector("[data-ui-scene-column]") as HTMLElement;
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
@@ -1412,16 +1400,16 @@ describe("Scene depth deck stacking", () => {
 
     // Rendered (post-perspective-projection) left edge: the NOMINAL
     // translateX (-peekOffset at depth-1) composes with the SAME
-    // translateZ/perspective transform that also shrinks the panel's
+    // translateZ/perspective transform that also shrinks the column node's
     // rendered width, so the visible peek is peekOffset foreshortened by
-    // that panel's own projection factor, not a flat 12px (ui#17 selector
+    // that column node's own projection factor, not a flat 12px (ui#17 selector
     // audit — re-derived from a flat ±5px placeholder that was itself
     // flagged as asserted-not-derived; same measured-factor discipline
     // the "custom peekOffset" test below uses, deriving the factor from
-    // the panel's own rendered width rather than hand-deriving the CSS 3D
+    // the column node's own rendered width rather than hand-deriving the CSS 3D
     // projection math).
-    const rightRect = rightPanel.getBoundingClientRect();
-    const middleRect = middlePanel.getBoundingClientRect();
+    const rightRect = rightColumnNode.getBoundingClientRect();
+    const middleRect = middleColumnNode.getBoundingClientRect();
     const naturalWidth = 200; // this fixture's own SceneObject width
     const depth1Factor = middleRect.width / naturalWidth;
     const expectedPeek = 12 * depth1Factor;
@@ -1446,16 +1434,16 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     // col-middle2 → depth-1, col-middle1 → depth-2 (further from col-right).
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement;
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement;
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    // ui#17 anchor/panel split: gBCR of the PANEL node, not the anchor —
+    // ui#17 anchor/column split: gBCR of the COLUMN node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment for why.
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    const depth1Rect = panel2.getBoundingClientRect();
-    const depth2Rect = panel1.getBoundingClientRect();
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const depth1Rect = columnNode2.getBoundingClientRect();
+    const depth2Rect = columnNode1.getBoundingClientRect();
 
     // Each successive depth level peeks by one additional peekOffset
     // increment (12px default) — but each depth's OWN nominal shift
@@ -1488,26 +1476,26 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-2
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-1
 
-    // ui#17 anchor/panel split: gBCR of the PANEL node, not the anchor —
+    // ui#17 anchor/column split: gBCR of the COLUMN node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment.
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    const depth1Rect = panel2.getBoundingClientRect();
-    const depth2Rect = panel1.getBoundingClientRect();
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const depth1Rect = columnNode2.getBoundingClientRect();
+    const depth2Rect = columnNode1.getBoundingClientRect();
 
     // With peekOffset=20, the NOMINAL x-transform is -20 at depth-1 and
     // -40 at depth-2 (columnAnimateX = -peekOffset * stackDepth) — but that
     // transform composes with the SAME perspective/translateZ transform
-    // that also shrinks each panel's rendered width (preserve-3d now
+    // that also shrinks each column node's rendered width (preserve-3d now
     // correctly propagates both together — see the anchor's own
     // transform-style comment), so the RENDERED fan increment is each
     // depth's nominal x-shift foreshortened by its own depth's projection
     // factor, not a flat 20px difference. Deriving that factor from each
-    // panel's own measured width (rather than hand-deriving the CSS 3D
+    // column node's own measured width (rather than hand-deriving the CSS 3D
     // projection math, which also depends on transform-origin/order
     // details not worth re-deriving here) keeps this assertion's expected
     // value tied to what's actually measured, the same discipline used
@@ -1536,22 +1524,22 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
     await waitForAnimationFrame();
 
-    const middle1 = getByTestId("content-middle1").element().closest("[data-column]") as HTMLElement; // depth-2
-    const middle2 = getByTestId("content-middle2").element().closest("[data-column]") as HTMLElement; // depth-1
+    const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-2
+    const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-1
 
     // With no peek offset, every in-between column renders flush at the
     // same left edge regardless of depth — the pre-A5 behavior, where only
     // perspective projection (not a manual x offset) distinguished depths.
-    // ui#17 selector audit: reads the PANEL (columnAnimateX = 0 at
-    // peekOffset=0, so the panel's own static (0,0)-within-anchor position
-    // means this should read identically to the anchor here, but the panel
+    // ui#17 selector audit: reads the COLUMN (columnAnimateX = 0 at
+    // peekOffset=0, so the column node's own static (0,0)-within-anchor position
+    // means this should read identically to the anchor here, but the column node
     // is the node whose position actually matters for what's visible — see
     // the "depth-1 ... peeks left by exactly peekOffset" test's own
-    // comment for why this suite reads panels, not anchors, for decked
+    // comment for why this suite reads column nodes, not anchors, for decked
     // geometry).
-    const panel1 = middle1.querySelector("[data-scene-column]") as HTMLElement;
-    const panel2 = middle2.querySelector("[data-scene-column]") as HTMLElement;
-    expect(panel1.getBoundingClientRect().left).toBeCloseTo(panel2.getBoundingClientRect().left, -1);
+    const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
+    const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
+    expect(columnNode1.getBoundingClientRect().left).toBeCloseTo(columnNode2.getBoundingClientRect().left, -1);
   });
 
   test("H11: a never-before-focused deck card's marginTop converges monotonically on first focus (no swing)", async () => {
@@ -1586,7 +1574,7 @@ describe("Scene depth deck stacking", () => {
     await wait(500);
 
     const midAWrapper = getByTestId("mid-a-content").element()
-      .closest("[data-column]")?.querySelector("[data-column-content]") as HTMLElement;
+      .closest("[data-ui-scene-column-anchor]")?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(midAWrapper.style.marginTop || "0");
 
     // First focus: sample marginTop across the transition.
@@ -1642,7 +1630,7 @@ describe("Scene depth deck stacking", () => {
     // unobservable from outside the component): `position`/`stackDepth` are
     // held fixed at their pre-focus "in-between, depth 2" values across the
     // rerender (exactly what a lagging registry would still report) while
-    // the child object's `focused` prop flips true. `data-stack-depth`
+    // the child object's `focused` prop flips true. `data-ui-scene-stack-depth`
     // (driven directly by `isInBetween`) is a plain React-rendered
     // attribute — synchronous and deterministic, no animation-timing
     // dependency, unlike the animate-prop values themselves.
@@ -1666,16 +1654,16 @@ describe("Scene depth deck stacking", () => {
     );
 
     const { rerender, getByTestId } = await render(build(false));
-    const col = getByTestId("content").element().closest("[data-column]") as HTMLElement;
+    const col = getByTestId("content").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     // Sanity: genuinely classified in-between/depth-2 while unfocused.
-    expect(col.getAttribute("data-stack-depth")).toBe("2");
+    expect(col.getAttribute("data-ui-scene-stack-depth")).toBe("2");
 
     // Focus the child WITHOUT updating position/stackDepth — the exact
     // one-commit-stale window a real registry-lag click produces.
     await rerender(build(true));
 
-    expect(col.getAttribute("data-column-focused")).toBe("true");
-    expect(col.getAttribute("data-stack-depth")).toBeNull();
+    expect(col.getAttribute("data-ui-scene-column-focused")).toBe("true");
+    expect(col.getAttribute("data-ui-scene-stack-depth")).toBeNull();
     expect(window.getComputedStyle(col).position).toBe("relative");
   });
 });

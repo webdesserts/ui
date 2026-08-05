@@ -11,9 +11,18 @@ import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
 import { cn } from "../../utils/cn";
 
 export interface SceneObjectProps {
-  /** Stable identifier for this object. Used as data-scene-id and for the implicit column name. */
+  /** Stable identifier for this object. Used as data-ui-scene-id and for the implicit column name. */
   name: string;
-  /** Whether this object is currently in focus. Focused objects participate in the flex layout. */
+  /**
+   * Whether this object is currently in focus. Focused objects participate
+   * in the flex layout.
+   *
+   * The unfocused-look itself (e.g. hiding a nav link without a layout
+   * shift) is entirely app-side, keyed off this prop's rendered attribute
+   * contract (`data-ui-scene-focused`) — the library only owns interactivity (an
+   * unfocused object's content receives `inert` for free) and never
+   * guesses at a consumer's own "disabled" visual treatment (ui#o48).
+   */
   focused: boolean;
   children: React.ReactNode;
   /**
@@ -64,7 +73,7 @@ export interface SceneObjectProps {
  * (2026-07-31) for the full design): this component's own outer node is a
  * permanent in-flow ANCHOR whose HEIGHT footprint springs natural-height <->
  * 0 (never flips position mode — no flip-back, mirrors ui#17's column
- * anchor exactly). A nested OBJECT (`data-scene-object`) carries the actual
+ * anchor exactly). A nested OBJECT (`data-ui-scene-object`) carries the actual
  * depth visual treatment (opacity/filter/z) and the peek-offset TRANSFORM
  * (`y`) — the object is what flips position:relative <-> position:absolute,
  * with its own `top` held structurally constant (0) across that flip
@@ -76,6 +85,13 @@ export interface SceneObjectProps {
  * ZERO height to flow (permanently, once settled) and is shown via its own
  * depth-card visual treatment instead of being hidden. The column's
  * content wrapper slides vertically to bring the focused object into view.
+ *
+ * Consumers customize the focus ring via four inheriting CSS custom
+ * properties, settable on any ancestor element: `--scene-focus-ring-color`
+ * (default `rgb(153,200,255)`), `--scene-focus-ring-width` (default
+ * `2px`), `--scene-focus-ring-offset` (default `0`), and
+ * `--scene-focus-ring-radius` (default `0`, square — the library never
+ * guesses a consumer's own card rounding).
  *
  * @example
  * <SceneObject name="article" focused={currentView === "article"}>
@@ -598,9 +614,9 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   return (
     <motion.div
       ref={outerRef}
-      data-scene-id={name}
-      data-focused={String(focused)}
-      {...(withinDepthInfo ? { "data-within-column-depth": String(withinDepthInfo.depth) } : {})}
+      data-ui-scene-id={name}
+      data-ui-scene-focused={String(focused)}
+      {...(withinDepthInfo ? { "data-ui-scene-within-column-depth": String(withinDepthInfo.depth) } : {})}
       // D5 fallback focus target: -1 by default (programmatically focusable
       // via the effect above, never a Tab stop); D3 promotes it to a real
       // tab stop (0) when activatable.
@@ -675,7 +691,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           above — its own untransformed ("static") position is (0,0) of the
           anchor's own content box, escaping the anchor's own collapsed box
           entirely so the full-size content paints regardless of the
-          anchor's own height (mirrors SceneColumn's own data-scene-column
+          anchor's own height (mirrors SceneColumn's own data-ui-scene-column
           exactly). Paint order at the depth-deck flip commit is driven by
           an explicit z-index channel (see its own declaration above), not
           3D-transform depth-sort — a multi-round defeat-check
@@ -688,7 +704,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           2D stacking rules, no preserve-3d chain needed anywhere in this
           component. */}
       <motion.div
-        data-scene-object={name}
+        data-ui-scene-object={name}
         className={cn(
           // Ring PAINT (the anchor above is the `group/scene-object` —
           // its own className has the full design history).
@@ -744,7 +760,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // RED-FIRST layout-box flip test before this line existed).
           width: "100%",
           // Establishes a block formatting context in BOTH position modes
-          // (mirrors SceneColumn's own data-scene-column exactly, same
+          // (mirrors SceneColumn's own data-ui-scene-column exactly, same
           // ui#17 margin-collapse trap the plan explicitly carries forward
           // — a child's own top margin would otherwise collapse through
           // this object while position:relative, shifting its own top-edge
