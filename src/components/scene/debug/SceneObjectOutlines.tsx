@@ -45,6 +45,7 @@ export function SceneObjectOutlines({
   // changes and we need to re-render the outline divs.
   const [renderedObjects, setRenderedObjects] = useState<DebugObjectEntry[]>([]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberate every-render effect (no dependency array by design) — adding one changes it from per-render to per-dep-change, a real behavior change to a documented remeasure/correction idiom.
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;

@@ -38,6 +38,7 @@ export function SceneDebugOverlay({
   // idle scene would otherwise show a mount/unmount stale by exactly one
   // commit indefinitely.
   const [objects, setObjects] = useState<DebugObjectEntry[]>([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberate every-render effect (no dependency array by design) — adding one changes it from per-render to per-dep-change, a real behavior change to a documented remeasure/correction idiom.
   useLayoutEffect(() => {
     const currentViewport = viewportRef.current;
     if (!currentViewport) return;

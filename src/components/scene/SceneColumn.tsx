@@ -470,7 +470,6 @@ export function SceneColumn({
         contentHeightAtSave: contentWrapperRef.current?.offsetHeight ?? 0,
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
 
   // Track column focus state: freeze the last size on focus loss, and clear
@@ -501,6 +500,7 @@ export function SceneColumn({
     if (columnFocused) {
       wasEverFocused.current = true;
       // Re-focusing — clear the frozen size so the column returns to flex flow.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronizes frozen-size state with the focus-transition condition inside this layout effect — deliberate, restructuring the effect body is out of this dispatch's scope.
       setFrozenSize(null);
       // lastObservedSize while focused is now kept current by the shared
       // geometry ResizeObserver below (single measurement layer) — no
@@ -511,7 +511,6 @@ export function SceneColumn({
       // Save content height for vertical centering of unfocused columns.
       setFrozenContentHeight(contentHeight);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused]);
 
   // ui#17 never-leave-the-flow: deferred natural-width capture for a
@@ -687,7 +686,6 @@ export function SceneColumn({
       focusedKey: focusedObjectKey,
       contentHeightAtSave: entry?.contentHeightAtSave ?? 0,
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnFocused, focusedObjectKey]);
 
   // Imperative data-ui-scene-scroll-offset attribute writer (forecast-gate adjudication
@@ -755,7 +753,15 @@ export function SceneColumn({
     resyncScrollMetricsRef.current = () => syncMetrics(scrollY.get());
     syncMetrics(scrollY.get());
     return scrollY.on("change", syncMetrics);
-  }, [onScroll, scrollY]);
+  }, [
+    onScroll,
+    scrollY,
+    contentHeightRef,
+    maxScrollRef,
+    pinnedRef,
+    resyncScrollMetricsRef,
+    viewportHeightRef,
+  ]);
 
   // Vertical centering: center the focused content within the viewport when it
   // fits. When content overflows (contentHeight > viewportHeight), margin is 0
@@ -868,6 +874,7 @@ export function SceneColumn({
     const reportedObjectStates = Array.from(registeredObjectFocusRef.current.entries()).map(
       ([objName, objFocused]) => ({ name: objName, focused: objFocused }),
     );
+    // eslint-disable-next-line react-hooks/immutability -- widthTarget/marginTarget are const bindings declared later in this function but only read inside a useLayoutEffect callback, which never executes until after the full render body completes — valid JS (effects run post-render); reordering the effect below its dependencies' declarations is a real structural change, deferred.
     return registerColumnWithScene(name, { focused, element: el, widthTarget, marginTarget, objectStates: reportedObjectStates });
   });
 
@@ -1477,7 +1484,19 @@ export function SceneColumn({
       dragStartOffset.current = resynced;
       (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
     },
-    [columnFocused, isScrollable, scrollY, panControl],
+    [
+      columnFocused,
+      isScrollable,
+      scrollY,
+      panControl,
+      flingActiveRef,
+      lastWheelEventAtRef,
+      scrollOffsetRef,
+      scrollYSpringTargetRef,
+      setScrollOffset,
+      wheelCliffTimerRef,
+      wheelStreamPairedRef,
+    ],
   );
 
   const handleContentPointerMove = useCallback(
@@ -1597,7 +1616,7 @@ export function SceneColumn({
         duration === 0 ? 0 : computeReleaseVelocity(velocitySamplesRef.current, performance.now());
       applyScrollCommand({ type: "fling", velocity });
     },
-    [duration, applyScrollCommand, panControl],
+    [duration, applyScrollCommand, panControl, scrollOffsetRef, setScrollOffset],
   );
 
   // F13 commit 1: native (non-passive) touchmove listener. React's

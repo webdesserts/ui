@@ -19,18 +19,19 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "prepare": "npm run build",
     "test": "vitest",
-    "test:update": "vitest --update"
+    "test:update": "vitest --update",
+    "lint": "eslint ."
   },
   "dependencies": {
     "clsx": "^2.0.0"
   },
   "peerDependencies": {
+    "motion": "^12.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "motion": "^12.0.0"
+    "react-dom": "^19.0.0"
   },
   "peerDependenciesMeta": {
     "motion": {
@@ -42,9 +43,13 @@
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/parser": "^8.66.0",
     "@vitejs/plugin-react": "^4.0.0",
     "@vitest/browser": "^4.1.0",
     "@vitest/browser-playwright": "^4.1.0",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "motion": "^12.42.2",
     "playwright": "^1.50.0",
     "react": "^19.0.0",

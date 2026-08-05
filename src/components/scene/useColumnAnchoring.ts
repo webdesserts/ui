@@ -174,6 +174,14 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     const changed = fingerprint !== geometryFingerprintRef.current;
     geometryFingerprintRef.current = fingerprint;
     return changed;
+    // Deliberately NOT listing contentWrapperRef/geometryStore/registeredEls/
+    // registeredHeightTargetsRef here: they're all stable ref objects (a
+    // textbook-safe addition by plain exhaustive-deps rules), but doing so
+    // makes React Compiler bail out of memoizing this callback entirely —
+    // its own inferred dependencies are the narrower `registeredEls.current`/
+    // `geometryStore.current` property reads, and a manually-declared array
+    // that doesn't match verbatim trips react-hooks/preserve-manual-
+    // memoization (compiler-specific finding, ui#29 dispatch 1).
   }, []);
 
   // F9 anchoring: a snapshot of geometryStore taken at the end of the last
@@ -232,6 +240,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // (jump semantics, with in-flight-spring retargeting per adjudication 1)
   // is the write path, never driveScrollYRef (which always springs in
   // real mode).
+  // eslint-disable-next-line react-hooks/immutability -- This callback mutates dragStartOffset.current (a ref prop) after render — the plan's known ref-mirror exception; documented drag-baseline-correction idiom, opt-out not rewrite.
   const remeasureGeometryWithAnchorCompensation = useCallback((): boolean => {
     if (!columnFocusedRef.current) {
       const changed = remeasureGeometry();
@@ -342,6 +351,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
         // still tracks the SAME visual content it started on, just now
         // correctly offset by however much content shifted above it.
         if (isDragging.current) {
+          // eslint-disable-next-line react-hooks/immutability -- dragStartOffset.current += appliedDelta — deliberate drag-baseline correction while dragging, the plan's known-expected ref-mirror exception.
           dragStartOffset.current += appliedDelta;
         }
       }
@@ -598,6 +608,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // finishing load) with no accompanying React render — the actual B2 fix.
   // The synchronous per-render remeasure below handles the common case
   // (focus/prop changes); this handles the rest.
+  // eslint-disable-next-line react-hooks/immutability -- This effect mutates dragStartOffset.current after render — same drag-baseline-correction idiom as L235/L345.
   useEffect(() => {
     const observer = new ResizeObserver(() => {
       // Always refresh the cache (cheap; corrected again by the next
@@ -653,7 +664,15 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
       observer.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [remeasureGeometryWithAnchorCompensation]);
+  }, [
+    remeasureGeometryWithAnchorCompensation,
+    colRef,
+    geometryStore,
+    lastObservedSize,
+    registeredEls,
+    resizeObserverRef,
+    setContentHeight,
+  ]);
 
   // Measure the content wrapper synchronously after each render (useLayoutEffect
   // fires before the browser paints) so geometry is fresh for the very next
@@ -682,6 +701,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     // update) and nothing else forces the re-render computeTopOffset needs
     // to pick up the corrected geometry — the entrance freezes permanently,
     // not just late by one frame.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- setGeometryVersion forces a synchronous re-render only when remeasurement actually changed geometry — documented above as required to avoid a permanently frozen entrance; deliberate.
     if (changed) setGeometryVersion((v) => v + 1);
   });
 }

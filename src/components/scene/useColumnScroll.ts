@@ -915,6 +915,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
     // inertia call (which used them for bounceStiffness/bounceDamping) now
     // lives in startInertiaFlingRef, a stable ref this callback reads
     // through .current rather than closing over directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- The missing dependency is a plain (non-memoized) function recreated every render, not a stable reference — adding it would change this hook's memoization identity every render, defeating the point.
     [duration, transition, motionSeam, name, scrollY, anchor],
   );
 
@@ -973,7 +974,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
 
     el.addEventListener("keydown", handler);
     return () => el.removeEventListener("keydown", handler);
-  }, []);
+  }, [colRef]);
 
   // F11 commit 2: declarative scrollTo. Fires once per VALUE CHANGE to a
   // non-null string — React's own dependency comparison on `scrollTo` (a
@@ -1020,7 +1021,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
     // shared updatePinnedState call — see the "scrollTo" case's own
     // comment there) rather than writing scrollOffsetRef/scrollY directly.
     applyScrollCommandRef.current({ type: "scrollTo", offset: nextOffset });
-  }, [scrollTo, name]);
+  }, [scrollTo, name, contentWrapperRef]);
 
   return {
     scrollY,

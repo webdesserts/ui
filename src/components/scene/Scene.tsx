@@ -498,7 +498,6 @@ function SceneViewport({
   // update the CameraContext bounds for consumers of useCamera().
   useEffect(() => {
     onViewportSizeChange(viewportSize);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewportSize.width, viewportSize.height]);
 
   // Center the focused region within the Camera viewport by computing stageLeft.
