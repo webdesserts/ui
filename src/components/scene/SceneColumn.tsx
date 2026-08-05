@@ -205,35 +205,23 @@ export function SceneColumn({
 
   // A4 first-paint gate: tracks whether this column instance has EVER seen a
   // real (nonzero) effectiveViewportHeight — the LAST-arriving piece of a
-  // column's initial geometry settling (SceneViewport's own viewport
-  // measurement is a layout effect declared in an ANCESTOR component, so it
-  // lands a render after this column's own content-height/geometryStore
-  // corrections settle in the same commit — probe-confirmed: the render
-  // where effectiveViewportHeight first becomes real already has
-  // firstPaintRef.current === false, because Scene's passive first-paint-
-  // flip effect fires between the two synchronous correction rounds).
-  // columnGeometryWasSettled captures the PRE-mutation value (read below,
-  // right after effectiveViewportHeight is computed) so marginTop, the
-  // topOffsetMV/width-channel/zMV drive gates all reflect whether settling
-  // had ALREADY happened as of the PREVIOUS render — the render where it
-  // first happens must still count as "not yet settled" so its own value
-  // commits instantly rather than springing from a placeholder. ui#17
-  // criterion 5 re-derivation: columnTransition (marginTopTransition's own
-  // sibling site) no longer consumes this — see its own declaration
-  // comment for why (its original reason, Motion's `layout` FLIP, is gone).
+  // column's initial geometry settling (SceneViewport's viewport measurement
+  // is a layout effect in an ANCESTOR component, so it lands a render after
+  // this column's own content-height/geometryStore corrections settle in the
+  // same commit — the render where effectiveViewportHeight first becomes
+  // real already has firstPaintRef.current === false). columnGeometryWasSettled
+  // captures the PRE-mutation value (read below, right after
+  // effectiveViewportHeight is computed) so marginTop, the topOffsetMV/
+  // width-channel/zMV drive gates all reflect whether settling had ALREADY
+  // happened as of the PREVIOUS render — the render where it first happens
+  // must still count as "not yet settled" so its own value commits instantly
+  // rather than springing from a placeholder. ui#17 criterion 5: columnTransition
+  // (marginTopTransition's own sibling) no longer consumes this — see its own
+  // declaration comment for why.
   //
-  // F7 item 2 fix (why "settled" requires TWO consecutive equal commits,
-  // not just one nonzero one — full rationale now lives on the shared
-  // useSettledValue hook this reuses, ui#20 criterion 6): probe-confirmed
-  // (cqw demo, real space-reserving scrollbars — headless Chromium
-  // normally suppresses these entirely, see F5 item 5) viewportHeight
-  // arrives in TWO separate real commits during mount, not one — first
-  // without the horizontal scrollbar's space reservation (254), then with
-  // it once SceneViewport's own overflow-x measurement toggles the
-  // scrollbar on and the ResizeObserver picks up the now-smaller
-  // content-box height (243). Tracking the last-seen value and only
-  // marking settled once it repeats closes this (measured before the fix:
-  // marginTop sprang 78.94px -> 73.5px over ~280ms instead of jumping).
+  // Requires TWO consecutive equal, nonzero commits, not one — see
+  // useSettledValue's own doc comment for the full rationale and the
+  // measured regression this closes.
   const [columnGeometryWasSettled, checkColumnGeometrySettled] = useSettledValue();
 
   // S3 motion pipeline: scrollY mirrors scrollOffset (below) as a MotionValue
@@ -259,11 +247,9 @@ export function SceneColumn({
   // delaying every OTHER channel's zero-crossing for as long as the user
   // keeps scrolling — harmless for camera correctness since scrollY was
   // never camera-relevant, but an unnecessary coupling between two
-  // unrelated systems for no benefit). Confirmed empirically irrelevant to
-  // the specific late-mover bug this round diagnosed: a direct frame-by-
-  // frame trace of scrollY:detail through the exact window cameraX was
-  // proven to still be settling in showed scrollY's own value never
-  // changing by more than floating-point noise.
+  // unrelated systems for no benefit). Confirmed empirically: a frame-by-
+  // frame trace of scrollY through a camera-recentering window showed its
+  // value never moving by more than floating-point noise.
   const scrollY = useMotionValue(0);
   // scrollY.getVelocity() is used at TWO call sites, both mid-animation
   // (never at release — F13 commit 2 replaced the release-time read with
@@ -624,9 +610,7 @@ export function SceneColumn({
   // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
   // remeasure finds a real change — forces a re-render so topOffset/
   // contentHeight recompute from the fresh geometry. The value itself is
-  // never read; only the state update matters. (ui#21 Slice 4: dropped the
-  // stale `anchorTop` mention from this list — computeWithinColumnDepths no
-  // longer reads geometryStore at all, see its own doc comment.)
+  // never read; only the state update matters.
   const [, setGeometryVersion] = useState(0);
   // The ResizeObserver instance shared by every registered object element
   // plus colRef itself. Created once on mount; register/unregister manage
@@ -920,26 +904,20 @@ export function SceneColumn({
         // movement).
         const velocity = cmd.velocity;
 
-        // Fix-round round 2 (gate finding: 203px drift on a genuinely
-        // zero-velocity release): a fresh type:"inertia" animation's
-        // checkCatchBoundary(0) engages its boundary-catch spring at GENERATOR
-        // CREATION TIME whenever the STARTING keyframe is out of [min,max]
-        // bounds — completely independent of the passed velocity (probe-
-        // confirmed at source: animate(y, [2029], {type:"inertia", velocity:0,
-        // max:1200,...}) still springs 2029->1366 over 300ms). scrollY CAN
-        // legitimately sit out of bounds here: it's a snapshot of wherever a
-        // PRIOR fling's own rubber-band overshoot was at the exact moment this
-        // grab's jump() froze it (the plan's "clamped rubber-band" physics can
-        // transiently exceed maxScroll before its own boundary spring pulls it
-        // back — a real, verified C4 behavior, not a bug). A genuinely
-        // zero-velocity release means the user imparted no momentum, so no
-        // inertia/friction decay is warranted here — but the strip must still
-        // never come to rest permanently past its scrollable edge (iOS
-        // convention; the spec's Touch scenario: "overscroll past the scroll
-        // bounds should be clamped"). So: in bounds → leave it exactly where
-        // jump() froze it (nothing to correct); out of bounds → spring back to
-        // the nearest edge, the same correction an uninterrupted fling's own
-        // boundary-catch would eventually have applied.
+        // Motion's type:"inertia" generator engages its boundary-catch spring
+        // at GENERATOR CREATION TIME whenever the STARTING keyframe is out of
+        // [min,max] bounds — independent of the passed velocity (verified at
+        // source: animate(y, [2029], {type:"inertia", velocity:0, max:1200})
+        // still springs 2029->1366 over 300ms). scrollY CAN legitimately sit
+        // out of bounds here: a PRIOR fling's own rubber-band overshoot can be
+        // where this grab's jump() froze it (C4's clamped-rubber-band physics,
+        // not a bug). A genuinely zero-velocity release imparts no momentum,
+        // so no inertia/friction decay is warranted — but per iOS convention
+        // and the Touch spec ("overscroll past the scroll bounds should be
+        // clamped"), the strip still must not rest permanently past its edge:
+        // in bounds → leave it where jump() froze it; out of bounds → spring
+        // back to the nearest edge (full regression history: see
+        // tests/scene-touch.test.tsx's "round 3" test).
         if (Math.abs(velocity) < 0.01) {
           const current = scrollY.get();
           const clamped = Math.max(0, Math.min(maxScrollRef.current, current));
@@ -2123,41 +2101,17 @@ export function SceneColumn({
   // Never-focused columns measure their content wrapper directly.
   let effectiveContentHeight = columnFocused ? contentHeight : frozenContentHeight;
   if (effectiveContentHeight === 0 && contentWrapperRef.current) {
-    // offsetHeight (not getBoundingClientRect().height, H11), kept as
-    // defensive-only and NOT provably reachable at paint (gate-requested
-    // follow-up investigated, documented below) — this wrapper sits inside
-    // the outer column's own translateZ/scale transform (the depth-deck
-    // treatment's perspective-projection shrink on first focus, per
-    // computeDepthTreatment — see remeasureGeometry's matching fix, which
-    // HAS a proven paint-time effect), so IN PRINCIPLE getBoundingClientRect()
-    // could report a perspective-projected/scaled size here too, while
-    // offsetHeight (a layout metric, immune to transforms on the element or
-    // any ancestor) would not.
-    //
-    // In practice: extensively probe-verified (render-by-render
-    // instrumentation, multiple trigger shapes — mount, an unrelated prop
-    // change forcing a fresh render post-settle, a permanently-never-
-    // focused deck card) that this specific branch never observably reaches
-    // paint with a distorted value in this codebase's rendering pipeline.
-    // The raw DOM values genuinely DO diverge at rest (confirmed via a
-    // direct, non-render-time measurement: a settled depth-1 deck card's
-    // wrapper read 266.67px via getBoundingClientRect() vs the true 300px
-    // via offsetHeight) — but SceneColumn's OWN render-time code never
-    // catches that distortion: the outer column's z-transform is applied by
-    // Motion's `animate` prop via Motion's OWN internal update cycle,
-    // running AFTER React's commit, so by the time ANY subsequent React
-    // render synchronously reads this DOM (which is when this branch
-    // executes), the transform structurally reads back as its
-    // NOT-YET-(re)applied state (effectively z:0) — not the settled,
-    // distorting value. This held across every trigger shape tried,
-    // including forcing a fresh render well after the transform had
-    // visually settled. offsetHeight is kept anyway (harmless, zero
-    // marginal cost, and correct IF this timing relationship ever changes —
-    // e.g. a future Motion version, or a change to how z is driven), but a
-    // useEffect-vs-useLayoutEffect-style red/green pin is not available
-    // here the way it is for remeasureGeometry's sibling fix — there is no
-    // reachable interaction path where reverting this line is provably
-    // observable.
+    // offsetHeight (not getBoundingClientRect(), H11) — defensive-only: this
+    // wrapper sits inside the outer column's own translateZ/scale depth-deck
+    // transform, so getBoundingClientRect() COULD in principle report a
+    // projected/scaled size here. In practice, extensively probe-verified
+    // that this branch never observably reaches paint with a distorted
+    // value — Motion applies the transform via its own post-commit update
+    // cycle, so any React render that synchronously reads this DOM always
+    // sees the NOT-YET-(re)applied state. No defeat-check pin is possible
+    // here (no reachable interaction path makes reverting this line
+    // observable) — kept anyway: zero marginal cost, and correct if this
+    // timing relationship ever changes.
     effectiveContentHeight = contentWrapperRef.current.offsetHeight;
   }
   // Centers within effectiveViewportHeight (padding-subtracted, same basis
@@ -2809,16 +2763,13 @@ export function SceneColumn({
       // source: MotionValue.set() never calls .stop()). A coasting inertia
       // fling from a prior release could still be running here, so it must
       // be stopped explicitly before 1:1 tracking begins.
-      // jump() (not stop()) — fix-round, residual-velocity re-fling defect:
-      // .stop() halts the animation but leaves scrollY's internal velocity-
-      // tracking state (prevFrameValue/prevUpdatedAt) untouched, so a grab
-      // followed by a release within motion's MAX_VELOCITY_DELTA (30ms)
-      // window would still read the fling's PRE-GRAB velocity and re-fling
-      // on release even though the finger never moved. jump(currentValue)
-      // resets that tracking state (probe-confirmed: getVelocity() reads 0
-      // immediately after, even within the same synchronous tick) while
-      // also stopping the animation (jump's endAnimation default calls
-      // .stop() internally) — a strict superset of the old .stop() call.
+      // jump() (not stop()) — .stop() halts the animation but leaves
+      // scrollY's internal velocity-tracking state untouched, which would
+      // let a same-tick grab->release still read the fling's PRE-GRAB
+      // velocity and re-fling despite no finger movement; jump() resets
+      // that state too (a strict superset of .stop() — its endAnimation
+      // default calls .stop() internally). Full regression history:
+      // tests/scene-touch.test.tsx's "residual-velocity regression" test.
       scrollY.jump(scrollY.get());
       // F9: this jump can interrupt a still-in-flight wheel/keyboard/
       // scrollbar-driven spring (e.g. a PageDown mid-spring, grabbed
