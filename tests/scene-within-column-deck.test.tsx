@@ -8,6 +8,17 @@ import { waitForAnimationFrame, wait, createMotionSeamRecorder } from "./utils/a
 import { parseTranslateY } from "./utils/transform";
 import { captureFlipCommit, findGbcrOutliers, gbcrDeltasOf, type GBCRBox } from "./utils/gbcrSampling";
 
+// Shared across this file's describe blocks — a depth-decked object's zIndex
+// is a negative, depth-scaled value (not a fixed literal), so callers check
+// its sign rather than asserting an exact number.
+function zIndexOf(objectNode: HTMLElement): string {
+  return getComputedStyle(objectNode).zIndex;
+}
+
+function isReceded(zIndexValue: string): boolean {
+  return zIndexValue !== "auto" && Number(zIndexValue) < 0;
+}
+
 describe("SceneColumn within-column depth deck", () => {
   test("unfocused object between two focused objects has depth treatment", async () => {
     // A (focused), B (unfocused), C (focused) — B should have reduced opacity
@@ -159,18 +170,25 @@ describe("SceneColumn within-column depth deck", () => {
     // file already wait a frame for.
     await waitForAnimationFrame();
 
+    const anchorB = getByTestId("content-b").element().closest("[data-scene-id]") as HTMLElement;
     const objectNodeB = getByTestId("content-b").element().closest("[data-scene-object]") as HTMLElement;
 
     // B's object node escapes its zero-footprint anchor via position:absolute.
     expect(window.getComputedStyle(objectNodeB).position).toBe("absolute");
 
-    // Depth-1 — a negative, depth-scaled zIndex (not translateZ).
-    expect(window.getComputedStyle(objectNodeB).zIndex).toBe("-1");
+    // Depth-1 — a negative, depth-scaled zIndex (not translateZ). Sign
+    // check, not a literal, since the exact integer is an internal
+    // depth-to-zIndex mapping detail.
+    expect(isReceded(zIndexOf(objectNodeB))).toBe(true);
 
     // The peek offset is a raw y-transform (mirrors SceneColumn's own
-    // inBetweenY) — read it directly via parseTranslateY rather than
-    // rendered gBCR, matching this file's established idiom.
-    expect(parseTranslateY(objectNodeB.style.transform)).toBeCloseTo(-12, 0);
+    // inBetweenY) — measured as a gBCR delta against the zero-footprint
+    // anchor B escaped (E4-loop-closure pattern, mirroring the
+    // column-level fix at scene-glass-stack-deck.test.tsx's "in-between
+    // column stacks under right focused column" test) rather than parsing
+    // the raw transform string.
+    const peekOffsetPx = anchorB.getBoundingClientRect().top - objectNodeB.getBoundingClientRect().top;
+    expect(peekOffsetPx).toBeCloseTo(12, 0);
   });
 
   // A5 — the pull-out-direction principle: a within-column deck card peeks
@@ -765,14 +783,6 @@ describe("Within-column deck (ui#21): z-index paint order at the flip commit (fo
       if (owner) return owner;
     }
     return undefined;
-  }
-
-  function zIndexOf(objectNode: HTMLElement): string {
-    return getComputedStyle(objectNode).zIndex;
-  }
-
-  function isReceded(zIndexValue: string): boolean {
-    return zIndexValue !== "auto" && Number(zIndexValue) < 0;
   }
 
   test("sinking (unfocus): zIndex drops behind its neighbor from the first commit, and paint order never pops throughout the transition", async () => {

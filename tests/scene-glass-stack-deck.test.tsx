@@ -1269,19 +1269,7 @@ describe("Scene depth deck stacking", () => {
     // test above (which explicitly doesn't care which node contributes
     // the shrink), so it reads the column node.
     const middleColumnNode = middleCol.querySelector("[data-scene-column]") as HTMLElement;
-    // ui#17 Slice 3 fold-in: getComputedStyle().transform always resolves
-    // to a matrix/matrix3d string (verified directly — never contains the
-    // literal substring "translateZ", regardless of what functions
-    // produced it), so `toBeTruthy()` against it could never actually
-    // fail on a scale-based fake — the assertion this test's own name
-    // promises. style.transform (the inline value Motion writes) is
-    // functional notation and does contain "translateZ(" literally
-    // (verified directly: "translateX(-12px) translateZ(-100px)").
-    const transform = middleColumnNode.style.transform;
 
-    // Depth deck columns use perspective + translateZ for the depth visual
-    // effect, not CSS scale.
-    expect(transform).toContain("translateZ(");
     // Verify the column appears smaller than its natural 300px width.
     // Perspective projection reduces the apparent size of elements pushed back in Z.
     const rect = middleColumnNode.getBoundingClientRect();

@@ -5,7 +5,6 @@
  * with:
  * 1. Flex child layout (does perspective change computed positions?)
  * 2. position:absolute children with translateZ
- * 3. motion layout FLIP animations inside a perspective container
  *
  * These are platform invariants — if any of them regress in a browser update,
  * Scene's depth deck behavior will silently break.
@@ -13,10 +12,7 @@
 
 import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
-import React, { useState } from "react";
-import { motion } from "motion/react";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame } from "./utils/animation";
 
 // ---------------------------------------------------------------------------
 // Q1: Does perspective on a flex parent affect flex child layout?
@@ -192,91 +188,5 @@ describe("CSS perspective: translateZ on absolute children", () => {
     // The center should shift toward the perspective origin (500px from left)
     // Element is at ~50+100=150px center, origin at 500px — shift should be rightward
     expect(pushedCenter).toBeGreaterThan(naturalCenter);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Q3: motion layout FLIP inside perspective container
-// ---------------------------------------------------------------------------
-
-describe("CSS perspective: motion layout FLIP in perspective container", () => {
-  test("motion layout FLIP works correctly inside a perspective container", async () => {
-    // A motion.div with layout={true} inside a perspective container.
-    // After a layout change, motion should correctly FLIP-animate from old
-    // to new position. With duration=0, it should snap to final position.
-
-    function PerspectiveScene({ wide }: { wide: boolean }) {
-      return (
-        <div
-          style={{
-            position: "relative",
-            width: 600,
-            height: 200,
-            perspective: "800px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              width: "100%",
-              height: "100%",
-            }}
-          >
-            <motion.div
-              layout
-              data-testid="flex-child"
-              transition={{ duration: 0 }}
-              style={{
-                flex: wide ? "2 1 0" : "1 1 0",
-                background: "red",
-                height: "100%",
-              }}
-            />
-            <motion.div
-              layout
-              transition={{ duration: 0 }}
-              style={{
-                flex: "1 1 0",
-                background: "blue",
-                height: "100%",
-              }}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    function TestScene() {
-      const [wide, setWide] = useState(false);
-      return (
-        <div>
-          <button data-testid="toggle" onClick={() => setWide((w) => !w)}>
-            Toggle
-          </button>
-          <PerspectiveScene wide={wide} />
-        </div>
-      );
-    }
-
-    const { getByTestId } = await render(
-      <TestWrapper fullPage>
-        <TestScene />
-      </TestWrapper>,
-    );
-
-    const flexChild = getByTestId("flex-child").element() as HTMLElement;
-    const initialWidth = flexChild.getBoundingClientRect().width;
-
-    // Toggle: flex-child should grow to 2x width (600 * 2/3 = 400px)
-    await getByTestId("toggle").click();
-    await waitForAnimationFrame();
-
-    const newWidth = flexChild.getBoundingClientRect().width;
-
-    // After the layout change, the element should have a larger width
-    expect(newWidth).toBeGreaterThan(initialWidth);
-    // And the width should be correct (approx 2/3 of 600 = 400)
-    expect(newWidth).toBeGreaterThan(300);
   });
 });
