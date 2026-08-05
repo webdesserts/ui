@@ -768,16 +768,17 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           borderRadius: "var(--scene-focus-ring-radius,0px)",
         }}
       >
-        {/* Inner wrapper: inert when unfocused, OR while a Scene-wide focus
-            transition hasn't yet settled (ui#20 — see TransitionPendingContext's
-            own doc comment), to disable all descendant interaction.
-            React 19 treats inert={true} as the attribute present, inert={false} as absent.
-            The transitionPending half is the actual NEW behavior ui#20 adds:
-            before this, a newly-focused object's content was interactive from
-            the instant `focused` flipped true, even while its own entrance
-            transition was still animating — Michael's ruled contract requires
-            full inertness for the whole in-transition window, not just while
-            unfocused.
+        {/* Inner wrapper: inert only while unfocused, to disable all
+            descendant interaction until the app actually wants this object
+            focused. React 19 treats inert={true} as the attribute present,
+            inert={false} as absent.
+            Option A (ui#31, feed #2395/#2396) removed the transitionPending
+            term: content is interactive from the instant `focused` flips
+            true, not once the entrance transition settles — inert now
+            follows focus INTENT rather than motion completion.
+            transitionPending itself is untouched and still drives
+            `activatable` above and the two-phase keyboard-focus-delivery
+            effect below; only this attribute stopped reading it.
             Also the natural-height measurement source (ui#21) — see
             naturalHeight's own comment above for why: unlike the anchor
             or the object (both circularly affected by the height channel's
@@ -786,7 +787,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
             height is governed purely by its CONTENT, regardless of
             whatever position mode or override its ancestors currently
             carry. */}
-        <div ref={contentRef} inert={!focused || transitionPending}>
+        <div ref={contentRef} inert={!focused}>
           {children}
         </div>
       </motion.div>
