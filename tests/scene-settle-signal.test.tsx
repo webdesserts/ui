@@ -315,7 +315,7 @@ describe("onTransitionEnd", () => {
 // Inertness gating (criteria 3/4/9)
 // ---------------------------------------------------------------------------
 
-describe("transition-scoped inertness", () => {
+describe("inertness gating: settled-unfocused objects (see 'double interruption' for the mid-transition case)", () => {
   test("settled-unfocused object's content stays inert; already-focused object click is a no-op", async () => {
     let activateCount = 0;
 
