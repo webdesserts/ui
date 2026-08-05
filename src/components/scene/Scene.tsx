@@ -2728,6 +2728,34 @@ function SceneViewport({
  * SceneColumns. Bare SceneObjects placed directly inside Scene are automatically
  * wrapped in implicit SceneColumns using the object's name.
  *
+ * Scene and its children expose all consumer-facing state through
+ * `data-ui-scene-*` attributes on their rendered DOM nodes — no render prop,
+ * no hook (this is the designed surface, not an oversight). The scene
+ * viewport carries `data-ui-scene-settled` (`"true"`/`"false"`; false while
+ * any owned animation channel is claimed, focus-driven or not). Each
+ * SceneObject carries `data-ui-scene-id` (its `name`) and
+ * `data-ui-scene-focused` (`"true"`/`"false"`). Each SceneColumn's anchor
+ * element carries `data-ui-scene-column-anchor` (its `name`),
+ * `data-ui-scene-column-focused`, `data-ui-scene-column-position`
+ * (`"in-between"` or `"outer"`), `data-ui-scene-max-scroll`, plus
+ * `data-ui-scene-content-height` and `data-ui-scene-scroll-offset` (the
+ * latter written imperatively) — both present only while that column is
+ * focused, not permanent attributes a consumer can poll unconditionally.
+ * A SceneColumn's
+ * content wrapper is a separate element carrying its own bare presence
+ * marker, `data-ui-scene-column-content`.
+ *
+ * Real-input tests (Playwright, Testing Library, etc.) that drive a
+ * focus-changing action and then write into the newly-focused content
+ * should wait for `data-ui-scene-settled` to read `"true"` first: the
+ * newly-focused object's content is `inert` for the whole in-transition
+ * window, and a runner that doesn't understand `inert` will report a
+ * successful write that was actually silently dropped. Poll the attribute
+ * via your runner's own native retry primitive — for example, in
+ * Playwright, `await expect(locator).toHaveAttribute("data-ui-scene-settled", "true")`.
+ * A future change (tracked as "Option A") may narrow this inert window;
+ * this contract reflects current behavior.
+ *
  * @example
  * <Scene>
  *   <SceneColumn name="nav">
