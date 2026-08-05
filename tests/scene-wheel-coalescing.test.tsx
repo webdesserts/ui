@@ -266,4 +266,41 @@ describe("Scene wheel catch-stop detection (ui#27)", () => {
     const { final } = await settle(() => sy.get());
     expect(final - start).toBeCloseTo(300, 0);
   });
+
+  test("criterion 3: a deliberate reverse after a catch rebases onto live position (responsive), and its own tail gets cliff-stopped too (stated contract, not rescued)", async () => {
+    const { sy, fire } = await mount();
+    await fireCaughtStream(fire);
+    // Past the silence window — the forward catch's own cliff-stop has
+    // already fired and jumped live position to the (now-frozen) target.
+    await wait(150);
+    const beforeReverse = sy.get();
+
+    // A sustained deliberate reverse — 10 events, -60px, 15ms apart
+    // (ui#o85's own F1 shape), asking for -600px total.
+    for (let i = 0; i < 10; i++) {
+      fire(-60);
+      await wait(15);
+    }
+    const { ms, final } = await settle(() => sy.get());
+    const delivered = final - beforeReverse;
+
+    // Responsiveness: the counter-rebase (ui#o85 F1) means this reversal
+    // starts chasing from the LIVE position immediately, not first
+    // unwinding whatever the forward catch's own stale target still owed
+    // — most of the -600px asked lands (measured against current source,
+    // untraced: consistently ~-479 to -493px across repeated runs).
+    expect(delivered).toBeLessThan(-400);
+    // Stated contract (round 9's own finding, NOT a bug): the rebase does
+    // not RESCUE the reversal's own tail from the SAME cliff-stop
+    // mechanism — a sustained reverse burst that stops abruptly is itself
+    // a wheel-tagged stream with a large last delta and real outstanding
+    // debt, so it gets cliff-stopped too, same as the forward catch did.
+    // The full -600px is never fully delivered.
+    expect(delivered).toBeGreaterThan(-560);
+    // The short settle-from-last-event (a jump signature, not a full
+    // natural spring settle — compare the ~500-600ms an equivalent
+    // uncaught magnitude takes elsewhere in this file/suite) is the
+    // direct evidence the reversal's own tail was cliff-stopped.
+    expect(ms).toBeLessThan(250);
+  });
 });

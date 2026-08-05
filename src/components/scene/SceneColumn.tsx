@@ -41,6 +41,7 @@ import {
   clampSpringRetargetVelocity,
   SPRING_RUBBER_BAND_MARGIN_PX,
   shouldCliffStop,
+  opposesOutstandingDebt,
   WHEEL_CLIFF_SILENCE_MS,
   WHEEL_CLIFF_DELTA_FLOOR_PX,
   WHEEL_CLIFF_OUTSTANDING_FLOOR_PX,
@@ -1303,12 +1304,25 @@ export function SceneColumn({
       let nextOffset: number;
       switch (cmd.type) {
         case "scrollBy":
-        case "page":
-          nextOffset = Math.max(
-            0,
-            Math.min(maxScrollRef.current, scrollOffsetRef.current + cmd.delta),
-          );
+        case "page": {
+          // ui#27 / ui#o85 F1: a wheel-tagged delta whose sign OPPOSES the
+          // outstanding spring debt is a deliberate reverse-scroll — rebase
+          // the target computation onto the LIVE spring position instead
+          // of chasing the stale (pre-reversal) target, so the reversal
+          // feels immediate rather than first having to unwind whatever
+          // the forward chase still owed. Scoped to wheel (matching the
+          // cliff detector's own allowlist) — keyboard/scrollbar-thumb
+          // commands keep today's plain accumulate-onto-target behavior.
+          let base = scrollOffsetRef.current;
+          if (isWheelScrollBy) {
+            const outstandingDebt = scrollOffsetRef.current - scrollY.get();
+            if (opposesOutstandingDebt(Math.sign(cmd.delta), Math.sign(outstandingDebt))) {
+              base = scrollY.get();
+            }
+          }
+          nextOffset = Math.max(0, Math.min(maxScrollRef.current, base + cmd.delta));
           break;
+        }
         case "toTop":
           nextOffset = 0;
           break;
