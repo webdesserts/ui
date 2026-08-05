@@ -2,8 +2,9 @@ import { describe, test, expect } from "vitest";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame } from "./utils/animation";
+import { wait, waitForAnimationFrame, createMotionSeamRecorder } from "./utils/animation";
 import { buildScene } from "./utils/sceneFixtures";
+import { MotionSeamContext } from "../src/components/scene/motionSeam";
 
 // ---------------------------------------------------------------------------
 // Phase 5c: Keyboard scroll + scroll position management
@@ -1075,5 +1076,124 @@ describe("Scene outer unfocused column positioning", () => {
     expect(colA.getAttribute("data-column-position")).not.toBe("outer-right");
     expect(colB.getAttribute("data-column-position")).not.toBe("outer-left");
     expect(colB.getAttribute("data-column-position")).not.toBe("outer-right");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#27: keyboard-scope regression for the wheel cliff detector. The
+// detector's silence-timer mechanism observes the same applyScrollCommand
+// entry point keyboard/scrollbar-thumb-drag commands flow through — an
+// origin tag (`source: "wheel"`, set only at Scene's wheel-flush call site)
+// is what excludes these paths by construction, an ALLOWLIST rather than an
+// enumerated exclusion list. These two cases prove the allowlist actually
+// holds for BOTH keyboard-scroll emitters the forecast gate identified: the
+// column's own keydown handler AND the scrollbar thumb's native keydown
+// handler (Scrollbar.tsx, D4) — a held ArrowDown/PageDown from either must
+// keep springing exactly as before, never getting cliff-truncated, even
+// when the burst leaves real outstanding spring debt past the detector's
+// silence window (diagnostic-confirmed against current source: a 6-press,
+// 15ms-apart burst leaves ~191px of a 240px target still owed at the last
+// keydown, settling naturally over ~600ms — the exact "large delta,
+// meaningful debt, past the silence window" shape the wheel detector fires
+// on, minus the wheel tag).
+// ---------------------------------------------------------------------------
+
+describe("Scene keyboard scroll — wheel cliff detector must not intercept (ui#27)", () => {
+  async function settle(getValue: () => number) {
+    let quiet = 0;
+    let prev = getValue();
+    let frames = 0;
+    const start = performance.now();
+    while (quiet < 12 && frames < 400) {
+      await waitForAnimationFrame();
+      frames++;
+      const value = getValue();
+      quiet = Math.abs(value - prev) < 0.05 ? quiet + 1 : 0;
+      prev = value;
+    }
+    return { ms: performance.now() - start, final: getValue() };
+  }
+
+  test("(i) a held ArrowDown burst on the focused column keeps springing at its normal pace, past the wheel-cliff silence window", async () => {
+    const recorder = createMotionSeamRecorder();
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div style={{ width: 400, height: 43000 }}>
+                  <button data-testid="focusable-btn">click me</button>
+                </div>
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const btn = getByTestId("focusable-btn").element() as HTMLElement;
+    btn.focus();
+
+    const sy = recorder.values.get("scrollY:col")!;
+
+    // Six ArrowDown presses, 15ms apart — a real, sustained hold-repeat
+    // burst. No `source` tag exists on this path at all (only Scene's
+    // wheel-flush call site ever sets it).
+    for (let i = 0; i < 6; i++) {
+      column.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+      await wait(15);
+    }
+
+    // A wrongly-firing detector would snap this to the 240px target within
+    // ~100-120ms of the last keydown (a jump, not a spring). The real
+    // spring takes far longer — asserting a floor well above the jump
+    // window, comfortably below the real spring settle time, distinguishes
+    // the two unambiguously.
+    const { ms, final } = await settle(() => sy.get());
+    expect(ms).toBeGreaterThan(300);
+    expect(final).toBeCloseTo(240, 0);
+  });
+
+  test("(ii) a held PageDown/ArrowDown on a focused scrollbar thumb keeps springing at its normal pace, past the wheel-cliff silence window", async () => {
+    const recorder = createMotionSeamRecorder();
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="col">
+              <SceneObject name="panel" focused>
+                <div style={{ width: 400, height: 43000 }} />
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const column = scene.querySelector("[data-column]") as HTMLElement;
+    const thumb = column.querySelector('[role="scrollbar"]') as HTMLElement;
+    thumb.focus();
+
+    const sy = recorder.values.get("scrollY:col")!;
+
+    // D4's own native (non-React) keydown listener is the fourth scrollBy
+    // emitter the forecast gate caught — routed through onCommand straight
+    // into applyScrollCommand, with no `source` tag either.
+    for (let i = 0; i < 6; i++) {
+      thumb.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+      await wait(15);
+    }
+
+    const { ms, final } = await settle(() => sy.get());
+    expect(ms).toBeGreaterThan(300);
+    expect(final).toBeCloseTo(240, 0);
   });
 });

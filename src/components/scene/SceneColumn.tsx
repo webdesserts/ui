@@ -40,6 +40,12 @@ import {
   computeReleaseVelocity,
   clampSpringRetargetVelocity,
   SPRING_RUBBER_BAND_MARGIN_PX,
+  shouldCliffStop,
+  opposesOutstandingDebt,
+  WHEEL_CLIFF_SILENCE_MS,
+  WHEEL_CLIFF_DELTA_FLOOR_PX,
+  WHEEL_CLIFF_OUTSTANDING_FLOOR_PX,
+  WHEEL_STREAM_PAIRING_MS,
   type ScrollCommand,
   type TouchGestureOwnership,
   type VelocitySample,
@@ -662,6 +668,39 @@ export function SceneColumn({
   // shrink clamp effect below).
   const scrollYSpringTargetRef = useRef<number | null>(null);
 
+  // ui#27: the pending wheel catch-stop (cliff) timer handle, armed on
+  // every wheel-tagged scrollBy command and cancelled by anything that
+  // supersedes the stream it's watching (a fresh wheel-tagged scrollBy
+  // re-arms it; everything else — a non-wheel command, or a touch grab via
+  // handleContentPointerDown — just cancels it, since the debt calculation
+  // it's watching is about to become stale). Null when no wheel stream is
+  // currently being watched for a catch.
+  const wheelCliffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The absolute magnitude of the most recent wheel-tagged scrollBy's own
+  // delta — read by the timer callback below (fresh at fire time, not a
+  // stale closure) to decide whether the stream that just went silent
+  // ended on a still-large delta (a catch) or had already faded out
+  // (natural decay, WHEEL_CLIFF_DELTA_FLOOR_PX excludes it).
+  const lastWheelDeltaAbsPxRef = useRef(0);
+
+  // ui#27, orchestrator-ruled amendment: whether the CURRENT unbroken wheel
+  // stream has been confirmed as a real stream — at least two wheel-tagged
+  // scrollBy commands landing within WHEEL_STREAM_PAIRING_MS of each other
+  // (see that constant's own doc comment for why). A RATCHET: once paired,
+  // stays paired for the rest of the stream regardless of any later gap —
+  // only the enumerated reset points below (cliff fire, a non-wheel command
+  // superseding the stream, the compensation-path cancel, a touch grab, or
+  // the silence timer elapsing without firing) clear it. The cliff timer
+  // may only ARM while this is true — a lone single wheel command (this
+  // stays false until a second one arrives close behind) is an ordinary,
+  // uncaught scroll, not a stream with anything to catch.
+  const wheelStreamPairedRef = useRef(false);
+  // Timestamp (performance.now()) of the most recent wheel-tagged scrollBy
+  // — used only to compute the gap for the pairing check above. 0 means
+  // "no wheel event since the last reset," matching every reset site's own
+  // convention below.
+  const lastWheelEventAtRef = useRef(0);
+
   // F9 commit 2: whether this column's follow-the-end pin is currently
   // engaged (anchor="end" only — always false/unused for anchor="none").
   // Starts pinned per the design doc's "Initial mount of an anchor='end'
@@ -817,6 +856,27 @@ export function SceneColumn({
   const applyScrollYDeltaRef = useRef<(delta: number) => void>(() => {});
   applyScrollYDeltaRef.current = (delta: number) => {
     if (delta === 0) return;
+    // ui#27: content-growth compensation bypasses applyScrollCommand
+    // entirely (this ref's own doc comment above), so a pending wheel-cliff
+    // timer's top-of-applyScrollCommand cancel never sees it — a real
+    // regression, gate-caught: a wheel-armed timer that outlives this call
+    // fires later using the WHEEL command's own lastDeltaAbsPx against
+    // whatever debt this compensation's own retarget just created, jumping
+    // into (and killing) a spring this timer was never watching. The
+    // caller keeps scrollOffsetRef.current in sync with the compensated
+    // target (its own doc comment above), so scrollOffsetRef staying
+    // "correct" doesn't help — the timer itself is what must not outlive
+    // the stream it was armed for.
+    if (wheelCliffTimerRef.current !== null) {
+      clearTimeout(wheelCliffTimerRef.current);
+      wheelCliffTimerRef.current = null;
+    }
+    // ui#27, orchestrator-ruled amendment: same reset as the timer cancel
+    // above — this compensation breaks whatever wheel stream was being
+    // paired/watched too, so a wheel command arriving after it must re-earn
+    // pairing from scratch rather than inheriting stale ratchet state.
+    wheelStreamPairedRef.current = false;
+    lastWheelEventAtRef.current = 0;
     if (duration === 0) {
       scrollY.jump(scrollY.get() + delta);
       return;
@@ -1128,6 +1188,33 @@ export function SceneColumn({
   // the standard transition chase.
   const applyScrollCommand = useCallback(
     (cmd: ScrollCommand) => {
+      // ui#27: an ALLOWLIST, not an enumerated exclusion list — see
+      // ScrollCommand's own doc comment in inputController.ts. Captured
+      // once, up front, so the rest of this callback (the timer-cancel
+      // below, and the arm/rebase logic after the write) can read it
+      // without re-narrowing `cmd`'s type at each use.
+      const isWheelScrollBy = cmd.type === "scrollBy" && cmd.source === "wheel";
+      const wheelDeltaAbsPx = cmd.type === "scrollBy" ? Math.abs(cmd.delta) : 0;
+
+      // Any command that ISN'T a wheel-tagged scrollBy supersedes whatever
+      // wheel stream a pending cliff timer might be watching — cancel it so
+      // a stale timer can never fire a jump into an unrelated later scroll
+      // state (fling/toTop/toBottom/scrollTo taking over; page/keyboard/
+      // scrollbar-thumb-drag scrollBy moving the target the timer's own
+      // debt calculation was tracking), and reset the pairing gate too —
+      // the stream it was tracking is over, so a wheel command arriving
+      // later starts a fresh stream that must re-earn pairing from
+      // scratch. A fresh wheel-tagged scrollBy re-arms the timer instead,
+      // after the write below.
+      if (!isWheelScrollBy) {
+        if (wheelCliffTimerRef.current !== null) {
+          clearTimeout(wheelCliffTimerRef.current);
+          wheelCliffTimerRef.current = null;
+        }
+        wheelStreamPairedRef.current = false;
+        lastWheelEventAtRef.current = 0;
+      }
+
       if (cmd.type === "fling") {
         // F9 commit 2 / adjudication 2 (velocity-sign-at-initiation,
         // ACCEPTED): from a pinned state the only possible fling is
@@ -1217,12 +1304,25 @@ export function SceneColumn({
       let nextOffset: number;
       switch (cmd.type) {
         case "scrollBy":
-        case "page":
-          nextOffset = Math.max(
-            0,
-            Math.min(maxScrollRef.current, scrollOffsetRef.current + cmd.delta),
-          );
+        case "page": {
+          // ui#27 / ui#o85 F1: a wheel-tagged delta whose sign OPPOSES the
+          // outstanding spring debt is a deliberate reverse-scroll — rebase
+          // the target computation onto the LIVE spring position instead
+          // of chasing the stale (pre-reversal) target, so the reversal
+          // feels immediate rather than first having to unwind whatever
+          // the forward chase still owed. Scoped to wheel (matching the
+          // cliff detector's own allowlist) — keyboard/scrollbar-thumb
+          // commands keep today's plain accumulate-onto-target behavior.
+          let base = scrollOffsetRef.current;
+          if (isWheelScrollBy) {
+            const outstandingDebt = scrollOffsetRef.current - scrollY.get();
+            if (opposesOutstandingDebt(Math.sign(cmd.delta), Math.sign(outstandingDebt))) {
+              base = scrollY.get();
+            }
+          }
+          nextOffset = Math.max(0, Math.min(maxScrollRef.current, base + cmd.delta));
           break;
+        }
         case "toTop":
           nextOffset = 0;
           break;
@@ -1253,6 +1353,81 @@ export function SceneColumn({
       // pre-transition anchored value.
       updatePinnedState(nextOffset, maxScrollRef.current);
       driveScrollYRef.current(nextOffset);
+
+      // ui#27, orchestrator-ruled amendment: update the pairing ratchet on
+      // every wheel-tagged command BEFORE deciding whether to arm — pairs
+      // THIS event with the immediately preceding one if they landed
+      // within WHEEL_STREAM_PAIRING_MS of each other (see that constant's
+      // own doc comment). A ratchet: once true, stays true for the rest of
+      // this unbroken stream regardless of any later gap — only the
+      // top-of-function reset (a non-wheel command), the compensation-path
+      // reset, handleContentPointerDown's reset, or this timer's own
+      // callback (below, unconditionally) ever clear it.
+      if (isWheelScrollBy) {
+        const now = performance.now();
+        if (lastWheelEventAtRef.current !== 0 && now - lastWheelEventAtRef.current <= WHEEL_STREAM_PAIRING_MS) {
+          wheelStreamPairedRef.current = true;
+        }
+        lastWheelEventAtRef.current = now;
+      }
+
+      // Arm (or re-arm) the wheel catch-stop timer — only once the stream
+      // is paired (a lone single wheel command is an ordinary, uncaught
+      // scroll with nothing to catch; see WHEEL_STREAM_PAIRING_MS).
+      // duration===0 (instant/test-harness mode) never arms it — no spring
+      // debt exists to detect, mirroring the fling branch's own early
+      // special-case for the identical reason (see its own comment above).
+      // MUST clear any timer this same branch already had pending before
+      // scheduling a new one — a real wheel stream fires far faster than
+      // WHEEL_CLIFF_SILENCE_MS apart, so without this, every event in the
+      // stream would leave its OWN still-scheduled timer behind (the
+      // top-of-function cancel above only fires for NON-wheel commands),
+      // producing a cascade of stale timers that start firing mid-stream
+      // against whatever the CURRENT (not their own arm-time) state
+      // happens to be — repeatedly snapping the spring throughout the
+      // whole stream instead of a single clean arrest after real silence.
+      if (isWheelScrollBy && duration !== 0) {
+        if (wheelCliffTimerRef.current !== null) {
+          clearTimeout(wheelCliffTimerRef.current);
+          wheelCliffTimerRef.current = null;
+        }
+        lastWheelDeltaAbsPxRef.current = wheelDeltaAbsPx;
+        if (wheelStreamPairedRef.current) {
+          wheelCliffTimerRef.current = setTimeout(() => {
+            wheelCliffTimerRef.current = null;
+            // The stream this timer was watching is over either way —
+            // silence has now elapsed, whether or not it qualifies as a
+            // catch below. A wheel command arriving after this point starts
+            // a fresh stream that must re-earn pairing from scratch.
+            wheelStreamPairedRef.current = false;
+            lastWheelEventAtRef.current = 0;
+
+            const live = scrollY.get();
+            const outstandingPx = Math.abs(scrollOffsetRef.current - live);
+            const shouldStop = shouldCliffStop(
+              { lastDeltaAbsPx: lastWheelDeltaAbsPxRef.current, outstandingPx },
+              { deltaFloorPx: WHEEL_CLIFF_DELTA_FLOOR_PX, outstandingFloorPx: WHEEL_CLIFF_OUTSTANDING_FLOOR_PX },
+            );
+            if (!shouldStop) return;
+
+            // Touch-arrest idiom, copied from handleContentPointerDown below
+            // (see its own comment for the full rationale on jump() over
+            // stop(), and on each of these four writes) — a caught wheel
+            // stream gets the identical treatment a touch grab already gets.
+            // updatePinnedState is the one addition beyond the touch path:
+            // touch bypasses applyScrollCommand entirely, but this jump
+            // happens INSIDE it, so the pin-state sync every other command
+            // here gets must run for this one too.
+            scrollY.jump(live);
+            scrollYSpringTargetRef.current = null;
+            flingActiveRef.current = false;
+            const resynced = scrollY.get();
+            scrollOffsetRef.current = resynced;
+            setScrollOffset(resynced);
+            updatePinnedState(resynced, maxScrollRef.current);
+          }, WHEEL_CLIFF_SILENCE_MS);
+        }
+      }
     },
     // F13 commit 4: stiffness/damping dropped from this list — the real
     // inertia call (which used them for bounceStiffness/bounceDamping) now
@@ -3049,6 +3224,18 @@ export function SceneColumn({
       // it no-longer-active so a LATER compensation event doesn't try to
       // re-fling something that's no longer running).
       flingActiveRef.current = false;
+      // ui#27: same interruption — a touch grab supersedes any wheel stream
+      // a pending cliff timer was watching (the jump above already resyncs
+      // the model this handler's own way); a stale timer must not fire a
+      // later jump into whatever this touch gesture leaves behind. Resets
+      // the pairing ratchet too (orchestrator-ruled amendment) — a wheel
+      // command arriving after this grab starts a fresh stream.
+      if (wheelCliffTimerRef.current !== null) {
+        clearTimeout(wheelCliffTimerRef.current);
+        wheelCliffTimerRef.current = null;
+      }
+      wheelStreamPairedRef.current = false;
+      lastWheelEventAtRef.current = 0;
       // F15 fix: resync the model from scrollY AFTER the jump above, not
       // before — a coasting fling's own onUpdate keeps scrollOffsetRef
       // synced every animation frame, but this handler runs inside a

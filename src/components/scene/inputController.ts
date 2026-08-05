@@ -296,9 +296,22 @@ export function isInteractiveElement(el: Element): boolean {
 // Keyboard → scroll command mapping
 // ---------------------------------------------------------------------------
 
-/** A plain instruction for how a column's scroll offset should change. */
+/**
+ * A plain instruction for how a column's scroll offset should change.
+ *
+ * `scrollBy`'s `source` is an ALLOWLIST tag (ui#27), not an enumerated
+ * exclusion list: it's set ONLY at Scene.tsx's wheel-coalescing flush call
+ * site (the sole real trackpad/wheel emitter), so every other `scrollBy`
+ * emitter — keyboard (SceneColumn's own keydown handler), the scrollbar
+ * thumb's own native keydown handler (Scrollbar.tsx), and scrollbar
+ * thumb-drag (SceneColumn's onScroll->scrollBy bridge) — is excluded from
+ * the wheel-only cliff-stop/counter-rebase mechanisms below BY
+ * CONSTRUCTION, with zero additional code at any of those sites. A new
+ * `scrollBy` emitter added later is safe-by-default (excluded) unless it
+ * deliberately opts in.
+ */
 export type ScrollCommand =
-  | { type: "scrollBy"; delta: number }
+  | { type: "scrollBy"; delta: number; source?: "wheel" }
   | { type: "page"; delta: number }
   | { type: "toTop" }
   | { type: "toBottom" }
@@ -960,3 +973,115 @@ export function clampSpringRetargetVelocity(rawVelocity: number): number {
  * dissipate it, F17's pinned mechanism) triggers the correction.
  */
 export const SPRING_RUBBER_BAND_MARGIN_PX = 40;
+
+// ---------------------------------------------------------------------------
+// ui#27: wheel catch-stop (cliff) detection
+// ---------------------------------------------------------------------------
+//
+// A trackpad catch (finger presses the surface mid-momentum) emits no event
+// of its own — the wheel stream just stops — so the existing spring-chase
+// (scrollY animating toward scrollOffsetRef's target) keeps paying off
+// whatever debt had accumulated as if the catch never happened, continuing
+// to visibly travel for hundreds of ms/px after the user's input ended. The
+// fix (SceneColumn's applyScrollCommand, `scrollBy` branch, `source ===
+// "wheel"` only) watches for silence (no wheel-tagged scrollBy for
+// WHEEL_CLIFF_SILENCE_MS) following a stream whose last delta was still
+// large, with real outstanding debt between the target and the live spring
+// position — on fire, it jumps live position straight to target, reusing
+// SceneColumn's own touch-arrest idiom (handleContentPointerDown's
+// `scrollY.jump`).
+//
+// All three constants below are SYNTHETIC-CALIBRATION-ONLY (derived from a
+// hunt's dispatched-WheelEvent probes, not a real on-device trackpad
+// sample) — criterion 6 requires an on-device pass to confirm/retune them
+// against real inter-event gaps; see this ticket's ship report.
+
+/**
+ * How long (ms) a wheel-tagged `scrollBy` stream must go silent before the
+ * cliff-stop check runs. Synthetic-derived (a hunt's N=30/60/100 sweep
+ * settled on 100 as the best balance of "waits long enough to be sure the
+ * stream really ended" vs "doesn't leave a long visible drift window") —
+ * NOT on-device measured; real inter-event gaps were only sampled from one
+ * derived datapoint (~41ms) on one slow scroll. Roughly six real frames,
+ * two orders above Scene.tsx's own ~16ms wheel-coalescing buffer (F17
+ * commit 2) — the detector observes the SAME already-coalesced signal that
+ * buffer produces (it hooks applyScrollCommand, downstream of the flush),
+ * so there's no risk of the two mechanisms aliasing against each other.
+ */
+export const WHEEL_CLIFF_SILENCE_MS = 100;
+
+/**
+ * A wheel stream's last delta must be at least this large (px) for the
+ * silence that follows it to count as a catch rather than a natural
+ * fade-out. 6x above the ~0.5px a natural decay was observed to fade to
+ * synthetically — ships conservative/low deliberately: a too-low threshold
+ * risks false-firing on a natural's own last few (still-nonzero) deltas,
+ * while a too-high one just degrades toward today's uncaught behavior for
+ * gentler catches. The hunt's judgment was that a false fire (visibly
+ * snapping a natural scroll) is worse to ship than under-truncating a catch.
+ */
+export const WHEEL_CLIFF_DELTA_FLOOR_PX = 3;
+
+/**
+ * The gap (px) between the target (`scrollOffsetRef`) and the live spring
+ * position (`scrollY`) must be at least this large for a cliff-stop to be
+ * worth firing — below this, the spring has already all but caught up, so
+ * jumping would be a no-op with extra risk (a spring mid-natural-overshoot
+ * correction, for instance) for no visible benefit.
+ */
+export const WHEEL_CLIFF_OUTSTANDING_FLOOR_PX = 30;
+
+/**
+ * Orchestrator-ruled plan amendment (ui#27, post-forecast-gate — the hunt's
+ * own calibration only ever exercised multi-event streams, and the gap
+ * wasn't caught until the full regression sweep): the cliff detector may
+ * only ARM once at least two wheel-tagged `scrollBy` commands have landed
+ * with this little time between them. Below this pairing gate, a lone
+ * single wheel command — an entirely ordinary, uncaught scroll whose spring
+ * simply takes its own natural time to settle — was indistinguishable from
+ * a caught stream by `WHEEL_CLIFF_DELTA_FLOOR_PX`/`WHEEL_CLIFF_OUTSTANDING_FLOOR_PX`
+ * alone (measured against current source: a single 80px wheel event left
+ * 35px of outstanding debt at the 100ms mark, over the 30px floor, with
+ * nothing ever having been caught).
+ *
+ * 50ms passes every genuine momentum/drag stream this ticket's own
+ * calibration data describes (Michael's labeled live episodes: 19/27/48
+ * events; the slowest, row0, at ~41ms between events — all comfortably
+ * pair) while excluding every observed non-stream shape: a lone notch/tap
+ * (one event, nothing to pair with) and a discrete mouse wheel's repeat
+ * notches (measured ≳60ms apart even spun fast). A single event is not a
+ * stream — nothing was caught, so the detector's whole premise doesn't
+ * apply, and it correctly declines to arm.
+ */
+export const WHEEL_STREAM_PAIRING_MS = 50;
+
+/**
+ * Pure predicate for the wheel cliff-stop check — same "physics math with
+ * no Motion/DOM dependency" shape as `clampSpringRetargetVelocity` above,
+ * unit-testable in isolation. The caller (SceneColumn's applyScrollCommand)
+ * supplies `lastDeltaAbsPx`/`outstandingPx` fresh at the moment the silence
+ * timer fires; `silenceMs` having already elapsed is guaranteed by the
+ * timer's own scheduling (arm/re-arm/cancel dynamics), not re-checked here.
+ */
+export function shouldCliffStop(
+  observed: { lastDeltaAbsPx: number; outstandingPx: number },
+  thresholds: { deltaFloorPx: number; outstandingFloorPx: number },
+): boolean {
+  return (
+    observed.lastDeltaAbsPx >= thresholds.deltaFloorPx &&
+    observed.outstandingPx >= thresholds.outstandingFloorPx
+  );
+}
+
+/**
+ * Pure predicate for the counter-input rebase (ui#o85's F1 finding, folded
+ * in per its own recommendation): a fresh wheel delta whose sign OPPOSES
+ * the outstanding debt's sign is a deliberate reverse-scroll — the target
+ * computation should rebase onto the live spring position instead of
+ * chasing the stale (pre-reversal) target, so the reversal feels immediate
+ * rather than waiting for the old chase to resolve first. `0` (no delta, or
+ * no outstanding debt) never "opposes" — nothing to rebase against.
+ */
+export function opposesOutstandingDebt(deltaSign: number, outstandingSign: number): boolean {
+  return deltaSign !== 0 && outstandingSign !== 0 && deltaSign !== outstandingSign;
+}

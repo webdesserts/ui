@@ -2233,7 +2233,13 @@ function SceneViewport({
       for (const [name, delta] of pendingWheelDeltaRef.current) {
         if (delta === 0) continue;
         const applyScrollCommand = scrollCommandRegistry.get(name);
-        applyScrollCommand?.({ type: "scrollBy", delta });
+        // ui#27: the ONLY call site that ever sets `source: "wheel"` — the
+        // allowlist tag SceneColumn's wheel catch-stop detector and
+        // counter-rebase key off of (see ScrollCommand's own doc comment
+        // in inputController.ts). Every other scrollBy emitter (keyboard,
+        // scrollbar thumb-drag, the scrollbar thumb's own keydown handler)
+        // is excluded by construction, never touching this field.
+        applyScrollCommand?.({ type: "scrollBy", delta, source: "wheel" });
       }
       pendingWheelDeltaRef.current.clear();
 
