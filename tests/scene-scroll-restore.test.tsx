@@ -752,7 +752,7 @@ describe("Scene padding cluster (S6)", () => {
     },
   );
 
-  // SKIPPED (ui#17, 2026-07-30, one bounded instrumented attempt): traced
+  // SKIPPED (ui#o23, 2026-07-30, one bounded instrumented attempt): traced
   // to source rather than a locatable small conditional fix. `padding` is
   // applied to the stage as a raw, unanimated CSS property (`padding:
   // padding || undefined` in Scene.tsx's stage style) — it is not a
@@ -773,7 +773,8 @@ describe("Scene padding cluster (S6)", () => {
   // deck spike, same day) also found no real app scenario changes padding
   // mid-session — only a dev-only tuning slider does — which is why a
   // skip-and-follow-up disposition is acceptable here rather than blocking
-  // ui#17 on a new channel. See the ticket's own follow-up observation.
+  // ui#17 on a new channel. See ui#o23 for the full instrumentation trace
+  // and fix shape.
   test.skip("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
     const build = (padding: number) => (
       <TestWrapper fullPage>

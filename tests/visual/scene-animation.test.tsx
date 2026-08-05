@@ -450,7 +450,9 @@ describe("camera pan mid-capture", () => {
     // clipped on the left/top/bottom during the pan because preserve-3d +
     // translateZ creates an implicit stacking context that clips overflow.
     // This just waits for that registration to actually settle — safe to
-    // over-wait since nothing can progress once pinned.
+    // over-wait since nothing can progress once pinned. Not converted to
+    // waitForSceneSettled/settleThenClick: this test wants a frozen
+    // mid-pan frame, the opposite of the scene's settled state.
     await waitForAnimationsToSettle(() => recorder.controls.size);
 
     await expect.element(page.elementLocator(container)).toMatchScreenshot(
@@ -525,10 +527,15 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // that correction doesn't exist for this fixture — the position change here
   // is an instant CSS layout snap, not an animation. Kept skipped rather than
   // ship a "passing" test that always captures the settled state under a
-  // misleading name. See plans/Scene Assessment 2026-07-14 fix plan (S7 line)
-  // for the sibling captures this reasoning does NOT apply to (the
-  // depth-deck tests below have a real, documented WAAPI filter/opacity
-  // track — Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
+  // misleading name. This reasoning does NOT apply to the sibling depth-deck
+  // tests below (they have a real, documented WAAPI filter/opacity track —
+  // Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
+  // Tracked under ui#o36 (rotating load/timing-sensitive visual-flake
+  // class) — here the fragility is structural (no freezable track exists
+  // for this fixture) rather than load-contention, but the umbrella
+  // ticket's proposed harness-level rework (gate mid-animation captures on
+  // an explicit signal rather than a guessed timeout/fraction) is the same
+  // durable-fix territory this falls under.
   it.skip("layout-flip-frozen-at-50pct", async () => {
     // Start unfocused (duration=0), then focus with default spring. motion's
     // layout FLIP uses WAAPI for the positional correction, so we can freeze
@@ -616,7 +623,10 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // that DOES register, cameraX, converges visually well before any fraction
   // of its reported duration that would still look "mid-flight"). A wait()
   // here captures the same settled state camera-pan-mid-spring's approach
-  // would produce, just non-deterministically. Kept skipped.
+  // would produce, just non-deterministically. Kept skipped. Tracked under
+  // ui#o36 (rotating load/timing-sensitive visual-flake class) — same
+  // structural-not-load-contention caveat as layout-flip-frozen-at-50pct's
+  // citation above.
   it.skip("layout-flip-mid-spring-wait", async () => {
     // Alternative timed-wait approach for comparison. Captures the FLIP
     // animation at ~100ms using only wait() — useful to see how the rAF-based
@@ -1247,7 +1257,9 @@ describe("depth-deck bug-fix regressions", () => {
   // to this test because it's the only one of the three that also drives a
   // real `layout` FLIP, not just declarative animate-prop values) —
   // probably needs either a motion/react-side workaround or accepting this
-  // test at ~90%, not 100%, reliability.
+  // test at ~90%, not 100%, reliability. Tracked as the confirmed concrete
+  // member of ui#o25/ui#o36 (rotating load/timing-sensitive visual-flake
+  // class) in the Scene Test Audit's gap map.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).
     // Use duration=0 so the initial render is instant at resting positions.
@@ -1341,7 +1353,9 @@ describe("depth-deck bug-fix regressions", () => {
       // opacity/filter/z, and the rAF-driven cameraX/column-z seam tracks) to
       // the SAME 30% fraction the instant each one registered, so every
       // track reads as "the same instant" regardless of how long motion's
-      // own scheduling took to get there.
+      // own scheduling took to get there. Not converted to
+      // waitForSceneSettled/settleThenClick: this test wants a frozen
+      // mid-spring frame, the opposite of the scene's settled state.
       await waitForAnimationsToSettle(
         () => recorder.controls.size + waapiPin.animations.length,
       );
@@ -1579,7 +1593,9 @@ describe("depth-deck bug-fix regressions", () => {
       // mid-spring, not snapped — waapiPin and recorder's pinFraction already
       // guaranteed that the instant each track registered; this just waits
       // for motion's own scheduling to actually get there (safe to over-wait,
-      // see waitForAnimationsToSettle's doc comment).
+      // see waitForAnimationsToSettle's doc comment). Not converted to
+      // waitForSceneSettled/settleThenClick: this test wants a frozen
+      // mid-spring frame, the opposite of the scene's settled state.
       await waitForAnimationsToSettle(
         () => recorder.controls.size + waapiPin.animations.length,
       );
