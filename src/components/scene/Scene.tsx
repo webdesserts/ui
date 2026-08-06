@@ -322,17 +322,26 @@ function SceneViewport({
 
   // Stable animation callbacks provided to the stage and (via context) to
   // SceneColumns. Only active in debug mode — callbacks are a no-op when
-  // the context value is null.
-  const animationCallbacks: AnimationCallbacks | null = debug
-    ? {
-        onStart: () => {
-          animatingRef.current += 1;
-        },
-        onEnd: () => {
-          animatingRef.current = Math.max(0, animatingRef.current - 1);
-        },
-      }
-    : null;
+  // the context value is null. Memoized on `debug` alone (ui#32): the
+  // closures only touch animatingRef, whose container identity never
+  // changes, so debug is the only real dependency. Consumed indirectly by
+  // SceneColumn via useAnimationCallbacks() — a fresh object here would
+  // defeat SceneColumn's React.memo in debug mode even though `debug`
+  // itself hadn't changed.
+  const animationCallbacks: AnimationCallbacks | null = useMemo(
+    () =>
+      debug
+        ? {
+            onStart: () => {
+              animatingRef.current += 1;
+            },
+            onEnd: () => {
+              animatingRef.current = Math.max(0, animatingRef.current - 1);
+            },
+          }
+        : null,
+    [debug],
+  );
   // stageLeft: the CSS `left` value of the absolutely-positioned stage div.
   // Adjusted each render to keep the focused region horizontally centered in
   // the viewport. When focused content overflows the viewport, stageLeft is
@@ -1688,15 +1697,28 @@ export function Scene({
     columnRegistryRef.current.size > 0
       ? deriveColumnStatesFromRegistry(columnRegistryRef.current)
       : collectColumnFocusStates(wrappedChildren ?? []);
-  const columnPositions = computeColumnPositions(columnStates);
-  const stackDepths = computeStackDepths(columnStates);
 
   // Fingerprint of the column states THIS render actually used, captured
   // during render (mirrors SceneColumn's lastActiveFocusedKeyRef pattern) so
   // the correction effect below can compare against it after all descendant
-  // SceneColumns have re-registered for this commit.
+  // SceneColumns have re-registered for this commit. Also doubles as the
+  // useMemo dependency key for columnPositions/stackDepths below (ui#32):
+  // columnStates is a fresh array reference every render even when its
+  // content is unchanged, so a naive useMemo(fn, [columnStates]) would never
+  // hit its cache — this string only changes when the underlying
+  // {name, focused} pairs actually do.
+  const columnStatesFingerprint = columnStates.map((c) => `${c.name}:${c.focused}`).join(",");
   const columnStatesFingerprintRef = useRef("");
-  columnStatesFingerprintRef.current = columnStates.map((c) => `${c.name}:${c.focused}`).join(",");
+  columnStatesFingerprintRef.current = columnStatesFingerprint;
+
+  const columnPositions = useMemo(
+    () => computeColumnPositions(columnStates),
+    [columnStatesFingerprint],
+  );
+  const stackDepths = useMemo(
+    () => computeStackDepths(columnStates),
+    [columnStatesFingerprint],
+  );
 
   // Post-commit correction (forecast-gate adjudication #1): runs after every
   // descendant SceneColumn has registered for this commit (useLayoutEffect
@@ -1788,6 +1810,20 @@ export function Scene({
     }
   });
 
+  // Stabilized SceneConfigContext/CameraContext values (ui#32): both were
+  // fresh object literals every render even though their inputs are plain
+  // primitives, forcing every consumer (including SceneColumn, once
+  // React.memo'd below) to re-render on any Scene render regardless of
+  // whether these values actually changed.
+  const sceneConfigContextValue = useMemo(
+    () => ({ stiffness, damping, touchPower, touchTimeConstant, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo: effectiveSlowMo }),
+    [stiffness, damping, touchPower, touchTimeConstant, perspective, padding, columnGap, peekOffset, effectiveDuration, debug, effectiveSlowMo],
+  );
+  const cameraContextValue = useMemo(
+    () => ({ viewport: viewportBounds, target: targetBounds, transitioning }),
+    [viewportBounds, targetBounds, transitioning],
+  );
+
   // Build debug column stacking info from position and depth maps.
   const debugColumnStacks: DebugColumnStackEntry[] | null = debug
     ? columnStates
@@ -1809,16 +1845,8 @@ export function Scene({
 
   return (
     <SceneFirstPaintContext.Provider value={firstPaintRef}>
-    <SceneConfigContext.Provider
-      value={{ stiffness, damping, touchPower, touchTimeConstant, perspective, padding, columnGap, peekOffset, duration: effectiveDuration, debug, slowMo: effectiveSlowMo }}
-    >
-      <CameraContext.Provider
-        value={{
-          viewport: viewportBounds,
-          target: targetBounds,
-          transitioning,
-        }}
-      >
+    <SceneConfigContext.Provider value={sceneConfigContextValue}>
+      <CameraContext.Provider value={cameraContextValue}>
         <ScrollOffsetStoreContext.Provider value={scrollOffsetStore}>
         <ScrollCommandRegistryContext.Provider value={scrollCommandRegistry}>
         <ColumnRegistryContext.Provider value={registerColumn}>

@@ -24,8 +24,11 @@ import type { FrozenSize } from "./types";
  *   here during remeasurement.
  * - `contentWrapperRef` / `colRef` — SceneColumn's own DOM refs, read here
  *   for rect measurements.
- * - `resizeObserverRef` — created/stored/nulled here; SceneColumn's
- *   registration effect observes/unobserves new objects on it.
+ * - `resizeObserverRef` — created/stored/nulled here; SceneObject's own
+ *   callback ref (via SceneColumn's `observeElement`/`unobserveElement`,
+ *   ui#32 Cluster 2) observes/unobserves objects on it as they genuinely
+ *   attach/detach — deliberately decoupled from SceneColumn's per-render
+ *   registration effect, which no longer touches the observer at all.
  * - `lastObservedSize` — written here (the ResizeObserver callback) AND by
  *   SceneColumn's frozen-size capture effect, which reads it on focus loss.
  * - `scrollOffsetRef` / `setScrollOffset` — one of several writers across
@@ -48,6 +51,18 @@ export interface UseColumnAnchoringParams {
   objectGap: number;
   /** Whether this column is currently focused. */
   columnFocused: boolean;
+  /**
+   * Whether this column is currently decked in-between two focused
+   * siblings (ui#32) — SceneColumn's own `inBetweenNow`/`isInBetween`
+   * expression, computed a third time here per this file's established
+   * duplicate-computation idiom (see `inBetweenNow`'s own comment) rather
+   * than threading position/stackDepth through as separate params. An
+   * in-between column's columnWidthMV/computeMeasuredWidth channel reads
+   * live geometryStore data regardless of focus (the column's natural
+   * width doesn't depend on focus) — the per-render remeasure gate below
+   * must not starve it just because the column itself is unfocused.
+   */
+  inBetweenNow: boolean;
   /** This column's anchor mode — governs offset-0 suppression and the witness fallback (F11/F12). */
   anchor: "none" | "end";
 
@@ -73,6 +88,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     objectStates,
     objectGap,
     columnFocused,
+    inBetweenNow,
     anchor,
     geometryStore,
     registeredEls,
@@ -677,8 +693,24 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // Measure the content wrapper synchronously after each render (useLayoutEffect
   // fires before the browser paints) so geometry is fresh for the very next
   // render — this is what removes the one-render lag that would otherwise
-  // corrupt a same-commit swap-reset decision reading maxScroll. The shared
-  // ResizeObserver above keeps geometry current between renders too.
+  // corrupt a same-commit swap-reset decision reading maxScroll. Skipped
+  // entirely for a column that's neither focused nor in-between (ui#32):
+  // such a column's width relies on a frozen snapshot (SceneColumn's own
+  // `frozenSize`), not live geometryStore data, so remeasuring it on every
+  // unrelated Scene-level re-render is pure waste — the shared
+  // ResizeObserver above still keeps its geometry current for the day it
+  // DOES become focused (a real content-size change fires it regardless of
+  // focus). An in-between (decked) column IS let through the first gate
+  // below despite being unfocused: its own columnWidthMV/computeMeasuredWidth
+  // channel reads live geometryStore data regardless of focus (the column's
+  // natural width doesn't depend on focus) — starving it here left that
+  // channel stuck at its mount-time value (caught by
+  // tests/scene-glass-stack-deck.test.tsx's own resize-tracking test, see
+  // the ui#32 worker report for the isolation evidence). The SECOND gate
+  // (unchanged from before this commit) keeps the focused-only content-
+  // height/geometryVersion work scoped to focused columns exactly as it
+  // always was — an in-between column has zero focused objects, so
+  // computeFocusedContentHeight would be meaningless for it.
   // Compute focused content height from the sum of focused objects' heights
   // (not the content wrapper's total height, which includes unfocused
   // objects in flow). This ensures scroll range only covers focused content.
@@ -687,6 +719,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // prop changing) reaches; useLayoutEffect fires pre-paint, same commit
   // tier as the compensation write, so it lands before paint here too.
   useLayoutEffect(() => {
+    if (!columnFocused && !inBetweenNow) return;
     const changed = remeasureGeometryWithAnchorCompensation();
     if (!columnFocused) return;
     setContentHeight(computeFocusedContentHeight(objectStates, geometryStore.current, objectGap));

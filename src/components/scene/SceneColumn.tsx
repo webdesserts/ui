@@ -1,4 +1,5 @@
 import React, {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -155,7 +156,7 @@ export interface SceneColumnProps {
  *   </SceneObject>
  * </SceneColumn>
  */
-export function SceneColumn({
+function SceneColumnImpl({
   name,
   children,
   objectGap = 0,
@@ -239,8 +240,10 @@ export function SceneColumn({
   // doesn't change during a focus-only re-render.
   const geometryStore = useRef<Map<string, GeometryEntry>>(new Map());
   // The ResizeObserver instance shared by every registered object element
-  // plus colRef itself. Created once on mount; register/unregister manage
-  // membership as objects mount/unmount.
+  // plus colRef itself. Created once on mount; membership (join/leave) is
+  // driven by SceneObject's own callback ref via observeElement/
+  // unobserveElement below (ui#32 Cluster 2) — keyed to genuine DOM
+  // attach/detach, not to register()'s per-render invocation.
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   // The last measured size while the column was focused. Set to null while
@@ -382,6 +385,15 @@ export function SceneColumn({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
+  // NOT memoized (ui#32): an early memoization attempt (a name:focused
+  // fingerprint of objectStates, matching what computeWithinColumnDepths
+  // itself reads) broke within-column-deck-after-focus-toggle
+  // (tests/visual/scene-animation.test.tsx) and was reverted out of
+  // caution. The claim review's independent re-derivation with the same,
+  // verified-correct fingerprint did NOT reproduce the break — re-attempting
+  // with a verified-correct fingerprint is a candidate follow-up, possibly
+  // connected to the unresolved memo short-circuit (see the rising-edge doc
+  // at SceneObject.tsx:417-460 for what any attempt must preserve).
   const withinColumnDepths = computeWithinColumnDepths(objectStates);
 
   // Joined focused-object-name key for this render (see computeFocusedObjectKey).
@@ -559,10 +571,17 @@ export function SceneColumn({
   // relative order they ran in before the extraction — React schedules a
   // component's effects in hook-call order, and a custom hook's internal
   // hooks are inserted at its call site.
+  //
+  // isInBetweenForAnchoring duplicates inBetweenNow/isInBetween's own
+  // expression (declared later in this file, ui#32) rather than reordering
+  // those declarations up here — same tradeoff F5 item 2's columnAnimateX
+  // comment and inBetweenNow's own comment already document for this file.
+  const isInBetweenForAnchoring = !columnFocused && position === "in-between" && stackDepth > 0;
   useColumnAnchoring({
     objectStates,
     objectGap,
     columnFocused,
+    inBetweenNow: isInBetweenForAnchoring,
     anchor,
     geometryStore,
     registeredEls,
@@ -835,22 +854,41 @@ export function SceneColumn({
   // question (2 probe attempts, no reproducible case found).
   const columnTransition = firstPaintRef.current ? { duration: 0 } : transition;
 
-  // Registration callback provided to child SceneObjects. Also drives the
-  // shared ResizeObserver's membership — newly registered elements join the
-  // single measurement layer immediately (or are picked up by the mount
-  // effect's initial sweep if the observer hasn't been created yet).
+  // Registration callback provided to child SceneObjects — records this
+  // object's DOM element, focus state, and height-channel target in the
+  // maps below every render (unconditional-per-render, mirrors the
+  // useLayoutEffect that calls this in SceneObject.tsx). Does NOT touch the
+  // shared ResizeObserver (ui#32 Cluster 2) — RO membership is keyed to
+  // genuine DOM attach/detach via observeElement/unobserveElement below,
+  // called from SceneObject's own callback ref, not from this per-render
+  // effect. Calling observe()/unobserve() here on every render (the pre-fix
+  // shape) reset the RO's lastReportedSize tracking even when the element
+  // never actually moved, queuing a spurious delivery each time.
   const register = useCallback((objName: string, el: HTMLElement, focused: boolean, heightTarget: number | undefined) => {
     registeredEls.current.set(objName, el);
     registeredObjectFocusRef.current.set(objName, focused);
     registeredHeightTargetsRef.current.set(objName, heightTarget);
-    resizeObserverRef.current?.observe(el);
     return () => {
-      resizeObserverRef.current?.unobserve(el);
       registeredEls.current.delete(objName);
       registeredObjectFocusRef.current.delete(objName);
       registeredHeightTargetsRef.current.delete(objName);
       geometryStore.current.delete(objName);
     };
+  }, []);
+
+  // Shared ResizeObserver membership (ui#32 Cluster 2) — keyed to genuine
+  // DOM element identity via SceneObject's own callback ref, which fires
+  // exactly on attach (mount, or an element swap) and detach (unmount),
+  // never on an ordinary re-render. A freshly mounted column's own initial
+  // elements are instead picked up by the mount effect's own sweep (the
+  // shared ResizeObserver doesn't exist yet when the very first commit's
+  // callback refs fire) — these two functions only matter for elements that
+  // attach/detach after the observer already exists.
+  const observeElement = useCallback((el: HTMLElement) => {
+    resizeObserverRef.current?.observe(el);
+  }, []);
+  const unobserveElement = useCallback((el: HTMLElement) => {
+    resizeObserverRef.current?.unobserve(el);
   }, []);
 
   // This column's own registration with Scene's column registry (S6
@@ -1652,8 +1690,15 @@ export function SceneColumn({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, [columnFocused, isScrollable]);
 
+  // NOT stabilized (ui#32): `register`/`observeElement`/`unobserveElement`
+  // are already useCallback([])-stable and `objectGap` is a primitive, but
+  // `withinColumnDepths` above is currently left unmemoized (its own
+  // comment explains the caution and the reviewed non-reproduction), so
+  // wrapping this in useMemo would never hit its cache — dead weight, not a
+  // real stabilization. Revisit alongside `withinColumnDepths`'s own
+  // candidate follow-up.
   return (
-    <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap }}>
+    <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap, observeElement, unobserveElement }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
           set via animate={}, never inline style. Inline style wins at React commit
           time and silently shadows the spring. See depth.ts for the no-shadow rule.
@@ -1934,7 +1979,16 @@ export function SceneColumn({
   );
 }
 
+// React.memo (ui#32): protects against prop-driven re-renders now that
+// Scene.tsx's context values are stabilized (§2/§4 of the plan — memo alone
+// does nothing for context-driven re-renders, and context stabilization
+// alone doesn't stop prop-identical re-renders, so both land together).
+export const SceneColumn = memo(SceneColumnImpl);
+
 // Explicit displayName allows Scene to detect SceneColumn children via
 // child.type.displayName without importing SceneColumn directly (avoiding
-// circular import issues).
+// circular import issues). Assigned on the memo wrapper, not the inner
+// impl — React.memo doesn't inherit the wrapped component's displayName,
+// and sceneLayout.ts's collectColumnFocusStates checks child.type.displayName
+// on its first-render prop-walk path.
 SceneColumn.displayName = "SceneColumn";

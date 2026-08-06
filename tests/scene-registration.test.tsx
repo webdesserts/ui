@@ -3,7 +3,7 @@ import { useState } from "react";
 import { render, cleanup } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
-import { wait } from "./utils/animation";
+import { wait, waitForAnimationFrame } from "./utils/animation";
 import { buildScene } from "./utils/sceneFixtures";
 
 // ---------------------------------------------------------------------------
@@ -904,5 +904,109 @@ describe("SceneColumn unfocused freeze", () => {
     const articleColumnNode = articleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
     const projectedOnce = 800 * (800 / 900);
     expect(articleColumnNode.getBoundingClientRect().height).toBeCloseTo(projectedOnce, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ui#32 Cluster 2: ResizeObserver churn. SceneObject's own registration
+// effect (no dependency array — must reflect a focus-only change the same
+// commit) used to unconditionally call the shared ResizeObserver's
+// observe()/unobserve() on every render, even when its DOM element never
+// changed. Unobserve-then-reobserve on the same target resets the
+// ResizeObserver's `lastReportedSize` tracking, spuriously queuing a
+// delivery each time. RO subscription lifecycle is now keyed to genuine DOM
+// attach/detach (a callback ref), decoupled from render cadence.
+// ---------------------------------------------------------------------------
+
+describe("SceneObject ResizeObserver registration (ui#32 Cluster 2)", () => {
+  test("re-renders of a mounted SceneObject (focus toggle, unrelated ancestor prop change) do not re-observe its element", async () => {
+    const observeSpy = vi.spyOn(ResizeObserver.prototype, "observe");
+    const unobserveSpy = vi.spyOn(ResizeObserver.prototype, "unobserve");
+
+    const build = (focused: boolean, columnGap: number) => (
+      <TestWrapper>
+        <Scene columnGap={columnGap}>
+          <SceneColumn name="col">
+            <SceneObject name="object" focused={focused}>
+              <div data-testid="content" style={{ width: 200, height: 150 }} />
+            </SceneObject>
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender } = await render(build(true, 8));
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // Only after the element is genuinely mounted and settled do we start
+    // counting — the initial mount's own observe() calls are exercised by
+    // the "genuine mount" test below.
+    observeSpy.mockClear();
+    unobserveSpy.mockClear();
+
+    // Same DOM element throughout — no remount. Alternates a focus-only
+    // toggle (the no-deps effect's own documented same-commit-reflection
+    // case) with an unrelated ancestor (Scene-level) prop change, neither of
+    // which changes the SceneObject's outer element identity.
+    for (let i = 0; i < 5; i++) {
+      await rerender(build(i % 2 === 0, 8 + i + 1));
+    }
+
+    expect(observeSpy).not.toHaveBeenCalled();
+    expect(unobserveSpy).not.toHaveBeenCalled();
+
+    observeSpy.mockRestore();
+    unobserveSpy.mockRestore();
+  });
+
+  test("a SceneObject mounted into an already-registered column is observed exactly once, and unobserved exactly once on unmount", async () => {
+    const observeSpy = vi.spyOn(ResizeObserver.prototype, "observe");
+    const unobserveSpy = vi.spyOn(ResizeObserver.prototype, "unobserve");
+
+    const build = (names: string[]) => (
+      <TestWrapper>
+        <Scene>
+          <SceneColumn name="col">
+            {names.map((n) => (
+              <SceneObject key={n} name={n} focused={n === names[0]}>
+                <div data-testid={`content-${n}`} style={{ width: 200, height: 150 }} />
+              </SceneObject>
+            ))}
+          </SceneColumn>
+        </Scene>
+      </TestWrapper>
+    );
+
+    const { rerender } = await render(build(["a"]));
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+
+    // Genuine mount: the column's shared ResizeObserver already exists (the
+    // "mount effect's own initial sweep" only covers elements present at the
+    // column's own first commit) — "b" attaches afterward, exercising the
+    // callback ref's observe path directly. "a"'s own registration effect
+    // also refires (the column re-renders when its children change) but its
+    // element is unchanged, so it must NOT be re-observed.
+    observeSpy.mockClear();
+    unobserveSpy.mockClear();
+    await rerender(build(["a", "b"]));
+    await waitForAnimationFrame();
+
+    expect(observeSpy).toHaveBeenCalledTimes(1);
+    expect(unobserveSpy).not.toHaveBeenCalled();
+
+    // Genuine unmount: removing "b" must unobserve its element exactly once
+    // (no leaked subscription) without touching "a"'s.
+    observeSpy.mockClear();
+    unobserveSpy.mockClear();
+    await rerender(build(["a"]));
+    await waitForAnimationFrame();
+
+    expect(unobserveSpy).toHaveBeenCalledTimes(1);
+    expect(observeSpy).not.toHaveBeenCalled();
+
+    observeSpy.mockRestore();
+    unobserveSpy.mockRestore();
   });
 });
