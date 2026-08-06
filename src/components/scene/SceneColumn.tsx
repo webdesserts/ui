@@ -1,4 +1,5 @@
 import React, {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -155,7 +156,7 @@ export interface SceneColumnProps {
  *   </SceneObject>
  * </SceneColumn>
  */
-export function SceneColumn({
+function SceneColumnImpl({
   name,
   children,
   objectGap = 0,
@@ -382,6 +383,13 @@ export function SceneColumn({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
+  // NOT memoized (ui#32 finding): SceneObject.tsx's zIndex/rising-edge logic
+  // (see its own `lastSandwichedDepthRef`/`risingRef` doc comments) depends
+  // on this being recomputed fresh every render, not just when a
+  // name:focused-shaped fingerprint of objectStates changes — a content-only
+  // memoization here reproducibly broke within-column-deck-after-focus-toggle
+  // (tests/visual/scene-animation.test.tsx). Left unmemoized; see ui#32
+  // worker report for the isolation evidence.
   const withinColumnDepths = computeWithinColumnDepths(objectStates);
 
   // Joined focused-object-name key for this render (see computeFocusedObjectKey).
@@ -1652,6 +1660,12 @@ export function SceneColumn({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, [columnFocused, isScrollable]);
 
+  // NOT stabilized (ui#32 finding): `register` is already useCallback([])-
+  // stable and `objectGap` is a primitive, but `withinColumnDepths` above is
+  // deliberately unmemoized (its own comment explains why), so wrapping this
+  // in useMemo would never hit its cache — dead weight, not a real
+  // stabilization. Revisit if `withinColumnDepths` is ever made safely
+  // memoizable.
   return (
     <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
@@ -1934,7 +1948,16 @@ export function SceneColumn({
   );
 }
 
+// React.memo (ui#32): protects against prop-driven re-renders now that
+// Scene.tsx's context values are stabilized (§2/§4 of the plan — memo alone
+// does nothing for context-driven re-renders, and context stabilization
+// alone doesn't stop prop-identical re-renders, so both land together).
+export const SceneColumn = memo(SceneColumnImpl);
+
 // Explicit displayName allows Scene to detect SceneColumn children via
 // child.type.displayName without importing SceneColumn directly (avoiding
-// circular import issues).
+// circular import issues). Assigned on the memo wrapper, not the inner
+// impl — React.memo doesn't inherit the wrapped component's displayName,
+// and sceneLayout.ts's collectColumnFocusStates checks child.type.displayName
+// on its first-render prop-walk path.
 SceneColumn.displayName = "SceneColumn";
