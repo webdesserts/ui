@@ -24,8 +24,11 @@ import type { FrozenSize } from "./types";
  *   here during remeasurement.
  * - `contentWrapperRef` / `colRef` — SceneColumn's own DOM refs, read here
  *   for rect measurements.
- * - `resizeObserverRef` — created/stored/nulled here; SceneColumn's
- *   registration effect observes/unobserves new objects on it.
+ * - `resizeObserverRef` — created/stored/nulled here; SceneObject's own
+ *   callback ref (via SceneColumn's `observeElement`/`unobserveElement`,
+ *   ui#32 Cluster 2) observes/unobserves objects on it as they genuinely
+ *   attach/detach — deliberately decoupled from SceneColumn's per-render
+ *   registration effect, which no longer touches the observer at all.
  * - `lastObservedSize` — written here (the ResizeObserver callback) AND by
  *   SceneColumn's frozen-size capture effect, which reads it on focus loss.
  * - `scrollOffsetRef` / `setScrollOffset` — one of several writers across

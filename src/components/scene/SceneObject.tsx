@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useMotionValue } from "motion/react";
 import { ColumnContext } from "./SceneColumn";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
@@ -95,6 +95,12 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const outerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const column = useContext(ColumnContext);
+  // Ref mirror of `column`, kept fresh every render (same idiom as
+  // useColumnAnchoring's own objectStatesRef/objectGapRef) so the stable
+  // callback ref below always reads the current ColumnContext value instead
+  // of a stale closure — see setOuterRef's own comment (ui#32 Cluster 2).
+  const columnRef = useRef(column);
+  columnRef.current = column;
   const { peekOffset, duration, stiffness, damping, slowMo } = useSceneConfig();
   const isFirstPaint = useIsSceneFirstPaint();
   const motionSeam = useMotionSeam();
@@ -592,9 +598,31 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // always did.
   const inColumnStyle: React.CSSProperties | undefined = column ? { position: "relative" } : undefined;
 
+  // Callback ref (ui#32 Cluster 2), NOT the registration effect above: joins
+  // the column's shared ResizeObserver on genuine DOM attach and leaves it
+  // on genuine detach, fully decoupled from render cadence — React invokes
+  // a callback ref exactly on mount (with the element) and unmount (with
+  // null), never on an ordinary re-render, so this fires far less often
+  // than the no-deps registration effect (which must refire every render
+  // for the focus/heightTarget bookkeeping it still owns). Stable forever
+  // (empty deps) so its own identity never causes React to detach/reattach
+  // it — depends on columnRef (not `column` directly) for exactly that
+  // reason. Still writes outerRef.current so every other existing read site
+  // in this file keeps working unchanged.
+  const setOuterRef = useCallback((el: HTMLDivElement | null) => {
+    if (el) {
+      outerRef.current = el;
+      columnRef.current?.observeElement(el);
+    } else {
+      const prev = outerRef.current;
+      outerRef.current = null;
+      if (prev) columnRef.current?.unobserveElement(prev);
+    }
+  }, []);
+
   return (
     <motion.div
-      ref={outerRef}
+      ref={setOuterRef}
       data-ui-scene-id={name}
       data-ui-scene-focused={String(focused)}
       {...(withinDepthInfo ? { "data-ui-scene-within-column-depth": String(withinDepthInfo.depth) } : {})}

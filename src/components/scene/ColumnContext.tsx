@@ -38,6 +38,18 @@ interface ColumnRegistration {
    * separate prop-drilling path.
    */
   objectGap: number;
+  /**
+   * Join/leave the column's shared ResizeObserver (ui#32 Cluster 2). Keyed
+   * to DOM element identity, not render cadence — SceneObject calls these
+   * from a callback ref (fires exactly on genuine attach/detach), never
+   * from its own per-render registration effect. Calling
+   * observe()/unobserve() on the same element every render (the pre-fix
+   * behavior) reset the ResizeObserver's internal `lastReportedSize`
+   * tracking each time, spuriously queuing a delivery even though the
+   * element never actually changed size.
+   */
+  observeElement: (el: HTMLElement) => void;
+  unobserveElement: (el: HTMLElement) => void;
 }
 
 export const ColumnContext = createContext<ColumnRegistration | null>(null);
