@@ -567,10 +567,17 @@ function SceneColumnImpl({
   // relative order they ran in before the extraction — React schedules a
   // component's effects in hook-call order, and a custom hook's internal
   // hooks are inserted at its call site.
+  //
+  // isInBetweenForAnchoring duplicates inBetweenNow/isInBetween's own
+  // expression (declared later in this file, ui#32) rather than reordering
+  // those declarations up here — same tradeoff F5 item 2's columnAnimateX
+  // comment and inBetweenNow's own comment already document for this file.
+  const isInBetweenForAnchoring = !columnFocused && position === "in-between" && stackDepth > 0;
   useColumnAnchoring({
     objectStates,
     objectGap,
     columnFocused,
+    inBetweenNow: isInBetweenForAnchoring,
     anchor,
     geometryStore,
     registeredEls,
