@@ -968,13 +968,15 @@ function SceneColumnImpl({
   // confirmed the render where topOffset's underlying geometry first
   // settles already has firstPaintRef.current === false (see
   // columnGeometryWasSettled's declaration above).
-  const topOffsetOwnedAnimation = useOwnedAnimation();
+  const topOffsetOwnedAnimation = useOwnedAnimation(duration);
   useLayoutEffect(() => {
-    if (topOffset === topOffsetTargetRef.current) return;
+    if (topOffset === topOffsetTargetRef.current && !topOffsetOwnedAnimation.durationJustBecameZero) return;
     topOffsetTargetRef.current = topOffset;
-    if (duration === 0) {
-      topOffsetMV.set(topOffset);
-    } else if (firstPaintRef.current || !columnGeometryWasSettled) {
+    // ui#33: duration===0 now shares the jump() branch below instead of a
+    // raw .set() — .set() never calls .stop() (probe-confirmed at source),
+    // so a live duration flip to 0 mid-spring never stopped the in-flight
+    // animate() call or retired the settle counter, leaving both stuck.
+    if (duration === 0 || firstPaintRef.current || !columnGeometryWasSettled) {
       topOffsetOwnedAnimation.jump(topOffsetMV, topOffset);
     } else {
       const controls = topOffsetOwnedAnimation.animateTo(topOffsetMV, topOffset, transition);
@@ -1076,10 +1078,14 @@ function SceneColumnImpl({
   // releases; see the style binding below). Starts true so a column that
   // never transitions never applies an override to begin with.
   const [widthSettled, setWidthSettled] = useState(true);
-  const widthOwnedAnimation = useOwnedAnimation();
+  const widthOwnedAnimation = useOwnedAnimation(duration);
 
   useLayoutEffect(() => {
-    if (widthTarget === undefined || widthTarget === widthTargetRef.current) return;
+    if (
+      widthTarget === undefined ||
+      (widthTarget === widthTargetRef.current && !widthOwnedAnimation.durationJustBecameZero)
+    )
+      return;
     const isFirstTarget = !widthHasHadTargetRef.current;
     widthHasHadTargetRef.current = true;
     widthTargetRef.current = widthTarget;
@@ -1123,9 +1129,9 @@ function SceneColumnImpl({
   }, [motionSeam, marginMV, name]);
 
   const marginTargetRef = useRef(marginTarget);
-  const marginOwnedAnimation = useOwnedAnimation();
+  const marginOwnedAnimation = useOwnedAnimation(duration);
   useLayoutEffect(() => {
-    if (marginTarget === marginTargetRef.current) return;
+    if (marginTarget === marginTargetRef.current && !marginOwnedAnimation.durationJustBecameZero) return;
     marginTargetRef.current = marginTarget;
     if (duration === 0 || firstPaintRef.current || !columnGeometryWasSettled) {
       marginOwnedAnimation.jump(marginMV, marginTarget);
@@ -1167,10 +1173,14 @@ function SceneColumnImpl({
   const columnWidthTargetRef = useRef(columnWidthTarget);
   const columnWidthHasHadTargetRef = useRef(columnWidthTarget !== undefined);
   const [columnWidthSettled, setColumnWidthSettled] = useState(true);
-  const columnWidthOwnedAnimation = useOwnedAnimation();
+  const columnWidthOwnedAnimation = useOwnedAnimation(duration);
 
   useLayoutEffect(() => {
-    if (columnWidthTarget === undefined || columnWidthTarget === columnWidthTargetRef.current) return;
+    if (
+      columnWidthTarget === undefined ||
+      (columnWidthTarget === columnWidthTargetRef.current && !columnWidthOwnedAnimation.durationJustBecameZero)
+    )
+      return;
     const isFirstTarget = !columnWidthHasHadTargetRef.current;
     columnWidthHasHadTargetRef.current = true;
     columnWidthTargetRef.current = columnWidthTarget;
@@ -1371,15 +1381,17 @@ function SceneColumnImpl({
     return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
   }, [motionSeam, zMV, name]);
   const zTargetRef = useRef(depthZ);
-  const zOwnedAnimation = useOwnedAnimation();
+  const zOwnedAnimation = useOwnedAnimation(duration);
 
   useLayoutEffect(() => {
-    if (depthZ === zTargetRef.current) return;
+    if (depthZ === zTargetRef.current && !zOwnedAnimation.durationJustBecameZero) return;
     zTargetRef.current = depthZ;
 
-    if (duration === 0) {
-      zMV.set(depthZ);
-    } else if (firstPaintRef.current || !columnGeometryWasSettled) {
+    // ui#33: duration===0 now shares the jump() branch below instead of a
+    // raw .set() — see topOffsetMV's identical fix above for the rationale
+    // (.set() never calls .stop(), so a live flip mid-spring never stopped
+    // the in-flight animation or retired the settle counter).
+    if (duration === 0 || firstPaintRef.current || !columnGeometryWasSettled) {
       zOwnedAnimation.jump(zMV, depthZ);
     } else {
       const controls = zOwnedAnimation.animateTo(zMV, depthZ, transition);

@@ -411,7 +411,7 @@ function SceneViewport({
   // actually finished springing to the value that re-measurement
   // produced. See ownedAnimation.ts's own doc comment for the full
   // rationale.
-  const ownedCameraAnimation = useOwnedAnimation();
+  const ownedCameraAnimation = useOwnedAnimation(duration);
 
   // useCamera() `transitioning` (S6 reshape, forecast-gate adjudication #5c):
   // a monotonic token identifying the CURRENT cameraX animate() call. Each
@@ -556,7 +556,14 @@ function SceneViewport({
   const driveCameraX = useCallback(
     (target: number) => {
       if (duration === 0) {
-        cameraX.set(target);
+        // ui#33: routes through the owned seam's jump() rather than a raw
+        // .set() — .set() never calls .stop() (probe-confirmed at source,
+        // see SceneColumn.tsx's own citation on this), so a duration flip
+        // to 0 mid-transition never retired the settle counter or
+        // interrupted Motion's in-flight animate() call, leaving both
+        // stuck. jump() does both, and is a harmless snap-to-self when
+        // nothing was in flight.
+        ownedCameraAnimation.jump(cameraX, target);
         const stage = stageRef.current;
         if (stage) stage.style.left = `${target}px`;
       } else if (firstPaintRef.current) {
@@ -576,6 +583,37 @@ function SceneViewport({
     },
     [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX, ownedCameraAnimation],
   );
+
+  // ui#33: cameraX's own carve-out for the duration->0 freeze fix. Every
+  // OTHER owned channel (SceneColumn/SceneObject) closes the gap by OR-ing
+  // ownedAnimation.durationJustBecameZero into its own target-changed
+  // guard — but driveCameraX is deliberately unguarded (its own comment
+  // above: "no 'already animating toward this target' check, ever"), so
+  // there's no guard to extend. All three of its call sites (setPanOffset,
+  // the camera-recentering effect below, the wheel-flush handler) compose a
+  // fresh target and only fire when THAT target actually changes — none of
+  // them are duration-aware, so a live flip with no accompanying camera
+  // move never re-invokes driveCameraX at all. This effect is the
+  // structural fourth path: it runs on every render (matching the shape of
+  // every other owned channel's own guarded effect) and only does anything
+  // on the one render an actual flip happens.
+  //
+  // jump()'s own retire() no-ops if nothing was claimed, and jumping
+  // cameraX to its own current value is a harmless no-op write — so this
+  // is safe to run unconditionally on every flip, not just a mid-flight
+  // one. The stage.style.left write mirrors driveCameraX's own
+  // duration===0 raw-write precedent above, and for the identical reason:
+  // it MUST read cameraX.get() (the live, possibly-mid-flight value), not
+  // `stageLeft` React state — a pan-driven camera move never updates
+  // stageLeft (driveCameraX's own comment above), so falling back to it
+  // here would visually snap the camera to a stale centered position
+  // instead of settling wherever it currently is.
+  useLayoutEffect(() => {
+    if (!ownedCameraAnimation.durationJustBecameZero) return;
+    ownedCameraAnimation.jump(cameraX, cameraX.get());
+    const stage = stageRef.current;
+    if (stage) stage.style.left = `${cameraX.get()}px`;
+  });
 
   // ui#19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
   // one write path even with two event sources"). Every pan-driving input

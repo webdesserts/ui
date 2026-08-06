@@ -46,7 +46,7 @@ import { SettleSignalContext } from "./SettleSignalContext";
  * kill). scrollY is the one deliberate exception — see its own call
  * sites in SceneColumn for why.
  */
-export function useOwnedAnimation() {
+export function useOwnedAnimation(duration: number | undefined) {
   const settle = useContext(SettleSignalContext);
   const activeRef = useRef(false);
 
@@ -114,11 +114,37 @@ export function useOwnedAnimation() {
     [claim, retire],
   );
 
+  // ui#33: "did duration just transition to 0 (from something else), as of
+  // THIS hook instance's own last render." Closes a structural gap in every
+  // caller's own target-changed guard (see each caller's own effect): a
+  // live duration flip with no accompanying target change never re-enters a
+  // guard keyed purely on "did my target change," so the claimed channel's
+  // animation never retires — it freezes rather than settling, since the
+  // rendered style also switches away from the live MotionValue the same
+  // render (`duration === 0 ? <plain number> : <MotionValue>`, ungated by
+  // any ref). Callers OR this into their existing guard's early-return.
+  //
+  // One `prevDurationRef` per channel instance (one hook call per
+  // MotionValue, see this file's own top doc comment) rather than a single
+  // shared ref — harmless, since every channel in a component reads the
+  // SAME `duration` prop every render, so every instance's own ref
+  // independently converges on the same answer the same render the flip
+  // happens.
+  const prevDurationRef = useRef(duration);
+  const durationJustBecameZero = duration === 0 && prevDurationRef.current !== 0;
+  prevDurationRef.current = duration;
+
   // Memoized so the returned object is itself a stable reference across
-  // renders that don't change `settle` — callers that put it in a
-  // useCallback/useEffect dependency array (driveCameraX does, since it's
-  // used by other callbacks that depend on ITS OWN reference stability)
-  // don't get invalidated every render just because this hook was called
-  // again.
-  return useMemo(() => ({ jump: ownedJump, animateTo: ownedAnimate }), [ownedJump, ownedAnimate]);
+  // renders that don't change `settle` or `durationJustBecameZero` —
+  // callers that put it in a useCallback/useEffect dependency array
+  // (driveCameraX does, since it's used by other callbacks that depend on
+  // ITS OWN reference stability) don't get invalidated every render just
+  // because this hook was called again. durationJustBecameZero is only
+  // ever true for the single render an actual flip happens, so the
+  // resulting identity churn is bounded to that rare event, not routine
+  // per-render noise.
+  return useMemo(
+    () => ({ jump: ownedJump, animateTo: ownedAnimate, durationJustBecameZero }),
+    [ownedJump, ownedAnimate, durationJustBecameZero],
+  );
 }

@@ -266,10 +266,14 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // never releases — see the style binding below). Starts true so an
   // object that never transitions never applies an override to begin with.
   const [heightSettled, setHeightSettled] = useState(true);
-  const heightOwnedAnimation = useOwnedAnimation();
+  const heightOwnedAnimation = useOwnedAnimation(duration);
 
   useLayoutEffect(() => {
-    if (heightTarget === undefined || heightTarget === heightTargetRef.current) return;
+    if (
+      heightTarget === undefined ||
+      (heightTarget === heightTargetRef.current && !heightOwnedAnimation.durationJustBecameZero)
+    )
+      return;
     // Jump (not spring) ONLY when this object has never been in-flow
     // before — mirrors width's own isFirstTarget precedent, but keyed on
     // wasEverInFlow, NOT "has heightTarget itself ever been defined."
@@ -370,9 +374,10 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   }, [motionSeam, marginBottomMV, name]);
 
   const marginBottomTargetRef = useRef(marginBottomTarget);
-  const marginBottomOwnedAnimation = useOwnedAnimation();
+  const marginBottomOwnedAnimation = useOwnedAnimation(duration);
   useLayoutEffect(() => {
-    if (marginBottomTarget === marginBottomTargetRef.current) return;
+    if (marginBottomTarget === marginBottomTargetRef.current && !marginBottomOwnedAnimation.durationJustBecameZero)
+      return;
     marginBottomTargetRef.current = marginBottomTarget;
     if (duration === 0 || isFirstPaint) {
       marginBottomOwnedAnimation.jump(marginBottomMV, marginBottomTarget);
