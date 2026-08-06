@@ -642,7 +642,7 @@ describe("double interruption", () => {
   // "counter never reaches zero" for exactly as long as the frozen
   // channel never retires — the counter/signal layer is accurately
   // reporting a real, un-settled channel, not misreporting a settled one.
-  test.skip("mixed-duration double interruption: an animated focus transition interrupted by a live duration->0 flip fires onTransitionEnd exactly once with the correct terminal state", async () => {
+  test("mixed-duration double interruption: an animated focus transition interrupted by a live duration->0 flip fires onTransitionEnd exactly once with the correct terminal state", async () => {
     const fired: Array<Array<{ name: string; focused: boolean }>> = [];
 
     // Within-column swap (a<->b, c always focused), NOT a cross-column
@@ -709,6 +709,69 @@ describe("double interruption", () => {
     expect(arrangement.find((o) => o.name === "a-obj")?.focused).toBe(false);
     expect(arrangement.find((o) => o.name === "b-obj")?.focused).toBe(true);
     expect(arrangement.find((o) => o.name === "c-obj")?.focused).toBe(true);
+  });
+
+  // Cross-column companion to "mixed-duration double interruption" above —
+  // the second freeze variant the ui#o42 citation's own prose describes but
+  // deliberately doesn't exercise (that test explicitly stays within one
+  // column to avoid engaging cameraX at all). A cross-column focus swap
+  // moves the FOCUSED span, engaging Scene's own camera-recentering effect
+  // (driveCameraX) — "presumably covered by the same per-channel fix" is
+  // the exact reasoning gap that produced the original bug: cameraX has no
+  // per-channel target-changed guard to extend the way the other 7 owned
+  // channels do (see ownedAnimation.ts's own doc comment), so it needed its
+  // own carve-out fix and its own dedicated test.
+  test("cameraX cross-column live flip: a focus-driven camera pan interrupted by a live duration->0 flip fires onTransitionEnd exactly once and settles", async () => {
+    const fired: Array<Array<{ name: string; focused: boolean }>> = [];
+
+    function Harness() {
+      const [focusedCol, setFocusedCol] = useState<"a" | "b">("a");
+      const [duration, setDuration] = useState<number | undefined>(undefined);
+      return (
+        <Scene duration={duration} onTransitionEnd={(arrangement) => fired.push(arrangement)}>
+          <SceneColumn name="col-a">
+            <SceneObject name="a-obj" focused={focusedCol === "a"}>
+              <div style={{ width: 300, height: 150 }}>a</div>
+            </SceneObject>
+          </SceneColumn>
+          <SceneColumn name="col-b">
+            <SceneObject name="b-obj" focused={focusedCol === "b"}>
+              <div style={{ width: 300, height: 150 }}>b</div>
+            </SceneObject>
+          </SceneColumn>
+          <button data-testid="swap-column" onClick={() => setFocusedCol("b")}>
+            swap column
+          </button>
+          <button data-testid="reduce-motion" onClick={() => setDuration(0)}>
+            simulate reduced-motion mid-flight
+          </button>
+        </Scene>
+      );
+    }
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <Harness />
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element() as HTMLElement;
+    await wait(1000);
+
+    getByTestId("swap-column").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitForAnimationFrame();
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
+
+    // Interrupt mid-transition with a live duration->0 flip (simulating
+    // prefers-reduced-motion toggling mid-flight while the camera is
+    // actively panning to the newly-focused column).
+    getByTestId("reduce-motion").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await waitForSceneSettled(scene, { timeoutMs: 3000 });
+
+    expect(fired.length).toBe(1);
+    const arrangement = fired[0]!;
+    expect(arrangement.find((o) => o.name === "a-obj")?.focused).toBe(false);
+    expect(arrangement.find((o) => o.name === "b-obj")?.focused).toBe(true);
   });
 });
 
