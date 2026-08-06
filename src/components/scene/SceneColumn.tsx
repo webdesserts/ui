@@ -385,13 +385,15 @@ function SceneColumnImpl({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
-  // NOT memoized (ui#32 finding): SceneObject.tsx's zIndex/rising-edge logic
-  // (see its own `lastSandwichedDepthRef`/`risingRef` doc comments) depends
-  // on this being recomputed fresh every render, not just when a
-  // name:focused-shaped fingerprint of objectStates changes — a content-only
-  // memoization here reproducibly broke within-column-deck-after-focus-toggle
-  // (tests/visual/scene-animation.test.tsx). Left unmemoized; see ui#32
-  // worker report for the isolation evidence.
+  // NOT memoized (ui#32): an early memoization attempt (a name:focused
+  // fingerprint of objectStates, matching what computeWithinColumnDepths
+  // itself reads) broke within-column-deck-after-focus-toggle
+  // (tests/visual/scene-animation.test.tsx) and was reverted out of
+  // caution. The claim review's independent re-derivation with the same,
+  // verified-correct fingerprint did NOT reproduce the break — re-attempting
+  // with a verified-correct fingerprint is a candidate follow-up, possibly
+  // connected to the unresolved memo short-circuit (see the rising-edge doc
+  // at SceneObject.tsx:417-460 for what any attempt must preserve).
   const withinColumnDepths = computeWithinColumnDepths(objectStates);
 
   // Joined focused-object-name key for this render (see computeFocusedObjectKey).
@@ -1688,12 +1690,13 @@ function SceneColumnImpl({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, [columnFocused, isScrollable]);
 
-  // NOT stabilized (ui#32 finding): `register`/`observeElement`/
-  // `unobserveElement` are already useCallback([])-stable and `objectGap` is
-  // a primitive, but `withinColumnDepths` above is deliberately unmemoized
-  // (its own comment explains why), so wrapping this in useMemo would never
-  // hit its cache — dead weight, not a real stabilization. Revisit if
-  // `withinColumnDepths` is ever made safely memoizable.
+  // NOT stabilized (ui#32): `register`/`observeElement`/`unobserveElement`
+  // are already useCallback([])-stable and `objectGap` is a primitive, but
+  // `withinColumnDepths` above is currently left unmemoized (its own
+  // comment explains the caution and the reviewed non-reproduction), so
+  // wrapping this in useMemo would never hit its cache — dead weight, not a
+  // real stabilization. Revisit alongside `withinColumnDepths`'s own
+  // candidate follow-up.
   return (
     <ColumnContext.Provider value={{ register, withinColumnDepths, objectGap, observeElement, unobserveElement }}>
       {/* Invariant: animatable properties (opacity, transform, filter) must only be
