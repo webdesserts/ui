@@ -1,9 +1,10 @@
 import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import { useState, useEffect } from "react";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { hasReducedMotionListener, prefersReducedMotion } from "motion/react";
 import { TestWrapper } from "./test-wrapper";
-import { wait, waitForAnimationFrame } from "./utils/animation";
+import { wait, waitForAnimationFrame, waitForSceneSettled } from "./utils/animation";
 import { buildScene } from "./utils/sceneFixtures";
 import { CameraReader } from "./utils/cameraReader";
 
@@ -383,29 +384,57 @@ describe("Scene reduced motion", () => {
     prefersReducedMotion.current = null;
   });
 
-  function mockReducedMotion(): () => void {
+  /**
+   * ui#33 commit 3 extension: accepts an initial match state (existing
+   * callers keep today's always-matching default) and captures the
+   * `change` listener a REAL live-reduced-motion consumer registers,
+   * instead of the inert `vi.fn()` stub `addEventListener` used to be.
+   * Motion's own `useReducedMotion()` never registers one at all (it's
+   * mount-time-only — see the reactive-consumer harness test below), so
+   * this capture only matters for a consumer building its OWN listener
+   * against the public `duration` prop.
+   */
+  function mockReducedMotion(initialMatches = true): {
+    restore: () => void;
+    fireChange: (matches: boolean) => void;
+  } {
+    let currentMatches = initialMatches;
+    let changeListener: ((event: MediaQueryListEvent) => void) | null = null;
     const spy = vi.spyOn(window, "matchMedia").mockImplementation(
-      (query: string) => ({
-        // Match both the full query and the bare query used by motion's internal
-        // initPrefersReducedMotion() to detect reduced motion preference.
-        matches:
-          query === "(prefers-reduced-motion: reduce)" ||
-          query === "(prefers-reduced-motion)",
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      } as MediaQueryList),
+      (query: string) =>
+        ({
+          // Match both the full query and the bare query used by motion's
+          // internal initPrefersReducedMotion() to detect reduced motion
+          // preference.
+          get matches() {
+            return (
+              currentMatches &&
+              (query === "(prefers-reduced-motion: reduce)" || query === "(prefers-reduced-motion)")
+            );
+          },
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          addEventListener: vi.fn((event: string, listener: (e: MediaQueryListEvent) => void) => {
+            if (event === "change") changeListener = listener;
+          }),
+          removeEventListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        }) as MediaQueryList,
     );
-    return () => spy.mockRestore();
+    return {
+      restore: () => spy.mockRestore(),
+      fireChange: (matches: boolean) => {
+        currentMatches = matches;
+        changeListener?.({ matches } as MediaQueryListEvent);
+      },
+    };
   }
 
   test("reduced motion: layout changes still apply correctly", async () => {
     // Even with prefers-reduced-motion, focus state and layout must work.
-    const restore = mockReducedMotion();
+    const { restore } = mockReducedMotion();
 
     const { getByTestId } = await render(
       <TestWrapper fullPage>
@@ -433,7 +462,7 @@ describe("Scene reduced motion", () => {
     // When prefers-reduced-motion is active, the scene's viewport element should
     // have a data-ui-scene-reduced-motion attribute so consumers and tests can verify
     // the mode is being detected.
-    const restore = mockReducedMotion();
+    const { restore } = mockReducedMotion();
 
     const { getByTestId } = await render(
       <TestWrapper fullPage>
@@ -470,6 +499,92 @@ describe("Scene reduced motion", () => {
 
     const scene = getByTestId("content").element().closest("[data-testid='scene']") as HTMLElement;
     expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(false);
+  });
+
+  // ⚠️ REDESIGNED at the forecast gate (2026-08-06, ui#33 commit 3 — plan
+  // §4): Motion's own useReducedMotion() is mount-time-only (a
+  // module-singleton matchMedia listener writing a plain module-scoped
+  // ref, read into useState ONCE at first mount with the setter discarded
+  // — see this file's own hasReducedMotionListener/prefersReducedMotion
+  // imports, the singleton this describes). A mounted Scene structurally
+  // cannot react to a live OS reduced-motion toggle through that hook;
+  // only a remount ever picks one up. A test built on Motion's hook would
+  // therefore pass trivially forever regardless of whether ui#33's freeze
+  // fix (commit 2) even exists — vacuous. The REACHABLE production path
+  // for a live flip is a consumer wiring its OWN matchMedia listener and
+  // feeding Scene's PUBLIC `duration` prop directly, exactly as any real
+  // "respond to reduced-motion changing without a page reload" integration
+  // has to (Scene's own internal detection can't do this for them). This
+  // test IS that consumer, built as a harness — not Scene's own machinery.
+  test("reactive consumer: a live matchMedia change mid-transition drives Scene's public duration prop to 0 and settles without freezing", async () => {
+    const mock = mockReducedMotion(false);
+
+    function ReactiveConsumer() {
+      const [reduced, setReduced] = useState(false);
+      useEffect(() => {
+        const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+        const listener = (e: MediaQueryListEvent) => setReduced(e.matches);
+        mq.addEventListener("change", listener);
+        return () => mq.removeEventListener("change", listener);
+      }, []);
+      const [focusedCol, setFocusedCol] = useState<"a" | "b">("a");
+      return (
+        <>
+          <div data-testid="consumed-duration">{reduced ? "0" : "normal"}</div>
+          <Scene duration={reduced ? 0 : undefined}>
+            <SceneColumn name="col-a">
+              <SceneObject name="a-obj" focused={focusedCol === "a"}>
+                <div style={{ width: 300, height: 150 }}>a</div>
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="col-b">
+              <SceneObject name="b-obj" focused={focusedCol === "b"}>
+                <div style={{ width: 300, height: 150 }}>b</div>
+              </SceneObject>
+            </SceneColumn>
+            <button data-testid="swap" onClick={() => setFocusedCol("b")}>
+              swap
+            </button>
+          </Scene>
+        </>
+      );
+    }
+
+    const { getByTestId } = await render(
+      <TestWrapper fullPage>
+        <ReactiveConsumer />
+      </TestWrapper>,
+    );
+    const scene = getByTestId("scene").element() as HTMLElement;
+    const consumedDuration = getByTestId("consumed-duration").element() as HTMLElement;
+    expect(consumedDuration.textContent).toBe("normal");
+    await wait(1000);
+
+    getByTestId("swap").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitForAnimationFrame();
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("false");
+
+    // Live OS toggle mid-transition, delivered the ONLY way Motion's own
+    // hook structurally can't: our own matchMedia change listener.
+    mock.fireChange(true);
+    await waitForAnimationFrame();
+
+    // Non-vacuity: prove the duration value Scene actually consumed
+    // changed (not merely that settle eventually completed, which a
+    // vacuous/broken harness could also produce given enough time to run
+    // out the original spring).
+    expect(consumedDuration.textContent).toBe("0");
+
+    // The flip's real effect: every owned channel currently claimed
+    // retires SYNCHRONOUSLY within the same commit's layout effects (see
+    // ownedAnimation.ts's durationJustBecameZero) — settle reaching true
+    // within this ONE awaited frame is only possible if the fix actually
+    // ran. A severed fix leaves the original spring running, which takes
+    // many more frames than this to finish (see the defeat-check sever
+    // this assertion is built to catch).
+    expect(scene.getAttribute("data-ui-scene-settled")).toBe("true");
+
+    mock.restore();
   });
 });
 
