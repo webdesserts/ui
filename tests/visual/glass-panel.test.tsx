@@ -1,8 +1,28 @@
 import { describe, it, expect, afterEach } from "vitest";
 import type { CSSProperties } from "react";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, commands } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
+
+/**
+ * Backdrop-filter screenshot coverage (ui#12, ui#p6): every glass baseline
+ * in this file DOES render blur — a 2026-07-22 investigation's "blur has
+ * never rendered" conclusion was factually wrong about these baselines,
+ * falsified by direct measurement 2026-08-06 (full record:
+ * "plans/ui#12 Backdrop-Filter Screenshots Plan"). What's actually true:
+ * this suite's screenshot comparator (@blazediff/core) is structurally
+ * blind to a production-magnitude (8px, dark low-contrast) blur difference
+ * — an on/off diff over a 2.16-megapixel capture reports zero mismatched
+ * pixels, so no `.png` baseline here can ever catch a blur regression, even
+ * though the blur is genuinely present in the pixels. The computed-style
+ * pins in "backdrop-filter computed-style pins (ui#12)" below are the
+ * standing substitute for that missing screenshot-level coverage. See
+ * `tests/visual/backdrop-filter-capture.test.tsx` for the two permanent
+ * sentinels this finding produced — in particular its "comparator-
+ * blindness" sentinel, which flips red (a revisit signal, not a flake) if
+ * the comparator ever becomes able to see blur at this magnitude, at which
+ * point real screenshot coverage for blur would become possible again.
+ */
 
 /**
  * Glass panel comparison fixtures (ui#6 Slice 1a, "Glass Parity Plan
@@ -264,5 +284,62 @@ describe("glass-panel utility overrides", () => {
     );
     const panel = getByTestId("panel").element();
     expect(window.getComputedStyle(panel).borderWidth).toBe("2px");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// backdrop-filter computed-style pins (ui#12) — the standing substitute for
+// screenshot-level blur coverage (see the file-top doc comment). Two
+// recipes, one pin each: the `.glass-panel` class itself (this file's
+// `baselineBorder` candidate, src/tokens/semantic.css) and the raw utility
+// combo Button/IconButton/ChevronButton/ButtonGroup use directly
+// (glassBg/glassBlur constants, src/components/Button.tsx:25-27) via a
+// minimal fixture — one representative pin per recipe, not per consumer.
+//
+// Each pin checks the standard `backdrop-filter` property via computed
+// style (the real, browser-observable signal — this is what actually
+// renders for Chrome/Firefox users). A companion check for
+// `-webkit-backdrop-filter` (the a7d56b4 minifier bug already proved the
+// minifier can silently drop one of the two declarations) is NOT done via
+// computed style: verified empirically, Chromium's getComputedStyle always
+// returns "" for `-webkit-backdrop-filter` regardless of what's declared,
+// and its CSSOM silently drops the declaration when serializing
+// `rule.cssText` back out — so a computed-style or live-stylesheet check on
+// that property would be vacuous (always green, catches nothing). Where the
+// -webkit- form is authored directly as source text (the `.glass-panel`
+// class in semantic.css), it's pinned by reading that file's actual source
+// instead. The raw-utility recipe's -webkit- pair is emitted by Tailwind's
+// own build engine from `backdrop-blur-[var(--glass-blur)]`, not authored
+// anywhere in this repo as literal CSS, so there's no equivalent source
+// line to pin for that recipe — its standard-property computed-style check
+// is what this pin can honestly offer.
+// ---------------------------------------------------------------------------
+
+describe("backdrop-filter computed-style pins (ui#12)", () => {
+  it("the .glass-panel class recipe carries backdrop-filter (standard + source-level -webkit-)", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <div data-testid="panel" className="glass-panel">
+          panel
+        </div>
+      </TestWrapper>,
+    );
+    const panel = getByTestId("panel").element();
+    expect(window.getComputedStyle(panel).backdropFilter).not.toBe("none");
+
+    const semanticCss = await commands.readFile("src/tokens/semantic.css", "utf-8");
+    expect(semanticCss).toContain("-webkit-backdrop-filter: blur(var(--glass-blur))");
+  });
+
+  it("the raw utility recipe (Button.tsx's glassBg/glassBlur) carries backdrop-filter", async () => {
+    const { getByTestId } = await render(
+      <TestWrapper>
+        <div data-testid="panel" className="bg-glass-bg backdrop-blur-[var(--glass-blur)]">
+          panel
+        </div>
+      </TestWrapper>,
+    );
+    const panel = getByTestId("panel").element();
+    expect(window.getComputedStyle(panel).backdropFilter).not.toBe("none");
   });
 });
