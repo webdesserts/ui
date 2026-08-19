@@ -124,6 +124,23 @@ function isHorizontalScrollContainer(el: Element): boolean {
 }
 
 /**
+ * True when `el`'s scroll axis runs in reverse — `flex-direction:
+ * column-reverse` for the y axis, `row-reverse` for the x axis, on a
+ * `display: flex`/`inline-flex` container (ui#35). A reversed flex scroller
+ * anchors its content at the visual END (e.g. a bottom-anchored chat list)
+ * and reports `scrollTop`/`scrollLeft` over `[-(maxScrollPos), 0]` with `0`
+ * AT the visual end, rather than the usual `[0, maxScrollPos]` with `0` at
+ * the visual start. Checked via computed `flex-direction` — what the layout
+ * engine actually keys the behavior off of — rather than inferred from a
+ * scroll position's sign, which is ambiguous exactly at `0`.
+ */
+function isReversedScrollAxis(el: Element, axis: "x" | "y"): boolean {
+  const style = getComputedStyle(el);
+  if (style.display !== "flex" && style.display !== "inline-flex") return false;
+  return axis === "x" ? style.flexDirection === "row-reverse" : style.flexDirection === "column-reverse";
+}
+
+/**
  * Effective `overscroll-behavior-y` for `el`, falling back to the shorthand
  * `overscroll-behavior` when the Y-specific longhand isn't declared. Both
  * resolve to the initial value `"auto"` when neither is set.
@@ -165,6 +182,12 @@ function effectiveOverscrollBehaviorX(el: Element): string {
  *   caller must not also react). The default `auto` declines at this
  *   candidate and the walk continues outward (natural scroll-chaining) to
  *   the next ancestor.
+ * - A candidate's scroll range is computed from its computed `flex-direction`
+ *   (ui#35): a reversed flex scroller (`column-reverse`/`row-reverse`, e.g. a
+ *   bottom-anchored chat list) reports its position over
+ *   `[-(maxScrollPos), 0]` instead of the usual `[0, maxScrollPos]`, and edge
+ *   detection is computed against its real range rather than assuming the
+ *   non-reversed one.
  * - Reaching `columnBoundary` (exclusive) with no consuming candidate found
  *   — decline (return false).
  */
@@ -186,16 +209,28 @@ export function interiorCanConsume(
       const node = el as HTMLElement;
       const scrollPos = axis === "x" ? node.scrollLeft : node.scrollTop;
       const maxScrollPos = axis === "x" ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
-      // 1px epsilon on the forward edge only: scrollTop/scrollLeft are
+      // A reversed flex scroller (column-reverse/row-reverse) reports its
+      // position over [-(maxScrollPos), 0] instead of the usual
+      // [0, maxScrollPos] — compute the REAL range instead of assuming the
+      // non-reversed one (ui#35: assuming [0, max] made a bottom-anchored
+      // reversed chat list read as permanently "at its backward edge",
+      // handing every wheel-up over it to the next column outward).
+      const reversed = isReversedScrollAxis(el, axis);
+      const minPos = reversed ? -maxScrollPos : 0;
+      const maxPos = reversed ? 0 : maxScrollPos;
+      // 1px epsilon on the forward edge always: scrollTop/scrollLeft are
       // fractional and on non-integer devicePixelRatio displays can settle
-      // permanently a fraction of a pixel short of the integer
-      // maxScrollPos (MDN's documented caveat) — without the tolerance,
-      // at-edge never registers, the gate never declines, and wheel input
-      // goes dead at the island's visual edge instead of chaining outward.
-      // The `<= 0` backward edge needs no epsilon: it clamps at exactly 0.
+      // permanently a fraction of a pixel short of the integer maxPos
+      // (MDN's documented caveat) — without the tolerance, at-edge never
+      // registers, the gate never declines, and wheel input goes dead at
+      // the island's visual edge instead of chaining outward. The backward
+      // edge mirrors the same epsilon for a reversed container (its
+      // backward edge is the fractional -(maxScrollPos), not a hard 0);
+      // a non-reversed container's backward edge clamps at exactly 0 and
+      // needs none.
       const atEdge = movingForward
-        ? scrollPos >= maxScrollPos - 1
-        : scrollPos <= 0;
+        ? scrollPos >= maxPos - 1
+        : scrollPos <= minPos + (reversed ? 1 : 0);
       if (!atEdge) return true;
 
       const overscroll = effectiveOverscroll(el);
