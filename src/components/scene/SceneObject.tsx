@@ -5,6 +5,7 @@ import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
 import { useOwnedAnimation } from "./ownedAnimation";
 import { TransitionPendingContext } from "./TransitionPendingContext";
 import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
@@ -254,10 +255,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       : naturalHeight;
 
   const heightMV = useMotionValue(heightTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`height:${name}`, heightMV);
-    return () => motionSeam?.unregisterMotionValue?.(`height:${name}`);
-  }, [motionSeam, heightMV, name]);
+  useMotionSeamRegistration(motionSeam, `height:${name}`, heightMV);
 
   const heightTargetRef = useRef(heightTarget);
   // Whether the channel's most recent spring has FULLY settled — gates
@@ -368,10 +366,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // ---------------------------------------------------------------------
   const marginBottomTarget = sandwichedNow && inFlowKnownHeight ? -objectGap : 0;
   const marginBottomMV = useMotionValue(marginBottomTarget);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`marginBottom:${name}`, marginBottomMV);
-    return () => motionSeam?.unregisterMotionValue?.(`marginBottom:${name}`);
-  }, [motionSeam, marginBottomMV, name]);
+  useMotionSeamRegistration(motionSeam, `marginBottom:${name}`, marginBottomMV);
 
   const marginBottomTargetRef = useRef(marginBottomTarget);
   const marginBottomOwnedAnimation = useOwnedAnimation(duration);

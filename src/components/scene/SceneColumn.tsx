@@ -21,6 +21,7 @@ import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { PanControlContext } from "./PanControlContext";
 import { useMotionSeam } from "./motionSeam";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
 import { computeDepthTreatment, formatGrayscale } from "./depth";
 import { Scrollbar } from "./Scrollbar";
 import { useColumnAnchoring } from "./useColumnAnchoring";
@@ -940,13 +941,7 @@ function SceneColumnImpl({
   // (when `top` was driven via motion's `animate={{top}}` prop). Seeded to
   // this render's topOffset so the very first commit needs no drive.
   const topOffsetMV = useMotionValue(topOffset);
-  // F4 active-springs debug panel: register the MotionValue itself (not just
-  // its controls, below) so the panel can read its live value/velocity —
-  // mirrors scrollY's identical registration effect above.
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`topOffset:${name}`, topOffsetMV);
-    return () => motionSeam?.unregisterMotionValue?.(`topOffset:${name}`);
-  }, [motionSeam, topOffsetMV, name]);
+  useMotionSeamRegistration(motionSeam, `topOffset:${name}`, topOffsetMV);
   // The last target actually driven into topOffsetMV — compared against the
   // fresh per-render topOffset below to detect a real swap (vs. an unrelated
   // re-render where topOffset is unchanged).
@@ -1056,10 +1051,7 @@ function SceneColumnImpl({
       : frozenSize?.width;
 
   const widthMV = useMotionValue(widthTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`width:${name}`, widthMV);
-    return () => motionSeam?.unregisterMotionValue?.(`width:${name}`);
-  }, [motionSeam, widthMV, name]);
+  useMotionSeamRegistration(motionSeam, `width:${name}`, widthMV);
 
   const widthTargetRef = useRef(widthTarget);
   // Whether this channel has EVER driven a real (defined) target — false
@@ -1123,10 +1115,7 @@ function SceneColumnImpl({
   // currently rendered.
   const marginTarget = inBetweenNow && inBetweenKnownWidth ? -columnGap : 0;
   const marginMV = useMotionValue(marginTarget);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`margin:${name}`, marginMV);
-    return () => motionSeam?.unregisterMotionValue?.(`margin:${name}`);
-  }, [motionSeam, marginMV, name]);
+  useMotionSeamRegistration(motionSeam, `margin:${name}`, marginMV);
 
   const marginTargetRef = useRef(marginTarget);
   const marginOwnedAnimation = useOwnedAnimation(duration);
@@ -1165,10 +1154,7 @@ function SceneColumnImpl({
       ? computeMeasuredWidth(objectStates, geometryStore.current)
       : undefined;
   const columnWidthMV = useMotionValue(columnWidthTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`columnWidth:${name}`, columnWidthMV);
-    return () => motionSeam?.unregisterMotionValue?.(`columnWidth:${name}`);
-  }, [motionSeam, columnWidthMV, name]);
+  useMotionSeamRegistration(motionSeam, `columnWidth:${name}`, columnWidthMV);
 
   const columnWidthTargetRef = useRef(columnWidthTarget);
   const columnWidthHasHadTargetRef = useRef(columnWidthTarget !== undefined);
@@ -1374,12 +1360,7 @@ function SceneColumnImpl({
   // value (pinnable/observable motion-seam treatment, same as
   // topOffset/scrollY/cameraX).
   const zMV = useMotionValue(depthZ);
-  // F4 active-springs debug panel: register the MotionValue itself, same
-  // rationale as topOffsetMV/scrollY above.
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`z:${name}`, zMV);
-    return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
-  }, [motionSeam, zMV, name]);
+  useMotionSeamRegistration(motionSeam, `z:${name}`, zMV);
   const zTargetRef = useRef(depthZ);
   const zOwnedAnimation = useOwnedAnimation(duration);
 
