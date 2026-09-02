@@ -94,8 +94,13 @@ export function useDepthFilterChannel(options: {
 
     // Dropped before the browser paints (layout effect), so the released
     // `"none"` is never the rendered value for a frame of a live spring —
-    // it would shadow the whole transition if it were.
-    setReleased(false);
+    // it would shadow the whole transition if it were. Guarded on the
+    // current value rather than set unconditionally: React re-renders once
+    // before bailing out on an unchanged state value, and a channel
+    // retargeting while already unreleased (a decked column moving deeper)
+    // has no reason to spend that render — this runs on every column and
+    // every object of a scene, on every focus change.
+    if (released) setReleased(false);
     const controls = ownedAnimation.animateTo(grayscaleMV, grayscale, transition, () => {
       // `grayscale` is the target of the animation that actually completed:
       // Motion never completes an animation superseded by a later animate()
