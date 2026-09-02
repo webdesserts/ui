@@ -1,9 +1,15 @@
 /**
  * Shared depth treatment formulas for Scene's 3D stacking system.
  *
- * Invariant: These values are meant to be passed into `animate={{}}` on motion
- * components, never into inline `style`. Inline style wins at React commit time
- * and silently shadows animation springs.
+ * Invariant: a depth value is never handed to a motion component as a plain
+ * number in inline `style` — a static inline value wins at React commit time
+ * and silently shadows the spring. `opacity` and `translateZ` therefore go
+ * through `animate={{}}`; `grayscale` goes through its own owned MotionValue
+ * (useDepthFilterChannel), which is a live style binding rather than a static
+ * one and so doesn't shadow anything. Grayscale needs the owned channel
+ * because it is the only one of the three that must be RELEASED entirely at
+ * rest: any `filter`, identity included, makes its element a backdrop root
+ * and truncates the backdrop of every glass surface below it.
  */
 
 export interface DepthTreatment {
@@ -39,9 +45,15 @@ export function computeDepthTreatment(depth: number): DepthTreatment {
 
 /**
  * Formats a grayscale value as a CSS filter string.
- * Always returns a valid filter string (never `undefined`), so motion can
- * interpolate between two filter strings rather than between a string and
- * `undefined` — which would produce an instant snap instead of a spring.
+ *
+ * Always returns a valid filter string — never `undefined`, and never the
+ * `none` keyword either. Motion cannot spring between a filter string and
+ * `undefined` (it snaps), and it cannot resume a spring out of a written
+ * `none` either: with no numeric state to start from it emits a decaying
+ * blip and then jumps. Releasing the filter at rest is therefore NOT this
+ * function's job — it belongs to the owned channel that decides when to stop
+ * calling it at all (useDepthFilterChannel, which writes the literal "none"
+ * itself once settled at identity).
  */
 export function formatGrayscale(n: number): string {
   return `grayscale(${n})`;

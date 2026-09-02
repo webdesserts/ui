@@ -22,7 +22,8 @@ import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { PanControlContext } from "./PanControlContext";
 import { useMotionSeam } from "./motionSeam";
 import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
-import { computeDepthTreatment, formatGrayscale } from "./depth";
+import { computeDepthTreatment } from "./depth";
+import { useDepthFilterChannel } from "./useDepthFilterChannel";
 import { Scrollbar } from "./Scrollbar";
 import { useColumnAnchoring } from "./useColumnAnchoring";
 import { useColumnScroll } from "./useColumnScroll";
@@ -1324,6 +1325,18 @@ function SceneColumnImpl({
   // Reinforces the sense of receding into the background.
   const depthGreyscale = columnDepth.grayscale;
   const depthZ = columnDepth.translateZ;
+  // Owned greyscale channel — released to no filter at all once settled at
+  // identity, so a focused column never roots the backdrop of a glass
+  // surface a consumer renders inside it (ui/t:18). See
+  // useDepthFilterChannel's own doc comment for the backdrop-root mechanism
+  // and for the three cheaper shapes that were measured and rejected.
+  const depthFilter = useDepthFilterChannel({
+    grayscale: depthGreyscale,
+    duration,
+    transition: columnTransition,
+    motionSeam,
+    seamKey: `depthFilter:${name}`,
+  });
   // Column-level paint order is DOM-order-driven in practice, and that's
   // design-correct: computeStackDepths (Scene.tsx) assigns depth by
   // walking backward from the rightmost focused column, so depth is
@@ -1771,12 +1784,16 @@ function SceneColumnImpl({
             opacity: depthOpacity,
             // z is NOT here, see zMV's declaration above (z-clearance
             // coupling) and the style prop below.
+            // filter is NOT here either — it is an owned channel now, bound
+            // through the style prop below so it can be RELEASED at rest
+            // (ui/t:18). The anti-snap invariant that put it here in the
+            // first place (motion cannot interpolate between undefined and a
+            // filter string — the unfocus pop, bug 2b) still holds and is
+            // still what the owned channel exists to satisfy: it carries a
+            // live numeric greyscale across the release rather than handing
+            // Motion a keyword to re-parse.
             x: columnAnimateX,
             y: inBetweenY,
-            // Always emit a valid filter string — motion cannot interpolate
-            // between undefined and a filter string, which caused the
-            // unfocus pop (bug 2b).
-            filter: formatGrayscale(depthGreyscale),
           }}
           transition={columnTransition}
           style={{
@@ -1829,6 +1846,15 @@ function SceneColumnImpl({
             // write would depend on undocumented same-frame-ordering
             // internals.
             z: duration === 0 ? depthZ : zMV,
+            // Owned greyscale channel — a real filter string only while the
+            // depth treatment is live, and NO filter property at all once it
+            // settles back at identity, so a focused column stops rooting
+            // the backdrop of any glass surface inside it. Same
+            // pixels-mid-spring/live-CSS-at-rest release shape as `width`
+            // below, and released the same way it is: an explicit written
+            // value ("none"), never an omitted key. See
+            // useDepthFilterChannel's own doc comment.
+            filter: depthFilter,
             // Michael's ruling — pixels only mid-spring, live CSS at rest.
             // Active while the column's own override is active (see
             // columnWidthOverrideActive's own comment); released once
