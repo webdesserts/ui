@@ -25,14 +25,14 @@ export default [
   // refs, in the hooks' own params-interface doc comments) — and deliberately
   // runs several "remeasure every render, conditionally setState" effects
   // with no dependency array by design. Both patterns are pervasive here
-  // (100-site sweep, ui#29 dispatch 1): react-hooks/refs alone accounted for
+  // (100-site sweep, ui/t:29 dispatch 1): react-hooks/refs alone accounted for
   // 66 of 92 opt-outs, and react-hooks/exhaustive-deps' no-array shape
   // accounted for 16 more. React Compiler bails out of memoizing these
   // functions safely at function granularity regardless of what ESLint
   // reports — this relaxation changes hygiene REPORTING only, not compiler
   // behavior. Scoped to an explicit file list, not a scene/ glob: new files
   // in this subsystem stay fully enforced until they earn a spot here.
-  // Revisit at ui#32 (render-propagation riders) and whenever o97's v2
+  // Revisit at ui/t:32 (render-propagation riders) and whenever o97's v2
   // attribute-contract re-home lands — both are natural moments this list
   // gets re-checked against the code as it stands then.
   {

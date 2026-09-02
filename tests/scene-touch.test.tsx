@@ -1093,13 +1093,13 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
     firePointer(contentWrapper, "pointerdown", startX, startY);
     await waitForAnimationFrame();
     // Well past the slop, purely horizontal — decides "horizontal"
-    // ownership. Pre-ui#19 this released (isDragging false, native
+    // ownership. Pre-ui/t:19 this released (isDragging false, native
     // overflow-x:auto owned the rest of the gesture) — under the
     // single-writer channel there is no native horizontal scroll left to
     // release to, so this column's own triad (A2 column-first-claim) keeps
     // tracking instead, driving panOffset through the shared clamp+drive
     // path, and the native touchmove gate blocks the browser's own
-    // page-pan for this axis too now (shouldPreventTouchMove, ui#19).
+    // page-pan for this axis too now (shouldPreventTouchMove, ui/t:19).
     firePointer(contentWrapper, "pointermove", startX + 50, startY);
     await waitForAnimationFrame();
 
@@ -1175,7 +1175,7 @@ describe("Scene touch — native touchmove preventDefault gating (F13 commit 1)"
 });
 
 // ---------------------------------------------------------------------------
-// ui#19 slice (c): horizontal touch pan (A2 column-first-claim architecture)
+// ui/t:19 slice (c): horizontal touch pan (A2 column-first-claim architecture)
 // ---------------------------------------------------------------------------
 
 describe("Scene touch — horizontal pan (ui#19 slice (c))", () => {

@@ -525,7 +525,7 @@ Feature: Scene Scroll
     When the user performs a horizontal touch gesture on the Camera viewport
     Then the camera should pan horizontally, tracking the finger 1:1
     Because the Camera viewport is unconditionally overflow-x/y: clip
-    (ui#19 single-writer horizontal channel) — native horizontal scrolling
+    (ui/t:19 single-writer horizontal channel) — native horizontal scrolling
     is structurally impossible there, so panning is driven end to end by
     Scene's own pointer-event handling instead of the browser's native
     scroll

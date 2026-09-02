@@ -52,7 +52,7 @@ export { computeColumnPositions, computeStackDepths } from "./sceneLayout";
 
 /**
  * A single SceneObject's name and focus state at the moment a focus
- * transition settled (ui#20) — the payload `onTransitionEnd` reports.
+ * transition settled (ui/t:20) — the payload `onTransitionEnd` reports.
  */
 export interface SceneFocusArrangementEntry {
   name: string;
@@ -72,7 +72,7 @@ export interface SceneProps {
    */
   duration?: number;
   /**
-   * Fires exactly once per settled FOCUS transition (ui#20) — a change to
+   * Fires exactly once per settled FOCUS transition (ui/t:20) — a change to
    * which SceneObjects are focused (including a within-column swap), once
    * the scene has genuinely gone quiet (the settle counter reaches zero
    * post-commit — the same crossing `data-ui-scene-settled` flips true on).
@@ -161,12 +161,12 @@ function warnStrayChild(type: unknown): void {
 }
 
 /**
- * ui#19 slice (d): mounting-contract warning. Scene's viewport is immune to
+ * ui/t:19 slice (d): mounting-contract warning. Scene's viewport is immune to
  * scrollLeft corruption ON ITSELF (overflow-x:clip, probe-confirmed
  * bulletproof — see the viewport style comment below) — but the browser
  * doesn't just give up when it can't scroll an immune element into view; it
  * walks UP the tree and scrolls the next REAL scroll container instead
- * (measured in the ui#19 clip probe: 0 -> 350px on a real overflow-x:auto
+ * (measured in the ui/t:19 clip probe: 0 -> 350px on a real overflow-x:auto
  * ancestor). If Scene itself is mounted inside a horizontally-scrollable
  * ancestor, the exact class of corruption this arc eliminates can resurface
  * one DOM level up, outside Scene's own control. Warns once per distinct
@@ -251,7 +251,7 @@ function SceneViewport({
   debugColumnStacks: DebugColumnStackEntry[] | null;
   /** Whether prefers-reduced-motion is active. */
   reducedMotion: boolean;
-  /** ui#20: renders as `data-ui-scene-settled` on the viewport element — see
+  /** ui/t:20: renders as `data-ui-scene-settled` on the viewport element — see
    *  Scene's own `settled` state doc comment for the full mechanism. */
   settled: boolean;
   /** F4 feature (e): flips Scene's internal slowMo override (debug overlay
@@ -267,7 +267,7 @@ function SceneViewport({
   /** Called whenever the focused content's target bounds are (re)measured. */
   onTargetChange: (target: CameraRect) => void;
   /**
-   * Scene's own column registry (ui#17 target-derived camera aiming) —
+   * Scene's own column registry (ui/t:17 target-derived camera aiming) —
    * the same Map registerColumn writes into, keyed by column name. Read
    * by the camera-recentering effect below to compute the focused span's
    * final left/width from each column's own owned-channel width/margin
@@ -293,7 +293,7 @@ function SceneViewport({
 
   // Counter tracking how many Motion animations are currently in flight.
   // Tracks in-flight DECLARATIVE `animate`-prop transitions on SceneColumn's
-  // own divs (opacity/x/y/filter, marginTop) via onStart/onEnd below — ui#17
+  // own divs (opacity/x/y/filter, marginTop) via onStart/onEnd below — ui/t:17
   // removed Motion's `layout` FLIP prop entirely, so it's no longer one of
   // these. NOT used to gate the debug outline rAF loop anymore (F6 item 1
   // fix — SceneObjectOutlines now runs continuously while mounted; this
@@ -323,7 +323,7 @@ function SceneViewport({
 
   // Stable animation callbacks provided to the stage and (via context) to
   // SceneColumns. Only active in debug mode — callbacks are a no-op when
-  // the context value is null. Memoized on `debug` alone (ui#32): the
+  // the context value is null. Memoized on `debug` alone (ui/t:32): the
   // closures only touch animatingRef, whose container identity never
   // changes, so debug is the only real dependency. Consumed indirectly by
   // SceneColumn via useAnimationCallbacks() — a fresh object here would
@@ -347,7 +347,7 @@ function SceneViewport({
   // Adjusted each render to keep the focused region horizontally centered in
   // the viewport. When focused content overflows the viewport, stageLeft is
   // clamped so the focused region left-aligns at x=0 (padding-inset) — this
-  // is the canonical/default camera target; ui#19's panOffset layer (below)
+  // is the canonical/default camera target; ui/t:19's panOffset layer (below)
   // composes on top of it for user-driven panning.
   const [stageLeft, setStageLeft] = useState(0);
   // Mirrors stageLeft every render (precedent idiom: SceneColumn.tsx's
@@ -356,7 +356,7 @@ function SceneViewport({
   // not whatever was captured when an effect last (re-)subscribed.
   const stageLeftRef = useRef(stageLeft);
   stageLeftRef.current = stageLeft;
-  // ui#19 single-writer horizontal channel: panOffset is the user-driven pan
+  // ui/t:19 single-writer horizontal channel: panOffset is the user-driven pan
   // layer, owned entirely by JS input handlers (wheel/touch/keyboard — added
   // in later slices of this arc), composed as `cameraX = stageLeft +
   // clamp(panOffset, bounds)`. panOffset === 0 IS the "not currently panned"
@@ -426,10 +426,10 @@ function SceneViewport({
   // changes — the trigger for resetting native horizontal scroll (B1).
   const prevFocusedNamesRef = useRef("");
 
-  // Settling latch (ui#20 criterion 6: useSettledValue, shared with
+  // Settling latch (ui/t:20 criterion 6: useSettledValue, shared with
   // SceneColumn's columnGeometryWasSettled), applied to viewport.clientWidth.
   // Originally gated the (now-retired) overflowsX classification write;
-  // ui#19 repoints it to gate the panBoundsRef write below instead —
+  // ui/t:19 repoints it to gate the panBoundsRef write below instead —
   // clientWidth can arrive across more than one real commit during
   // mount/resize settling (the content-box correction above,
   // ResizeObserver's own async callback), and a transient pan-bounds
@@ -527,7 +527,7 @@ function SceneViewport({
   // Runs as useLayoutEffect so the stage position is applied before paint,
   // avoiding a visible flash of mis-aligned content.
 
-  // ui#19: shared cameraX drive — the ONLY place any code should move
+  // ui/t:19: shared cameraX drive — the ONLY place any code should move
   // cameraX. Used below by the recentering effect (composed canonical +
   // pan target) AND by every input handler this arc adds (wheel/touch/
   // keyboard — each composes its own target from stageLeftRef + its
@@ -554,7 +554,7 @@ function SceneViewport({
   const driveCameraX = useCallback(
     (target: number) => {
       if (duration === 0) {
-        // ui#33: routes through the owned seam's jump() rather than a raw
+        // ui/t:33: routes through the owned seam's jump() rather than a raw
         // .set() — .set() never calls .stop() (probe-confirmed at source,
         // see SceneColumn.tsx's own citation on this), so a duration flip
         // to 0 mid-transition never retired the settle counter or
@@ -582,7 +582,7 @@ function SceneViewport({
     [duration, firstPaintRef, transition, motionSeam, onTransitionStart, onTransitionComplete, cameraX, ownedCameraAnimation],
   );
 
-  // ui#33: cameraX's own carve-out for the duration->0 freeze fix. Every
+  // ui/t:33: cameraX's own carve-out for the duration->0 freeze fix. Every
   // OTHER owned channel (SceneColumn/SceneObject) closes the gap by OR-ing
   // ownedAnimation.durationJustBecameZero into its own target-changed
   // guard — but driveCameraX is deliberately unguarded (its own comment
@@ -613,7 +613,7 @@ function SceneViewport({
     if (stage) stage.style.left = `${cameraX.get()}px`;
   });
 
-  // ui#19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
+  // ui/t:19 slice (c): the ONE write path for panOffset (A2 — "panOffset has
   // one write path even with two event sources"). Every pan-driving input
   // handler in this arc (wheel, both touch triads added below) routes
   // through this — never writes panOffsetRef directly. Sets an ABSOLUTE
@@ -633,7 +633,7 @@ function SceneViewport({
     [driveCameraX],
   );
 
-  // ui#19 slice (c): touch-release inertia fling for panning — scoped-down
+  // ui/t:19 slice (c): touch-release inertia fling for panning — scoped-down
   // horizontal analog of SceneColumn's startInertiaFlingRef (F13 commit 4);
   // no anchor="end" pinning or content-growth compensation concepts apply
   // to panning, so this is considerably simpler. Deliberately UNGUARDED
@@ -707,7 +707,7 @@ function SceneViewport({
     // Single camera owner also owns the pan reset: any time the SET of
     // focused column names changes (DOM order is stable, so a plain
     // joined-names comparison is enough), reset panOffset to 0
-    // synchronously, before paint (ui#19 — was `viewport.scrollLeft = 0`
+    // synchronously, before paint (ui/t:19 — was `viewport.scrollLeft = 0`
     // pre-single-writer; the BEHAVIOR is unchanged, only the mechanism:
     // panOffset is now the sole horizontal user-pan channel, so resetting
     // IT is what "a still-overflowing newly-focused region starts at its
@@ -730,7 +730,7 @@ function SceneViewport({
       return;
     }
 
-    // Target-derived aiming (ui#17 cascade-fix round, ruled): a focus
+    // Target-derived aiming (ui/t:17 cascade-fix round, ruled): a focus
     // commit collapses/grows column footprints by hundreds of px in one
     // step — geometry measured from the DOM at that exact commit is a
     // faithful read of a layout that's about to stop existing, not a
@@ -854,7 +854,7 @@ function SceneViewport({
     checkVpWidthSettled(vpWidth);
 
     let newStageLeft: number;
-    // Local branch decision only (ui#19 retired the overflowsX STATE this
+    // Local branch decision only (ui/t:19 retired the overflowsX STATE this
     // used to drive — CSS overflow is now unconditionally clip; this still
     // decides which position formula applies, and (below) whether there's
     // any pan range to compute).
@@ -882,7 +882,7 @@ function SceneViewport({
     const stageLeftChanged = stageLeft !== newStageLeft;
     setStageLeft((prev) => (prev === newStageLeft ? prev : newStageLeft));
 
-    // ui#19: fresh pan bounds for THIS render — used to clamp panOffsetRef
+    // ui/t:19: fresh pan bounds for THIS render — used to clamp panOffsetRef
     // immediately below regardless of the settling latch (the latch only
     // governs panBoundsRef's own WRITE, for input handlers reading it
     // between renders; the camera's own immediate positioning this render
@@ -944,10 +944,10 @@ function SceneViewport({
     // Drive cameraX (via the shared driveCameraX above) whenever the
     // COMPOSED target — canonical stageLeft + the clamped pan layer — needs
     // to move: either the canonical position itself changed (stageLeftChanged,
-    // same trigger as before ui#19: focus/layout changes), or panOffsetRef
+    // same trigger as before ui/t:19: focus/layout changes), or panOffsetRef
     // was JUST clamped above (a bounds shrink discarding part of an active
     // pan — A1). Gated on one of those two, not on every render, for the
-    // same reason as before ui#19: avoid restarting a spring toward its own
+    // same reason as before ui/t:19: avoid restarting a spring toward its own
     // current target every render (this effect runs unconditionally every
     // render). Pan-driven target changes (wheel/touch/keyboard input, added
     // later in this arc) are NOT this effect's concern — those handlers
@@ -968,7 +968,7 @@ function SceneViewport({
 
   // Route wheel input: deltaY to a target column's registered command
   // applier (S5 — replaces the old `columnscroll` CustomEvent bridge),
-  // deltaX to the camera's panOffset (ui#19 slice (b) — was left to native
+  // deltaX to the camera's panOffset (ui/t:19 slice (b) — was left to native
   // overflow-x:auto scroll pre-single-writer; now JS-owned end to end, same
   // as deltaY always has been). Registered as non-passive so
   // preventDefault() is allowed — normalize -> decide -> apply all run
@@ -998,7 +998,7 @@ function SceneViewport({
       for (const [name, delta] of pendingWheelDeltaRef.current) {
         if (delta === 0) continue;
         const applyScrollCommand = scrollCommandRegistry.get(name);
-        // ui#27: the ONLY call site that ever sets `source: "wheel"` — the
+        // ui/t:27: the ONLY call site that ever sets `source: "wheel"` — the
         // allowlist tag SceneColumn's wheel catch-stop detector and
         // counter-rebase key off of (see ScrollCommand's own doc comment
         // in inputController.ts). Every other scrollBy emitter (keyboard,
@@ -1063,7 +1063,7 @@ function SceneViewport({
       if (e.deltaX !== 0) {
         const scaledDeltaX = normalizeWheelDeltaX(e, el.clientWidth);
         if (scaledDeltaX !== null) {
-          // F8a horizontal twin (ui#19 slice (b), A4): same first-refusal
+          // F8a horizontal twin (ui/t:19 slice (b), A4): same first-refusal
           // as deltaY, on the same eventColumn boundary — a consumer's own
           // overflow-x: auto island (e.g. a wide table/code block) gets to
           // consume its own horizontal wheel input before the camera does.
@@ -1071,7 +1071,7 @@ function SceneViewport({
           const xConsumedByInterior =
             eventColumn && interiorCanConsume(e.target as Element, eventColumn, "x", scaledDeltaX);
           if (!xConsumedByInterior) {
-            // Range-exhaustion check: preventDefault semantics flip (ui#19
+            // Range-exhaustion check: preventDefault semantics flip (ui/t:19
             // slice (b)) — JS now owns deltaX end to end, so claiming it
             // means preventDefault; but if panOffset is ALREADY at the
             // bound this delta would push further past, decline instead —
@@ -1104,7 +1104,7 @@ function SceneViewport({
     return () => el.removeEventListener("wheel", handler);
   }, [scrollCommandRegistry, driveCameraX]);
 
-  // ui#19 slice (c): Scene-level touch pan triad (A2 architecture — covers
+  // ui/t:19 slice (c): Scene-level touch pan triad (A2 architecture — covers
   // ONLY pointers no column's own triad claimed: stage background, parked
   // columns, non-scrollable focused columns). A column that DOES claim a
   // gesture calls stopPropagation() at pointerdown (see SceneColumn's
@@ -1194,7 +1194,7 @@ function SceneViewport({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, []);
 
-  // ui#19 slice (d): keyboard parity for horizontal panning — replaces the
+  // ui/t:19 slice (d): keyboard parity for horizontal panning — replaces the
   // implicit browser freebie (a focused native overflow-x:auto container
   // responding to ArrowLeft/ArrowRight/Home/End) that died under
   // overflow-x:clip (slice (a)). Mirrors SceneColumn's own vertical
@@ -1234,7 +1234,7 @@ function SceneViewport({
     return () => el.removeEventListener("keydown", handler);
   }, [setPanOffset]);
 
-  // ui#19 slice (d): mount-time-only ancestor-chaining check (see
+  // ui/t:19 slice (d): mount-time-only ancestor-chaining check (see
   // warnAncestorScrollChaining's own doc comment above for the full
   // rationale). Deliberately unconditional (not gated on a dev/prod
   // env check) — mirrors this file's own warnStrayChild precedent, which
@@ -1253,9 +1253,9 @@ function SceneViewport({
   // writer. Standing rule for every cameraX-driving function: no
   // Promise/`.then()`-tracked "already animating" guards, ever — idempotent
   // re-issue instead (SceneColumn.tsx F17's driveBoundedSpring pattern).
-  // Full history (DELTA-2 -> absorb-and-re-pan -> ui#19 single-writer): see
+  // Full history (DELTA-2 -> absorb-and-re-pan -> ui/t:19 single-writer): see
   // tests/scene-lifecycle-navigation.test.tsx's own header, "Scene
-  // horizontal scrollLeft immunity (ui#19)".
+  // horizontal scrollLeft immunity (ui/t:19)".
 
   return (
     <MotionSeamContext.Provider value={motionSeam}>
@@ -1319,10 +1319,10 @@ function SceneViewport({
           // [data-ui-scene-column-content]), scoped to that column being
           // Scene-scrollable — so it restricts only the column that
           // needs to own vertical drag, never anything else in the tree.
-          // Horizontal camera pan note (ui#19 slices (c)/(d), settled):
+          // Horizontal camera pan note (ui/t:19 slices (c)/(d), settled):
           // "auto" here is not stale — it never needs to change for
           // horizontal panning. touch-action only governs the browser's
-          // OWN native scroll gesture; ui#19 blocks that gesture the same
+          // OWN native scroll gesture; ui/t:19 blocks that gesture the same
           // way SceneColumn's F13 vertical drag does (not via touch-
           // action), with a non-passive `touchmove` listener below that
           // calls preventDefault() once a horizontal drag commits (see
@@ -1333,7 +1333,7 @@ function SceneViewport({
           // suppressing the browser's competing native one.
           touchAction: "auto",
           outline: debug ? "2px solid cyan" : undefined,
-          // ui#19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
+          // ui/t:19: scrollbarWidth/scrollbarColor and the H10 scrollbar-
           // gutter investigation both REMOVED — both were about styling
           // and clientHeight-wobble concerns for a horizontal scrollbar
           // that toggled on/off with the old overflow-x:auto/hidden
@@ -1343,7 +1343,7 @@ function SceneViewport({
           // are now structurally moot, not just empirically rejected. The
           // full H10 writeup (the historical record of why
           // scrollbar-gutter:stable was tried and rejected) lived in this
-          // comment block pre-ui#19; see git history if that
+          // comment block pre-ui/t:19; see git history if that
           // investigation is ever relevant again.
           // container-type: size lets consumers use cqw/cqh units to size
           // columns relative to the Camera viewport dimensions.
@@ -1491,7 +1491,7 @@ function SceneViewport({
  * Real-input tests (Playwright, Testing Library, etc.) that drive a
  * focus-changing action and then write into the newly-focused content no
  * longer need to wait for anything: content is interactive the instant
- * `focused` flips true (ui#31 — inert follows focus intent, not motion
+ * `focused` flips true (ui/t:31 — inert follows focus intent, not motion
  * completion). `data-ui-scene-settled` remains the right thing to wait on
  * for anything genuinely motion-dependent instead — autofocus-after-
  * settle, layout measurement, or any assertion keyed to the visual
@@ -1572,7 +1572,7 @@ export function Scene({
   // it, avoiding a spurious re-provide on every unrelated Scene render.
   const activeAnimationCountRef = useRef(0);
   const [, bumpSettleSignal] = useState(0);
-  // `data-ui-scene-settled` (ui#20, criterion 1): true iff no owned animation
+  // `data-ui-scene-settled` (ui/t:20, criterion 1): true iff no owned animation
   // is currently active — genuine React state (not just the ref above),
   // flipping false the instant a channel claims (the ref's 0->1 crossing)
   // and true again on the existing zero-crossing. Mechanism-broad by
@@ -1586,7 +1586,7 @@ export function Scene({
   // scroll inertia (scrollY never routes through this seam — a deliberate,
   // pre-existing exclusion, see SettleSignalContext's own doc comment).
   const [settled, setSettled] = useState(true);
-  // `transitionPending` (ui#20, criteria 3/4/8/9): true from mount
+  // `transitionPending` (ui/t:20, criteria 3/4/8/9): true from mount
   // (entrance) or any FOCUS-arrangement change, cleared on the same
   // zero-crossing `settled` above uses. Deliberately a DIFFERENT signal
   // from `settled` on the SET side (this only goes true for a focus-
@@ -1597,7 +1597,7 @@ export function Scene({
   // TransitionPendingContext (SceneObject.tsx), where it now drives only
   // `activatable` (blocks retargeting focus mid-transition) and the
   // two-phase keyboard-focus-delivery effect — content inertness gates on
-  // `focused` alone since ui#31/Option A. `pendingIsFocusTransitionRef`
+  // `focused` alone since ui/t:31/Option A. `pendingIsFocusTransitionRef`
   // tracks whether the CURRENT pending window was armed by an actual focus
   // change (vs. pure mount entrance) — only that case fires
   // `onTransitionEnd` on clear.
@@ -1738,7 +1738,7 @@ export function Scene({
   // during render (mirrors SceneColumn's lastActiveFocusedKeyRef pattern) so
   // the correction effect below can compare against it after all descendant
   // SceneColumns have re-registered for this commit. Also doubles as the
-  // useMemo dependency key for columnPositions/stackDepths below (ui#32):
+  // useMemo dependency key for columnPositions/stackDepths below (ui/t:32):
   // columnStates is a fresh array reference every render even when its
   // content is unchanged, so a naive useMemo(fn, [columnStates]) would never
   // hit its cache — this string only changes when the underlying
@@ -1775,7 +1775,7 @@ export function Scene({
 
   onTransitionEndRef.current = onTransitionEnd;
 
-  // ui#20 settle-transition tracking: arms `transitionPending` on a focus-
+  // ui/t:20 settle-transition tracking: arms `transitionPending` on a focus-
   // arrangement change, clears it (and fires `onTransitionEnd`) on the
   // scene's true global quiet point. Runs every commit (no deps), AFTER
   // every descendant SceneColumn/SceneObject has registered/claimed for
@@ -1787,7 +1787,7 @@ export function Scene({
   //
   // Object-level, not column-level (deliberate fork from the plan's own
   // "reuse columnStatesFingerprintRef literally" recommendation): a
-  // within-column swap (ui#21's whole feature) never changes a column's
+  // within-column swap (ui/t:21's whole feature) never changes a column's
   // own aggregate `focused` boolean, so a column-level fingerprint would
   // silently miss it — RegisteredColumn.objectStates (ColumnRegistryContext,
   // registry-derived, Fragment-safe) is what makes the finer-grained
@@ -1803,11 +1803,11 @@ export function Scene({
   // rather than fixed with per-transition claim tracking: distinguishing
   // transition-caused claims from ambient ones needs an arming window
   // spanning the multi-commit re-layout cascade — exactly the class of
-  // fragile-tag race that produced the ui#17 cascade fix this mechanism
+  // fragile-tag race that produced the ui/t:17 cascade fix this mechanism
   // reuses; the overlap is self-limiting (touch flings — the only
   // long-tail ambient channel — die at pointerdown before a click-to-focus
   // can land, and mouse ambient motion is sub-second keyboard-pan/
-  // content-growth). Since ui#31/Option A, content inertness no longer
+  // content-growth). Since ui/t:31/Option A, content inertness no longer
   // reads this signal at all — the tradeoff only extends how long
   // `activatable`'s retargeting block and the two-phase focus-delivery
   // effect's settle wait persist, not the settle TAIL of content
@@ -1846,7 +1846,7 @@ export function Scene({
     }
   });
 
-  // Stabilized SceneConfigContext/CameraContext values (ui#32): both were
+  // Stabilized SceneConfigContext/CameraContext values (ui/t:32): both were
   // fresh object literals every render even though their inputs are plain
   // primitives, forcing every consumer (including SceneColumn, once
   // React.memo'd below) to re-render on any Scene render regardless of

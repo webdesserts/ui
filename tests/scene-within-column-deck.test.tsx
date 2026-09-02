@@ -48,7 +48,7 @@ describe("SceneColumn within-column depth deck", () => {
     await waitForAnimationFrame();
 
     const anchorB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
-    // ui#21 anchor/object split: the depth-card visual treatment (opacity,
+    // ui/t:21 anchor/object split: the depth-card visual treatment (opacity,
     // visibility) lives on the OBJECT NODE now, not the zero-footprint anchor —
     // the anchor only carries the `data-ui-scene-within-column-depth` marker.
     const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement;
@@ -92,7 +92,7 @@ describe("SceneColumn within-column depth deck", () => {
 
     const anchorB = getByTestId("content-b").element().closest("[data-ui-scene-id]") as HTMLElement;
     const anchorC = getByTestId("content-c").element().closest("[data-ui-scene-id]") as HTMLElement;
-    // ui#21 anchor/object split: opacity lives on the OBJECT NODE now, not the
+    // ui/t:21 anchor/object split: opacity lives on the OBJECT NODE now, not the
     // zero-footprint anchor (see the sibling test above for the same fix).
     const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement;
     const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement;
@@ -143,7 +143,7 @@ describe("SceneColumn within-column depth deck", () => {
     // escapes via position:absolute, peeking up past that origin by the
     // default peekOffset (12px, A5's pull-out-direction principle) as a
     // y-transform. Depth is expressed via a discrete zIndex channel now —
-    // translateZ was removed entirely for object-level cards (ui#o32, the
+    // translateZ was removed entirely for object-level cards (ui/o:32, the
     // z-index paint-order channel amendment), so this test's subject is
     // the peek-offset transform + zIndex ordering, not translateZ.
     const { getByTestId } = await render(
@@ -223,7 +223,7 @@ describe("SceneColumn within-column depth deck", () => {
     // meaningful to read (same precondition as the sibling test above).
     await waitForAnimationFrame();
 
-    // ui#21 anchor/object split: the peek offset lives in the object node's own
+    // ui/t:21 anchor/object split: the peek offset lives in the object node's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, matching this file's established idiom, not the
     // retired inline `style.top`.
@@ -262,7 +262,7 @@ describe("SceneColumn within-column depth deck", () => {
     // sibling test above).
     await waitForAnimationFrame();
 
-    // ui#21 anchor/object split: peek offset lives in the object node's own
+    // ui/t:21 anchor/object split: peek offset lives in the object node's own
     // y-transform now (mirrors SceneColumn's own inBetweenY) — read it via
     // parseTranslateY, not the retired `style.top`.
     const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-2
@@ -296,7 +296,7 @@ describe("SceneColumn within-column depth deck", () => {
       </TestWrapper>,
     );
 
-    // ui#21 anchor/object split: peek offset lives in the object node's own
+    // ui/t:21 anchor/object split: peek offset lives in the object node's own
     // y-transform now — read rendered geometry, not the retired `style.top`.
     const objectNodeB = getByTestId("content-b").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-2
     const objectNodeC = getByTestId("content-c").element().closest("[data-ui-scene-object]") as HTMLElement; // depth-1
@@ -318,7 +318,7 @@ describe("SceneColumn within-column depth deck", () => {
     // than a clean "already at rest" transition, which a duration=0 initial
     // mount + isolated `rerender()` doesn't naturally leave mid-flight.
     //
-    // Root cause reproduced here, HISTORICAL (ui#21 Slice 4 doc sweep note:
+    // Root cause reproduced here, HISTORICAL (ui/t:21 Slice 4 doc sweep note:
     // `topMV`/imperative `style.top` describe the PRE-height/margin-channel
     // mechanism and no longer exist in current code — SceneObject's peek
     // positioning now runs through the height/marginBottom channels plus
@@ -430,17 +430,17 @@ describe("SceneColumn within-column depth deck", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#21: Within-column deck rework — instant flow snap / teleport when an
-// object enters or leaves the within-column deck (board observation ui#o26).
-// The vertical, per-object port of ui#17's anchor/column pattern — see
-// `plans/ui#21 Within-Column Deck Rework Plan (2026-07-31)` (vault) for the
+// ui/t:21: Within-column deck rework — instant flow snap / teleport when an
+// object enters or leaves the within-column deck (board observation ui/o:26).
+// The vertical, per-object port of ui/t:17's anchor/column pattern — see
+// `plans/ui/t:21 Within-Column Deck Rework Plan (2026-07-31)` (vault) for the
 // full design. RED-FIRST per the plan's own TDD ordering: this repro and the
 // zero-pixel flip tests land BEFORE the anchor/object split, confirmed red
 // against the CURRENT (pre-split, single-node) code.
 // ---------------------------------------------------------------------------
 
 // Panel copied verbatim from dev/pages/ScenePage.tsx (unexported there) —
-// representative-fixture discipline (constraint carried from ui#17): width
+// representative-fixture discipline (constraint carried from ui/t:17): width
 // declared directly on SceneObject's own style prop, never a child div, and
 // this is the SAME component the real within-column deck consumer
 // (MultiFocusDemo) renders.
@@ -483,7 +483,7 @@ function UI21Panel({
  * values — one SceneColumn, objectGap=8, three SceneObjects width:480
  * top/middle/bottom, no explicit height per forecast E1/E2's corrected
  * ground truth). No duration=0 override: real springs, matching what a user
- * actually sees and what the ui#o26 defect (a timing/interpolation bug) can
+ * actually sees and what the ui/o:26 defect (a timing/interpolation bug) can
  * only manifest under.
  */
 function UI21MultiFocusFixture({
@@ -526,7 +526,7 @@ function UI21MultiFocusFixture({
  * LEAVES the deck) from an already-settled Scene (top/bottom always
  * focused), sampling raw gBCR for all three objects across the whole
  * settling window — same methodology as tests/scene.test.tsx's
- * runDoubleInterruptionGbcrSample (ui#17 Slice 3), ported to the vertical
+ * runDoubleInterruptionGbcrSample (ui/t:17 Slice 3), ported to the vertical
  * axis: a few pre-toggle frames included so the outlier loop's own
  * `i starts at 1` bound has a real neighbor for the commit-frame delta.
  */
@@ -631,7 +631,7 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
   // zero-footprint in flow). Originally targeted the object's own single
   // node pre-split (that WAS what flipped position mode before the anchor/
   // object split landed); updated once the split introduced the object node,
-  // matching the exact evolution ui#17's own zero-pixel-flip tests went
+  // matching the exact evolution ui/t:17's own zero-pixel-flip tests went
   // through when its column-level split landed.
   //
   // heightOverrideActive history: an earlier version of the in-flow branch
@@ -721,12 +721,12 @@ describe("Within-column deck (ui#21): layout-box zero-pixel flip", () => {
 });
 
 describe("Within-column deck (ui#21): z-index paint order at the flip commit (forecast E6, board criterion 6)", () => {
-  // Ports ui#17's own E2 pattern to the vertical axis. Five rounds of
+  // Ports ui/t:17's own E2 pattern to the vertical axis. Five rounds of
   // defeat-checking a translateZ-based channel against a z-sign-inversion
   // sever each found the prior sample-point choice vacuous (rounds 1-4:
   // registration/value/threshold-timing gaps; round 5's own overlap-window
   // redesign STILL stayed green under the sever) — the investigation that
-  // followed (ui#o32, the D-series record) found the underlying mechanism
+  // followed (ui/o:32, the D-series record) found the underlying mechanism
   // itself was never real: object-level translateZ never actually reached
   // the object node (three flat transform-style intermediates from the nearest
   // preserve-3d ancestor), so no sever on that channel could ever have
@@ -1205,7 +1205,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
     const clickX = (mRect.left + mRect.right) / 2;
     const clickY = sliverY!;
 
-    // Real hit-tested click — the existing ui#17 "clicks-land" pattern
+    // Real hit-tested click — the existing ui/t:17 "clicks-land" pattern
     // (elementFromPoint + dispatchEvent, capture-phase listener records
     // where event.target actually lands).
     let landedOn = "none";
@@ -1226,7 +1226,7 @@ describe("Within-column deck (ui#21): sandwiched card click-targeting (rider 5 e
 });
 
 describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compensation", () => {
-  // Ports ui#17's own E2 pattern verbatim (tests/scene.test.tsx's "Glass-
+  // Ports ui/t:17's own E2 pattern verbatim (tests/scene.test.tsx's "Glass-
   // stack deck: margin/width lockstep" block): both channels retarget on
   // the identical trigger commit with the identical transition config, so
   // they represent the same [0,1] progress fraction toward the sandwiched
@@ -1236,11 +1236,11 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
   // frame, even if both eventually reach their correct endpoints. Uses a
   // dedicated fixture with an EXPLICIT height (unlike UI21MultiFocusFixture,
   // whose natural height is content-derived, not a known constant) —
-  // mirrors ui#17's own E2 test using its own simple fixture rather than
+  // mirrors ui/t:17's own E2 test using its own simple fixture rather than
   // the shared MultiFocusDemo-style one.
   const NATURAL_HEIGHT = 300;
   const OBJECT_GAP = 8;
-  const EPSILON = 0.03; // 3% of the [0,1] progress range, matching ui#17's own E2 tolerance
+  const EPSILON = 0.03; // 3% of the [0,1] progress range, matching ui/t:17's own E2 tolerance
 
   async function sampleLockstep(midFocusedStart: boolean) {
     const recorder = createMotionSeamRecorder();
@@ -1313,9 +1313,9 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
     ).toBeLessThan(EPSILON);
   });
 
-  // SKIPPED (real bug found via this test, out of ui#21 Slice 1's scope —
+  // SKIPPED (real bug found via this test, out of ui/t:21 Slice 1's scope —
   // see the Noticed section of the worker's report for the full diagnostic
-  // trace; tracked on the board as ui#o29, disposition "parked unless
+  // trace; tracked on the board as ui/o:29, disposition "parked unless
   // Michael cards it" — this skip is o29's code anchor, keep the two in
   // sync): an object that MOUNTS already sandwiched (settled via the
   // isFirstTarget JUMP path, so heightSettled never flips false while
@@ -1395,24 +1395,24 @@ describe("Within-column deck (ui#21): height/marginBottom lockstep + gap compens
 });
 
 describe("Within-column deck (ui#21): double-interruption, minimal (forecast edit E5 — gates entry to Slice 2)", () => {
-  // Ports ui#17's own E1 double-interruption test (tests/scene.test.tsx's
+  // Ports ui/t:17's own E1 double-interruption test (tests/scene.test.tsx's
   // "Glass-stack deck: double-interruption, minimal" block) to the
   // vertical, per-object axis. 4-object single-column fixture: "top"/
   // "bottom" always focused, "mid-a" toggles, "mid-b" never toggles but is
   // the BYSTANDER whose own within-column depth changes as a side effect
   // of "mid-a"'s transition (mid-a unfocusing pushes mid-b from depth-1
-  // (anchored to mid-a) to depth-2 (anchored to bottom), the exact ui#o26
+  // (anchored to mid-a) to depth-2 (anchored to bottom), the exact ui/o:26
   // shape — a sibling's own state change corrupting a bystander that never
   // itself toggled). "mid-a" starts focused, is toggled off (pushing both
   // mid-a and mid-b into the deck, mid-b's depth shifting), interrupted
   // ~150ms in with a second toggle back to focused (mid-a's own transition
   // reverses AND mid-b's depth reverts in the same commit) — the exact
   // interruption timing the original layout-FLIP-era defect needed, per
-  // ui#17's own E1 rationale. Single first-frame-discontinuity assertion
+  // ui/t:17's own E1 rationale. Single first-frame-discontinuity assertion
   // on mid-b's own layout-box geometry (transform-free, against its own
   // anchor) at the second toggle's commit, not the full outlier-detector
   // methodology (that's Slice 3's extension of this same test, mirroring
-  // exactly how ui#17's own E1 sequenced it).
+  // exactly how ui/t:17's own E1 sequenced it).
   test("a second focus change landing mid-transition does not corrupt a bystander object's own geometry", async () => {
     function Demo() {
       const [midAFocused, setMidAFocused] = useState(true);
@@ -1455,7 +1455,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     // bystander shape: mid-b's OWN depth changes as a side effect of
     // mid-a's transition, without mid-b itself ever toggling.
     toggleBtn.click(); // mid-a starts unfocusing -> mid-b's depth changes too
-    await wait(150); // deliberately mid-spring, matching ui#17's own E1 timing
+    await wait(150); // deliberately mid-spring, matching ui/t:17's own E1 timing
 
     const midAAnchorEl = container.querySelector('[data-ui-scene-id="mid-a"]') as HTMLElement;
     const midAObjectNodeEl = container.querySelector('[data-ui-scene-object="mid-a"]') as HTMLElement;
@@ -1464,7 +1464,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     toggleBtn.click(); // interrupt: mid-a re-focuses mid-transition
 
     // "mid-a" itself: position flips synchronously-in-intent but not
-    // synchronously-in-commit (same registry-correction lag ui#17's own
+    // synchronously-in-commit (same registry-correction lag ui/t:17's own
     // horizontal version documented) — poll for its own object node style.position
     // to actually change. Layout-box geometry against mid-a's own anchor.
     const midA = await captureFlipCommit(midAObjectNodeEl, 2000, undefined, midAAnchorEl);
@@ -1484,7 +1484,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
     expect(Math.abs(midB.after.width - midB.before.width)).toBeLessThan(1);
     expect(Math.abs(midB.after.height - midB.before.height)).toBeLessThan(1);
 
-    // Mirrors ui#17's own asymmetry: mid-a's own footprint (height) is
+    // Mirrors ui/t:17's own asymmetry: mid-a's own footprint (height) is
     // legitimately still mid-spring at this commit — only left/top (the
     // axes that should already be resolved, not the axis under active
     // transition) are asserted for zero-discontinuity.
@@ -1495,7 +1495,7 @@ describe("Within-column deck (ui#21): double-interruption, minimal (forecast edi
 
 // ---------------------------------------------------------------------------
 // Double-interruption, FULL methodology (forecast edit E5's own extension,
-// Slice 3 — mirrors ui#17's own E1 full-methodology extension of its E1
+// Slice 3 — mirrors ui/t:17's own E1 full-methodology extension of its E1
 // minimal test). Extends the minimal test above along three axes: (a) BOTH
 // directions (mid-a unfocus-interrupted-by-refocus AND focus-interrupted-
 // by-unfocus, not just the former), (b) interrupt timing derived from a
@@ -1568,7 +1568,7 @@ async function measureSettleDurationMs(
  * whether the height channel itself is working, since it's sandwiched
  * throughout. Height-channel coverage for this exact
  * mount-sandwiched/settle class lives elsewhere — the red-first N=10 gBCR
- * repro and the layout-box flip tests, plus the ui#o29-anchored
+ * repro and the layout-box flip tests, plus the ui/o:29-anchored
  * (`test.skip`) lockstep test for the specific staleness race that skip
  * documents.
  */
@@ -1626,7 +1626,7 @@ async function measureDeckSettleDurationMs(initialMidAFocused: boolean): Promise
  * Runs ONE full double-interruption trial: mounts the fixture, triggers
  * mid-a's first toggle, waits `interruptDelayMs` (derived from the
  * calibrated settle duration — see measureDeckSettleDurationMs) with NO
- * sampling in between (mirrors ui#17's own runDoubleInterruptionGbcrSample
+ * sampling in between (mirrors ui/t:17's own runDoubleInterruptionGbcrSample
  * precedent exactly: wait the FULL delay first, THEN start sampling — a
  * first draft of this helper sampled a few warmup frames BEFORE the delay
  * instead, leaving a genuine wall-clock gap between the last pre-delay

@@ -1,7 +1,7 @@
 import { createContext } from "react";
 
 /**
- * Scene's horizontal pan control surface (ui#19 slice (c), A2 architecture:
+ * Scene's horizontal pan control surface (ui/t:19 slice (c), A2 architecture:
  * column-first-claim). A focused, scrollable SceneColumn's own touch
  * handler triad is the sole horizontal consumer for gestures that START
  * inside its content — on classifying "horizontal" it keeps tracking (an

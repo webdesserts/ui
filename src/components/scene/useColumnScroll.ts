@@ -21,11 +21,11 @@ import {
 } from "./inputController";
 
 /**
- * SceneColumn's scroll/wheel/keyboard/scrollTo/pin/inertia pipeline (ui#24
- * Cluster C extraction, riding the ui#24+28 arc per Michael's ruling, feed
+ * SceneColumn's scroll/wheel/keyboard/scrollTo/pin/inertia pipeline (ui/t:24
+ * Cluster C extraction, riding the ui/t:24+28 arc per Michael's ruling, feed
  * #2626): the full write-path for vertical scroll — the scrollY MotionValue
  * and its driving refs, maxScroll/pin-state tracking, applyScrollCommand
- * (wheel/keyboard/scrollbar/fling dispatch, including the ui#27 wheel-cliff
+ * (wheel/keyboard/scrollbar/fling dispatch, including the ui/t:27 wheel-cliff
  * detector and pairing gate), the keyboard scroll listener, and the
  * declarative scrollTo effect.
  *
@@ -145,7 +145,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   // for inertia's min/max in commit 2.
   //
   // Deliberately NOT routed through ownedAnimation's settle-signal seam
-  // (ui#17 cascade-fix round, Step 2 audit) despite being an animate()-
+  // (ui/t:17 cascade-fix round, Step 2 audit) despite being an animate()-
   // driven channel like width/margin/z/topOffset above: scrollY is
   // vertical content-scroll offset WITHIN a column, which never changes
   // the column's own outer bounding box — the only thing Scene's camera-
@@ -234,7 +234,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   // shrink clamp effect below).
   const scrollYSpringTargetRef = useRef<number | null>(null);
 
-  // ui#27: the pending wheel catch-stop (cliff) timer handle, armed on
+  // ui/t:27: the pending wheel catch-stop (cliff) timer handle, armed on
   // every wheel-tagged scrollBy command and cancelled by anything that
   // supersedes the stream it's watching (a fresh wheel-tagged scrollBy
   // re-arms it; everything else — a non-wheel command, or a touch grab via
@@ -249,7 +249,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   // (natural decay, WHEEL_CLIFF_DELTA_FLOOR_PX excludes it).
   const lastWheelDeltaAbsPxRef = useRef(0);
 
-  // ui#27, orchestrator-ruled amendment: whether the CURRENT unbroken wheel
+  // ui/t:27, orchestrator-ruled amendment: whether the CURRENT unbroken wheel
   // stream has been confirmed as a real stream — at least two wheel-tagged
   // scrollBy commands landing within WHEEL_STREAM_PAIRING_MS of each other
   // (see that constant's own doc comment for why). A RATCHET: once paired,
@@ -421,7 +421,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   const applyScrollYDeltaRef = useRef<(delta: number) => void>(() => {});
   applyScrollYDeltaRef.current = (delta: number) => {
     if (delta === 0) return;
-    // ui#27: content-growth compensation bypasses applyScrollCommand
+    // ui/t:27: content-growth compensation bypasses applyScrollCommand
     // entirely (this ref's own doc comment above), so a pending wheel-cliff
     // timer's top-of-applyScrollCommand cancel never sees it — a real
     // regression, gate-caught: a wheel-armed timer that outlives this call
@@ -436,7 +436,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
       clearTimeout(wheelCliffTimerRef.current);
       wheelCliffTimerRef.current = null;
     }
-    // ui#27, orchestrator-ruled amendment: same reset as the timer cancel
+    // ui/t:27, orchestrator-ruled amendment: same reset as the timer cancel
     // above — this compensation breaks whatever wheel stream was being
     // paired/watched too, so a wheel command arriving after it must re-earn
     // pairing from scratch rather than inheriting stale ratchet state.
@@ -674,7 +674,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   // the standard transition chase.
   const applyScrollCommand = useCallback(
     (cmd: ScrollCommand) => {
-      // ui#27: an ALLOWLIST, not an enumerated exclusion list — see
+      // ui/t:27: an ALLOWLIST, not an enumerated exclusion list — see
       // ScrollCommand's own doc comment in inputController.ts. Captured
       // once, up front, so the rest of this callback (the timer-cancel
       // below, and the arm/rebase logic after the write) can read it
@@ -785,7 +785,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
       switch (cmd.type) {
         case "scrollBy":
         case "page": {
-          // ui#27 / ui#o85 F1: a wheel-tagged delta whose sign OPPOSES the
+          // ui/t:27 / ui/o:85 F1: a wheel-tagged delta whose sign OPPOSES the
           // outstanding spring debt is a deliberate reverse-scroll — rebase
           // the target computation onto the LIVE spring position instead
           // of chasing the stale (pre-reversal) target, so the reversal
@@ -834,7 +834,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
       updatePinnedState(nextOffset, maxScrollRef.current);
       driveScrollYRef.current(nextOffset);
 
-      // ui#27, orchestrator-ruled amendment: update the pairing ratchet on
+      // ui/t:27, orchestrator-ruled amendment: update the pairing ratchet on
       // every wheel-tagged command BEFORE deciding whether to arm — pairs
       // THIS event with the immediately preceding one if they landed
       // within WHEEL_STREAM_PAIRING_MS of each other (see that constant's

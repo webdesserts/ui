@@ -241,7 +241,7 @@ describe("onTransitionEnd", () => {
     // columnStatesFingerprintRef as-is) would silently never detect this
     // as a focus-arrangement change at all — this is exactly the scenario
     // the object-level fingerprint fork (RegisteredColumn.objectStates)
-    // exists to catch, and it's ui#21's whole within-column-swap feature.
+    // exists to catch, and it's ui/t:21's whole within-column-swap feature.
     getByTestId("swap").element().dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     // Anchored on the fire itself, not a fixed wait: this swap may settle
@@ -609,9 +609,9 @@ describe("double interruption", () => {
   // SKIPPED — real, pre-existing, universal architectural gap discovered
   // while writing this required test (addendum v2 F3, adopted from the
   // delta review's margins), reported as a blocker rather than shipped as
-  // a fake pass or silently dropped. Filed on the board as ui#o42 (records
+  // a fake pass or silently dropped. Filed on the board as ui/o:42 (records
   // this exact repro). Root cause (probe-confirmed, isolated
-  // from ui#20's own code): EVERY owned MotionValue channel in the Scene
+  // from ui/t:20's own code): EVERY owned MotionValue channel in the Scene
   // family (Scene.tsx's cameraX/left, SceneObject.tsx's height/
   // marginBottom, SceneColumn.tsx's width/marginRight/z/columnWidth/top —
   // grep `duration === 0 ?` across all three files, zero exceptions) binds
@@ -627,7 +627,7 @@ describe("double interruption", () => {
   // independently: cameraX via a cross-column focus swap, and a
   // SceneObject height channel via a within-column sandwiched swap
   // specifically chosen to avoid touching cameraX at all — both froze
-  // identically) and predates ui#20 entirely: no code this ticket touches
+  // identically) and predates ui/t:20 entirely: no code this ticket touches
   // (Scene's own settle-tracking effect, TransitionPendingContext,
   // SceneObject's activatable/inert gating) is involved in the freeze —
   // it happens purely in the pre-existing `duration === 0 ? ... : ...`
@@ -636,7 +636,7 @@ describe("double interruption", () => {
   // Fixing it would mean decoupling every channel's duration===0 "plain
   // number" optimization from its own animation lifecycle — a
   // cross-cutting production change spanning all three files, well beyond
-  // this ticket's settle-signal/inertness scope. ui#20's OWN mechanism
+  // this ticket's settle-signal/inertness scope. ui/t:20's OWN mechanism
   // (transitionPending/onTransitionEnd, built on top of whatever the
   // claim/retire seam reports) is not implicated: it correctly reflects
   // "counter never reaches zero" for exactly as long as the frozen
@@ -656,7 +656,7 @@ describe("double interruption", () => {
     // stuck — the stage's `style.left` binding switches from the cameraX
     // MotionValue to the plain `stageLeft` number when duration flips to
     // 0, and the in-flight camera animation's value freezes rather than
-    // completing; unrelated to ui#20's own settle/inertness code, which
+    // completing; unrelated to ui/t:20's own settle/inertness code, which
     // never touches driveCameraX or the stage's style binding). "b" is
     // sandwiched at mount (a and c focused around it), so its own height
     // channel is already armed (wasEverSandwichedRef) before the swap.
@@ -712,7 +712,7 @@ describe("double interruption", () => {
   });
 
   // Cross-column companion to "mixed-duration double interruption" above —
-  // the second freeze variant the ui#o42 citation's own prose describes but
+  // the second freeze variant the ui/o:42 citation's own prose describes but
   // deliberately doesn't exercise (that test explicitly stays within one
   // column to avoid engaging cameraX at all). A cross-column focus swap
   // moves the FOCUSED span, engaging Scene's own camera-recentering effect
@@ -776,25 +776,25 @@ describe("double interruption", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Consumer contract: real-input writes mid-transition land immediately (ui#31)
+// Consumer contract: real-input writes mid-transition land immediately (ui/t:31)
 // ---------------------------------------------------------------------------
 
 describe("consumer contract: settle-gated real input", () => {
   // Incident report: a consumer (agent-task) suite failed deterministically
-  // after ui#20 shipped — a real Playwright `.fill()` into a newly-focused
+  // after ui/t:20 shipped — a real Playwright `.fill()` into a newly-focused
   // object's textarea, dispatched immediately after the triggering click
   // with no settle wait, silently wrote nothing. React state stayed "",
   // the consumer's own submit button (enablement derived from the typed
   // state) stayed permanently disabled, and the deadlock outlived the
   // transition entirely — a transient inert window became a permanent
-  // latch. Root cause (ui#p23): Scene's settle signal and
+  // latch. Root cause (design/ui/p:24): Scene's settle signal and
   // `transitionPending` clear correctly on schedule; the runner
   // (Playwright) is structurally blind to `inert` (source-verified: zero
   // references to "inert" in playwright-core's actionability code) and
   // neither waits for nor retries past it — under motion-timed inertness,
   // `.fill()` would return successfully having written nothing.
   //
-  // This test pins Option A's ruled contract (ui#31, feed #2395/#2396):
+  // This test pins Option A's ruled contract (ui/t:31, feed #2395/#2396):
   // content inertness follows focus INTENT, not motion completion, so a
   // newly-focused object's content is interactive from the moment its
   // `focused` prop flips true. The mid-transition write below lands,

@@ -1,6 +1,6 @@
 /**
  * Nothing else in this suite imports from the built dist/ output — every
- * other test resolves against src/ directly (ui#29 dispatch 2 plan
+ * other test resolves against src/ directly (ui/t:29 dispatch 2 plan
  * §Verification, "nothing in this repo tests the built dist/ today").
  * This is a deliberately minimal smoke test, not a full re-run of the
  * component suite against dist/: it exists to catch a build-shape

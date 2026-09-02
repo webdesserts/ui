@@ -4,7 +4,7 @@ import { computeFocusedContentHeight, type ObjectState, type GeometryEntry } fro
 import type { FrozenSize } from "./types";
 
 /**
- * SceneColumn's anchor-descent/geometry slice (ui#24 Cluster E extraction):
+ * SceneColumn's anchor-descent/geometry slice (ui/t:24 Cluster E extraction):
  * bulk geometry remeasurement, F9/F10/F12 scroll-anchoring compensation
  * (native-scroll-anchoring-style content-growth correction, plus intra-
  * object anchoring for a prepend inside the focused object's own interior),
@@ -26,7 +26,7 @@ import type { FrozenSize } from "./types";
  *   for rect measurements.
  * - `resizeObserverRef` — created/stored/nulled here; SceneObject's own
  *   callback ref (via SceneColumn's `observeElement`/`unobserveElement`,
- *   ui#32 Cluster 2) observes/unobserves objects on it as they genuinely
+ *   ui/t:32 Cluster 2) observes/unobserves objects on it as they genuinely
  *   attach/detach — deliberately decoupled from SceneColumn's per-render
  *   registration effect, which no longer touches the observer at all.
  * - `lastObservedSize` — written here (the ResizeObserver callback) AND by
@@ -53,7 +53,7 @@ export interface UseColumnAnchoringParams {
   columnFocused: boolean;
   /**
    * Whether this column is currently decked in-between two focused
-   * siblings (ui#32) — SceneColumn's own `inBetweenNow`/`isInBetween`
+   * siblings (ui/t:32) — SceneColumn's own `inBetweenNow`/`isInBetween`
    * expression, computed a third time here per this file's established
    * duplicate-computation idiom (see `inBetweenNow`'s own comment) rather
    * than threading position/stackDepth through as separate params. An
@@ -138,7 +138,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // `el.offsetHeight`, NOT `rect.height`. A column transitioning out of the
   // depth deck (in-between position) carries an active translateZ/scale
   // transform — the depth treatment's own perspective-projection shrink
-  // (computeDepthTreatment; ui#17 removed Motion's `layout` FLIP prop
+  // (computeDepthTreatment; ui/t:17 removed Motion's `layout` FLIP prop
   // entirely, so this is no longer compounded by a second, FLIP-driven
   // correction on top of it — the depth treatment's transform is the only
   // one left), biggest on a column's FIRST focus (no frozenSize yet, so the
@@ -161,10 +161,10 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
       const rect = el.getBoundingClientRect();
       const offsetTop = rect.top - wrapperRect.top;
       const height = el.offsetHeight;
-      // ui#21: reported by SceneObject via register(), not DOM-measured —
+      // ui/t:21: reported by SceneObject via register(), not DOM-measured —
       // see GeometryEntry's own `heightTarget` doc comment for why.
       const heightTarget = registeredHeightTargetsRef.current.get(objName);
-      // ui#17: offsetWidth, not rect.width — same H11 rationale as height
+      // ui/t:17: offsetWidth, not rect.width — same H11 rationale as height
       // above (a layout metric, immune to any transform on the element or
       // its ancestors), now load-bearing for the owned width channel's
       // target measurement, not just a defensive choice.
@@ -319,7 +319,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     const wrapperRect = wrapper?.getBoundingClientRect();
     const afterOffsetTop = anchorName ? geometryStore.current.get(anchorName)?.offsetTop : undefined;
 
-    // ui#28: set below (when intraBefore exists) — whether the currently
+    // ui/t:28: set below (when intraBefore exists) — whether the currently
     // tracked F10b candidate is still within the CURRENT scroll window.
     // Stays false (the conservative default: re-select) when there's no
     // tracked candidate to judge yet.
@@ -395,7 +395,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
         const afterIntraGlobalOffsetTop = intraBefore.el.getBoundingClientRect().top - wrapperRect.top;
         const afterIntraLocalOffsetTop = afterIntraGlobalOffsetTop - afterOffsetTop;
         const intraDelta = afterIntraLocalOffsetTop - intraBefore.offsetTop;
-        // ui#28: cheap (no extra DOM read — reuses afterIntraGlobalOffsetTop,
+        // ui/t:28: cheap (no extra DOM read — reuses afterIntraGlobalOffsetTop,
         // already measured above for the correction check), scroll-window
         // straddle test in the SAME wrapper-relative frame scrollOffsetRef/
         // viewportHeightRef are already expressed in (matches
@@ -500,13 +500,13 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
     // the object-LOCAL frame intraBefore uses only at the end, once,
     // rather than at every recursion level.
     //
-    // ui#28: this descent walks every one of the anchor object's own DOM
+    // ui/t:28: this descent walks every one of the anchor object's own DOM
     // descendants (findIntraObjectAnchorCandidates + isStickyOrFixed's
     // getComputedStyle per candidate) — O(rows), not O(registered
     // objects) like `changed` above, and it re-runs on EVERY commit with
     // no gate at all pre-fix (48 getComputedStyle + 48
     // getBoundingClientRect per row per 12-event wheel gesture on an
-    // anchor="end" column — hunt-lag round 2a, ui#o87).
+    // anchor="end" column — hunt-lag round 2a, ui/o:87).
     //
     // Gating on `changed` alone (content/registered-object geometry) is
     // UNSOUND here and was proven so empirically: a pure scroll (no
@@ -569,7 +569,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
         // Accepted bound (documented): a SECOND stationary element stacked
         // between the anchor and the insert point re-creates the
         // blindness — same class, revisit on evidence.
-        // ui#28 (criterion a18e8581): this witness pass only runs as part
+        // ui/t:28 (criterion a18e8581): this witness pass only runs as part
         // of the SAME re-selection the `needsReselect` gate above governs
         // — eliminated as a side effect whenever that gate skips, not
         // separately gated. Measured (probe-lag8 methodology, 500/1,000-
@@ -645,7 +645,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
       // it depends on the geometry store (computeTopOffset/
       // computeFocusedContentHeight both early-return with zero focused
       // objects, and computeWithinColumnDepths no longer reads the geometry
-      // store at all — ui#21 Slice 4 hygiene, see its own doc comment), so
+      // store at all — ui/t:21 Slice 4 hygiene, see its own doc comment), so
       // forcing a re-render here would be pure overhead. Worse,
       // an unfocused in-between column sits under CSS perspective/translateZ
       // depth treatment — a rect read after that transform has visually
@@ -694,7 +694,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // fires before the browser paints) so geometry is fresh for the very next
   // render — this is what removes the one-render lag that would otherwise
   // corrupt a same-commit swap-reset decision reading maxScroll. Skipped
-  // entirely for a column that's neither focused nor in-between (ui#32):
+  // entirely for a column that's neither focused nor in-between (ui/t:32):
   // such a column's width relies on a frozen snapshot (SceneColumn's own
   // `frozenSize`), not live geometryStore data, so remeasuring it on every
   // unrelated Scene-level re-render is pure waste — the shared
@@ -706,7 +706,7 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // natural width doesn't depend on focus) — starving it here left that
   // channel stuck at its mount-time value (caught by
   // tests/scene-glass-stack-deck.test.tsx's own resize-tracking test, see
-  // the ui#32 worker report for the isolation evidence). The SECOND gate
+  // the ui/t:32 worker report for the isolation evidence). The SECOND gate
   // (unchanged from before this commit) keeps the focused-only content-
   // height/geometryVersion work scoped to focused columns exactly as it
   // always was — an in-between column has zero focused objects, so

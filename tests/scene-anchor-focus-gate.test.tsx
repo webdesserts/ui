@@ -1,16 +1,16 @@
 /**
- * ui#32 fix: `useColumnAnchoring.ts`'s per-render synchronous remeasure
+ * ui/t:32 fix: `useColumnAnchoring.ts`'s per-render synchronous remeasure
  * effect (the "measure the content wrapper synchronously after each
  * render" useLayoutEffect) used to call `remeasureGeometryWithAnchorCompensation()`
  * unconditionally before checking `columnFocused` — so an UNFOCUSED column's
  * own remeasurement work still ran on every Scene-level re-render, even one
  * entirely unrelated to that column (a sibling's content changing, or any
- * other cause reaching this column's own render). ui#o91's "per-frame work
+ * other cause reaching this column's own render). ui/o:91's "per-frame work
  * touching every column regardless of focus" class.
  *
  * The gate is NOT a blanket `!columnFocused` skip — a first attempt at
  * exactly that broke tests/scene-glass-stack-deck.test.tsx's own resize-
- * tracking test (see the ui#32 worker report for the isolation evidence):
+ * tracking test (see the ui/t:32 worker report for the isolation evidence):
  * a decked (in-between) column's own columnWidthMV/computeMeasuredWidth
  * channel reads live geometryStore data regardless of focus (the column's
  * natural width doesn't depend on focus), so starving that channel left it
@@ -19,7 +19,7 @@
  * (genuinely uninvolved) skips remeasurement, an in-between (decked) one
  * still gets it despite being unfocused.
  *
- * This file pins the gate the same way ui#28's own descent gate does
+ * This file pins the gate the same way ui/t:28's own descent gate does
  * (tests/scene-anchor-descent-gate.test.tsx — same probe-lag8 methodology):
  * counting Element.prototype.getBoundingClientRect calls made specifically
  * on the target column's own elements while an unrelated sibling change
@@ -29,12 +29,12 @@
  * that scales with that number and clears RAN_THRESHOLD by a wide margin.
  *
  * ResizeObserver is stubbed out for the duration of each test (found the
- * hard way — see the ui#32 worker report): SceneObject's OWN per-render
+ * hard way — see the ui/t:32 worker report): SceneObject's OWN per-render
  * registration effect unregisters+re-registers on EVERY render (unconditional
  * by design, a SEPARATE, pre-existing mechanism), which churns the shared
  * ResizeObserver's observe/unobserve calls and independently re-fires the
  * RO callback's OWN unconditional remeasureGeometryWithAnchorCompensation()
- * call — ui#32's Cluster 2 (resizeobserver-dedup), not yet fixed, not this
+ * call — ui/t:32's Cluster 2 (resizeobserver-dedup), not yet fixed, not this
  * commit's scope. Left unstubbed, that separate call site's own ~26 calls
  * (1 wrapper + REGISTERED_OBJECT_COUNT objects) swamp this gate's own
  * signal on every "unrelated sibling re-render" scenario, since any Scene-
@@ -112,7 +112,7 @@ async function countGBCRWithin(scopeEl: Element, fn: () => Promise<void>): Promi
 }
 
 /** Runs `fn` with `window.ResizeObserver` stubbed to a no-op — see this
- * file's own header comment for why (isolates this gate from ui#32's
+ * file's own header comment for why (isolates this gate from ui/t:32's
  * separate, not-yet-fixed Cluster 2 RO-churn call site). Must be installed
  * BEFORE the component mounts: each SceneColumn instance captures the
  * constructor once, at `new ResizeObserver(...)` time. */
@@ -146,7 +146,7 @@ describe("Scene per-render remeasure focus gate (ui#32)", () => {
       // content change, but entirely unrelated to the unfocused column.
       // This forces Scene (and, empirically, every SceneColumn instance
       // including unfocused ones — memo alone doesn't fully bail here, see
-      // the ui#32 worker report) to reconcile.
+      // the ui/t:32 worker report) to reconcile.
       const gbcrCount = await countGBCRWithin(unfocusedColumn, async () => {
         await rerender(buildScene(11));
         await waitForAnimationFrame();

@@ -96,7 +96,7 @@ describe("Scene wheel input coalescing (F17 commit 2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#27: wheel catch-stop detection. A trackpad catch (finger presses down
+// ui/t:27: wheel catch-stop detection. A trackpad catch (finger presses down
 // mid-momentum) emits no event of its own — the stream just stops — so the
 // existing spring pays off the accumulated debt as if the catch never
 // happened, continuing to travel for hundreds of ms/px after input ended.
@@ -285,7 +285,7 @@ describe("Scene wheel catch-stop detection (ui#27)", () => {
     const beforeReverse = sy.get();
 
     // A sustained deliberate reverse — 10 events, -60px, 15ms apart
-    // (ui#o85's own F1 shape), asking for -600px total.
+    // (ui/o:85's own F1 shape), asking for -600px total.
     for (let i = 0; i < 10; i++) {
       fire(-60);
       await wait(15);
@@ -293,7 +293,7 @@ describe("Scene wheel catch-stop detection (ui#27)", () => {
     const { ms, final } = await settle(() => sy.get());
     const delivered = final - beforeReverse;
 
-    // Responsiveness: the counter-rebase (ui#o85 F1) means this reversal
+    // Responsiveness: the counter-rebase (ui/o:85 F1) means this reversal
     // starts chasing from the LIVE position immediately, not first
     // unwinding whatever the forward catch's own stale target still owed
     // — most of the -600px asked lands (measured against current source,

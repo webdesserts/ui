@@ -1,17 +1,17 @@
 /**
- * ui#26 — Tailwind group-namespace collision regression pin.
+ * ui/t:26 — Tailwind group-namespace collision regression pin.
  *
  * SceneObject's focus-ring anchor carried a bare Tailwind `group` class
- * (ui#21, commit 86df8f7) so its own `group-focus-visible:` ring variant
+ * (ui/t:21, commit 86df8f7) so its own `group-focus-visible:` ring variant
  * could target the object below. Tailwind's bare `group-*:` variant compiles
  * to `:where(.group):hover &` — it matches ANY ancestor with class `.group`,
  * not just the nearest one. Since the anchor wraps a SceneObject's entire
  * card and all consumer content, hovering ANYWHERE inside a SceneObject's
  * rendered card set `:hover` on the anchor, which then falsely activated any
  * unrelated consumer's own bare-group-hover pairing nested anywhere in that
- * subtree — the production symptom (feed #2360-#2363, ui#p26): hovering
+ * subtree — the production symptom (feed #2360-#2363, design/ui/p:26): hovering
  * anywhere on an agent-task chat column popped EVERY reply tooltip, not just
- * the one under the cursor. ui#26 fixed the leak by naming the anchor's
+ * the one under the cursor. ui/t:26 fixed the leak by naming the anchor's
  * group (`group/scene-object`), narrowing its variants to match only that
  * specific ancestor. This test pins the fix: a consumer's own bare
  * `group`/`group-hover:` pairing, nested inside a focused SceneObject, must

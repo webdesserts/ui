@@ -19,7 +19,7 @@ const TRIGGER_WIDTH = 280;
 // Trigger candidate class strings — byte-identical to
 // tests/visual/select-trigger-candidates.test.tsx's TRIGGER_B / PLACEHOLDER_B
 // / TRIGGER_C / TRIGGER_C_STYLE / TRIGGER_C_RESTING / TRIGGER_C_OPEN /
-// PLACEHOLDER_C, that file's permanent record of the ui#7 verdict
+// PLACEHOLDER_C, that file's permanent record of the ui/t:7 verdict
 // screenshots. Duplicated here (not imported from the test file) so this
 // page renders the exact same candidates live; both files import the same
 // shared primitives, so they stay byte-identical automatically rather than
@@ -88,7 +88,7 @@ const PLACEHOLDER_C = cn(
 
 /** Mirrors the test fixture's local CaretDownIcon (Phosphor's CaretDown path
  *  data, kept local rather than imported so both candidates render identically
- *  to what the ui#7 verdict screenshots captured). */
+ *  to what the ui/t:7 verdict screenshots captured). */
 function CaretDownIcon({ size = 12, className }: { size?: number; className?: string }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width={size} height={size} aria-hidden="true" className={className}>

@@ -8,7 +8,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Full-height rail + 2px seam recipe (ui#7 round 4) — mirrors OpenPanel in
+/** Full-height rail + 2px seam recipe (ui/t:7 round 4) — mirrors OpenPanel in
  *  select-trigger-candidates.test.tsx/SelectCandidatesPage.tsx: the
  *  first-child absolute column paints the panel's own border instead of
  *  relying on each row's fragmented resting bar; rows neutralize their

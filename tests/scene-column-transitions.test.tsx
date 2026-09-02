@@ -197,7 +197,7 @@ describe("SceneColumn vertical swap", () => {
   });
 
   test("column state attributes live on the anchor, not the column node (ui#22 wrinkle)", async () => {
-    // ui#22 §8b ruling: data-ui-scene-column-focused/-position describe column
+    // ui/t:22 §8b ruling: data-ui-scene-column-focused/-position describe column
     // STATE and stay on the in-flow ANCHOR (data-ui-scene-column-anchor) even
     // though the clean family name (data-ui-scene-column) went to the nested
     // animated column node. Deliberate asymmetry — pin it so a future refactor
@@ -330,7 +330,7 @@ describe("SceneColumn vertical swap", () => {
 
 // ---------------------------------------------------------------------------
 // Entrance geometry: newly-mounted focus swap, coincidental content height
-// (predates ui#19 — the mechanism traces to a gap in the ResizeObserver/
+// (predates ui/t:19 — the mechanism traces to a gap in the ResizeObserver/
 // per-render remeasure split, not to anything in the single-writer arc).
 //
 // Root cause (source-traced, all citations verified against 9b7f3d4):
@@ -403,7 +403,7 @@ describe("Scene entrance geometry — newly-mounted focus swap", () => {
   }
 
   // A fresh, never-swapped mount with B already the sole focused object —
-  // the "canonical top" reference. Same technique ui#19's B1-replacement
+  // the "canonical top" reference. Same technique ui/t:19's B1-replacement
   // test used (comparing against a fresh render of the equivalent final
   // state, not a hand-derived pixel value) — this sidesteps needing to
   // independently re-derive the exact expected offset and instead proves
@@ -696,7 +696,7 @@ describe("Scene centering", () => {
     const contentWrapper = column?.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
     expect(contentWrapper).not.toBeNull();
 
-    // ui#17: Motion's `style`-bound MotionValue writes (the owned width
+    // ui/t:17: Motion's `style`-bound MotionValue writes (the owned width
     // channel, mirroring topOffsetMV) are rAF-batched, not synchronous
     // within the commit that changes their target — a geometry read
     // immediately after render() can observe a stale/default value. See
@@ -751,7 +751,7 @@ describe("Scene centering", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement | null;
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes, e.g. the owned width channel — a geometry read immediately
     // after render()/rerender() can observe a stale/default value).
     await awaitStyleFlush();
@@ -798,7 +798,7 @@ describe("Scene centering", () => {
       </TestWrapper>,
     );
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render() can observe a
     // stale/default value).
     await awaitStyleFlush();
@@ -898,7 +898,7 @@ describe("Scene centering", () => {
     const wrapper = viewport.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(wrapper.style.marginTop || "0");
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render()/rerender() can
     // observe a stale/default value).
     await awaitStyleFlush();
@@ -962,7 +962,7 @@ describe("Scene first paint at rest (A4)", () => {
     const readStageLeft = () => parseFloat(window.getComputedStyle(stage).left);
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
 
-    // ui#17: Motion's rAF-driven MotionValue writes land before the
+    // ui/t:17: Motion's rAF-driven MotionValue writes land before the
     // browser's next repaint (probe-confirmed: a synchronous read right
     // after render() can see a stale/default value that never actually
     // paints — awaitStyleFlush's own doc comment has the evidence), so
@@ -1087,7 +1087,7 @@ describe("Scene first paint at rest (A4)", () => {
       ?.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const readMarginTop = () => parseFloat(window.getComputedStyle(contentWrapper).marginTop);
 
-    // ui#17: a single awaitStyleFlush (matching this file's other fixes)
+    // ui/t:17: a single awaitStyleFlush (matching this file's other fixes)
     // measured racy specifically here — StrictMode's double-invocation plus
     // a real click-driven mount interleaves the test's own rAF wait with
     // Motion's scheduled write in a way a single tick doesn't reliably
@@ -1189,10 +1189,10 @@ describe("Scene first paint at rest (A4)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#17 Slice 1 (2026-07-30, re-scoped post-ui#19): re-attempt of the same
-// instrumentation techniques the original ui#17 investigation proved out
-// (`fix/ui17-node-split`, commit 885c40d, and `scratch/ui#o9 repro package
-// for ui#17`) against TODAY's post-ui#19 code — the single-writer horizontal
+// ui/t:17 Slice 1 (2026-07-30, re-scoped post-ui/t:19): re-attempt of the same
+// instrumentation techniques the original ui/t:17 investigation proved out
+// (`fix/ui17-node-split`, commit 885c40d, and `scratch/ui/o:9 repro package
+// for ui/t:17`) against TODAY's post-ui/t:19 code — the single-writer horizontal
 // rewrite that landed since that investigation touched Scene.tsx's camera
 // channel (panOffset/cameraX), not SceneColumn's own same-node
 // `layout`+`animate` composition (the plan note's topology map confirmed
@@ -1217,8 +1217,8 @@ describe("Scene first paint at rest (A4)", () => {
 //     focus in one commit, `chat` the always-focused bystander after them in
 //     flex order): 10/10 runs produced a frame-to-frame raw-transform
 //     discontinuity of ~68-80px/ms (a ~570-600px swing within ~8-9ms) — the
-//     same signature 885c40d measured pre-ui#19 (there: ~35-39px/ms against
-//     a smaller-amplitude fixture), now against post-ui#19 production code.
+//     same signature 885c40d measured pre-ui/t:19 (there: ~35-39px/ms against
+//     a smaller-amplitude fixture), now against post-ui/t:19 production code.
 //   - Clicks-land (SiblingReflowDemo geometry, list/detail/chat, "chat" the
 //     bystander): 10/10 runs mistargeted the click onto the content
 //     wrapper `div` instead of the button — the same class of miss the
@@ -1389,7 +1389,7 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
     // the observed disposition-4 snap rate (~57-71px/ms measured this
     // session on this exact fixture).
     //
-    // Passing (ui#17 Slice 1, anchor/object restructure): disposition 4
+    // Passing (ui/t:17 Slice 1, anchor/object restructure): disposition 4
     // (the depth-deck flex<->absolute position-mode transition) is fixed —
     // the anchor stays a permanent zero-footprint in-flow node (never
     // leaves flex), and the visible glass OBJECT's own position-mode flip
@@ -1422,7 +1422,7 @@ describe("Column transition gate: mid-flight corruption (ui#o9), production-shap
 });
 
 // ---------------------------------------------------------------------------
-// ui#17 Slice 1: the "clicks-land" criterion, ported unchanged (per the
+// ui/t:17 Slice 1: the "clicks-land" criterion, ported unchanged (per the
 // plan's explicit instruction) from `885c40d`'s FINAL (round-3) shape — a
 // user tracking a target button with their eyes aims a click at its
 // legitimate, pre-transition (at-rest) screen position, and the target
@@ -1512,9 +1512,9 @@ describe("Column transition gate: clicks land during a sibling focus toggle (ui#
     await wait(100); // mid-sweep, deliberately NOT settled
     toggleBtn.click();
 
-    // ui#20 remap: a fixed 600ms wait (the pre-ui#20 value) is no longer
+    // ui/t:20 remap: a fixed 600ms wait (the pre-ui/t:20 value) is no longer
     // reliably long enough here — the interrupted-then-resettled double
-    // toggle now also has to clear Scene-wide `transitionPending` (ui#20's
+    // toggle now also has to clear Scene-wide `transitionPending` (ui/t:20's
     // scene-wide inertness gate, which the settle counter's own claim/
     // retire sequence for this exact interrupted-transition shape can take
     // a little past 600ms to reach zero on), not just visually reach its

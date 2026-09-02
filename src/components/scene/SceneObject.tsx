@@ -23,7 +23,7 @@ export interface SceneObjectProps {
    * shift) is entirely app-side, keyed off this prop's rendered attribute
    * contract (`data-ui-scene-focused`) — the library only owns interactivity (an
    * unfocused object's content receives `inert` for free) and never
-   * guesses at a consumer's own "disabled" visual treatment (ui#o48).
+   * guesses at a consumer's own "disabled" visual treatment (ui/o:48).
    */
   focused: boolean;
   children: React.ReactNode;
@@ -58,12 +58,12 @@ export interface SceneObjectProps {
   resetAlignment?: "top" | "center";
 }
 
-// Internal architecture note (ui#21 anchor/object split — the vertical,
-// per-object port of ui#17's anchor/column pattern; see `plans/ui#21
+// Internal architecture note (ui/t:21 anchor/object split — the vertical,
+// per-object port of ui/t:17's anchor/column pattern; see `plans/ui/t:21
 // Within-Column Deck Rework Plan (2026-07-31)` for the full design):
 // SceneObject's own outer node is a permanent in-flow ANCHOR whose HEIGHT
 // footprint springs natural-height <-> 0 (never flips position mode — no
-// flip-back, mirrors ui#17's column anchor exactly). A nested OBJECT
+// flip-back, mirrors ui/t:17's column anchor exactly). A nested OBJECT
 // (`data-ui-scene-object`) carries the actual depth visual treatment
 // (opacity/filter/z) and the peek-offset TRANSFORM (`y`) — the object is
 // what flips position:relative <-> position:absolute, with its own `top`
@@ -100,7 +100,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // Ref mirror of `column`, kept fresh every render (same idiom as
   // useColumnAnchoring's own objectStatesRef/objectGapRef) so the stable
   // callback ref below always reads the current ColumnContext value instead
-  // of a stale closure — see setOuterRef's own comment (ui#32 Cluster 2).
+  // of a stale closure — see setOuterRef's own comment (ui/t:32 Cluster 2).
   const columnRef = useRef(column);
   columnRef.current = column;
   const { peekOffset, duration, stiffness, damping, slowMo } = useSceneConfig();
@@ -111,12 +111,12 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const transition = computeSceneTransition({ duration, slowMo, stiffness, damping });
   const objectGap = column?.objectGap ?? 0;
 
-  // ui#20: true while a Scene-wide focus transition (mount entrance, or any
+  // ui/t:20: true while a Scene-wide focus transition (mount entrance, or any
   // focus-arrangement change) hasn't yet settled — see
   // TransitionPendingContext's own doc comment for the full mechanism,
   // including the deliberate ambient-overlap tradeoff. Drives `activatable`
   // below and the two-phase keyboard-focus-delivery effect further down;
-  // content inertness stopped reading this signal under Option A (ui#31 —
+  // content inertness stopped reading this signal under Option A (ui/t:31 —
   // see the `inert` JSX comment below). Defaults to `false` outside a
   // Scene (standalone SceneObject usage), matching this component's
   // existing null-outside-Scene contract for every other Scene-provided
@@ -133,13 +133,13 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // D3: an unfocused object with an onActivate handler doubles as a
   // keyboard-reachable activation control (Enter/Space), not just a mouse
   // click target — gated on onActivate presence so a plain non-activatable
-  // unfocused object never becomes an unexpected tab stop. ui#20 adds
+  // unfocused object never becomes an unexpected tab stop. ui/t:20 adds
   // `!transitionPending`: while a focus transition is already in flight
   // anywhere in the scene, activation is blocked so a second click can't
   // retarget focus again mid-transition — a race-prevention concern,
   // distinct from content inertness (which gates on `!focused` alone since
-  // ui#31/Option A; see the `inert` JSX comment below). This single flag
-  // drives tabIndex/role/onKeyDown AND (ui#20 F1) the JSX onClick prop
+  // ui/t:31/Option A; see the `inert` JSX comment below). This single flag
+  // drives tabIndex/role/onKeyDown AND (ui/t:20 F1) the JSX onClick prop
   // below, covering both pointer and keyboard activation from one gate.
   const activatable = !focused && Boolean(onActivate) && !transitionPending;
 
@@ -151,7 +151,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const sandwichedNow = Boolean(withinDepthInfo && withinDepth);
 
   // ---------------------------------------------------------------------
-  // Height channel (ui#21 delta claim review ruling): mirrors ui#17's
+  // Height channel (ui/t:21 delta claim review ruling): mirrors ui/t:17's
   // widthMV/widthOverrideActive pattern exactly — pixel override mid-
   // spring, released to live CSS at rest while in-flow (focused or
   // otherwise not sandwiched), permanent 0-target while sandwiched (no
@@ -420,7 +420,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // z-index channel (replaces the object-level translateZ/zMV channel a
   // prior iteration of this file used). Object-level 3D depth-sort never
   // actually reached the object — a multi-round defeat-check investigation
-  // (ui#o32, the D-series record) found three flat transform-style
+  // (ui/o:32, the D-series record) found three flat transform-style
   // intermediates between here and the nearest preserve-3d ancestor, and
   // even an isolated probe that forced the chain past that didn't restore
   // genuine cross-sibling z-sort. z-index sidesteps the whole 3D-context
@@ -507,7 +507,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // Peek offset (forecast E4 — required fix, not a toss-up): lives ENTIRELY
   // in the object's own `y` TRANSFORM, never in a layout property (`top`/
   // `left`) — a layout property Motion can't reliably zero-pixel-flip the
-  // way it can a transform, mirroring ui#17's own objectAnimateX/inBetweenY
+  // way it can a transform, mirroring ui/t:17's own objectAnimateX/inBetweenY
   // precedent exactly. Only the DEPTH matters here, not a cross-object
   // measured anchor position: once every sandwiched object gets its own
   // zero-footprint in-flow anchor, its own local origin already converges
@@ -516,7 +516,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   const peekY = sandwichedNow ? -peekOffset * withinDepthInfo!.depth : 0;
 
   // Register this object's DOM element, focus state, and height-channel
-  // target with the parent SceneColumn so the column can track it (ui#21:
+  // target with the parent SceneColumn so the column can track it (ui/t:21:
   // heightTarget added — see GeometryEntry's own doc comment for why this
   // must be REPORTED, not DOM-measured, by the column). useLayoutEffect
   // fires bottom-up (children before parent), ensuring registration
@@ -550,11 +550,11 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     return column.register(name, outerRef.current, focused, heightOverrideActive ? heightTarget : undefined);
   });
 
-  // ui#20 F2 two-phase focus: on focus-gain, keyboard focus lands on the
+  // ui/t:20 F2 two-phase focus: on focus-gain, keyboard focus lands on the
   // ANCHOR immediately (phase 1) — the anchor (outerRef) sits OUTSIDE the
   // content wrapper, so it's always a safe, static target. (Contrast the
-  // pre-ui#20 single-phase version, which searched for a focusable
-  // descendant right away — under ui#20's original three-state contract
+  // pre-ui/t:20 single-phase version, which searched for a focusable
+  // descendant right away — under ui/t:20's original three-state contract
   // that descendant sat inside a wrapper that was inert for the whole
   // in-transition window, so an immediate search would either find
   // nothing or focus an `inert`-but-technically-targetable element.) Once
@@ -562,7 +562,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // for THIS SAME focus-gain episode, phase 2 moves focus to the first
   // focusable descendant. This DOM keyboard-focus-delivery timing is
   // independent of content inertness (which gates on `focused` alone
-  // since ui#31/Option A) and is deliberately left as-is; it does open an
+  // since ui/t:31/Option A) and is deliberately left as-is; it does open an
   // edge case where a user already interacting with content via
   // mouse/typed input before settle has focus silently redirected once
   // phase 2 fires — known, not addressed by this change.
@@ -605,17 +605,17 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     // anchor from phase 1 above — its permanent tabIndex={-1} baseline
     // (below) already makes that a valid, self-contained rest state (no
     // second `outerRef.current.focus()` call needed here, unlike the
-    // pre-ui#20 single-phase version).
+    // pre-ui/t:20 single-phase version).
     focusable?.focus({ preventScroll: true });
   }, [focused, transitionPending, transitionPendingRef]);
 
   // The anchor is ALWAYS in flow (position:relative) — no more flip to
-  // position:absolute here (ui#21: that flip moves to the object below).
+  // position:absolute here (ui/t:21: that flip moves to the object below).
   // Standalone usage (no column) gets the same single relative style it
   // always did.
   const inColumnStyle: React.CSSProperties | undefined = column ? { position: "relative" } : undefined;
 
-  // Callback ref (ui#32 Cluster 2), NOT the registration effect above: joins
+  // Callback ref (ui/t:32 Cluster 2), NOT the registration effect above: joins
   // the column's shared ResizeObserver on genuine DOM attach and leaves it
   // on genuine detach, fully decoupled from render cadence — React invokes
   // a callback ref exactly on mount (with the element) and unmount (with
@@ -659,7 +659,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           }
         : {})}
       className={cn(
-        // Author-drawn :focus-visible ring (ui#21 delta claim review,
+        // Author-drawn :focus-visible ring (ui/t:21 delta claim review,
         // object-placement ruling — Michael: "on the card makes sense").
         // FOCUS SEMANTICS live here (this is the tabIndex/actual DOM focus
         // target) — the ring itself now PAINTS on the object below, via
@@ -682,8 +682,8 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         // `group/scene-object` has no visual effect of its own, it only
         // makes this element a valid `group-*/scene-object:` target for
         // the object below (named to avoid colliding with a consumer's
-        // own bare `group`/`group-hover:` pairing nested inside — ui#26,
-        // ui#p26).
+        // own bare `group`/`group-hover:` pairing nested inside — ui/t:26,
+        // design/ui/p:26).
         "outline-none group/scene-object",
         className,
       )}
@@ -699,7 +699,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         marginBottom: duration === 0 ? marginBottomTarget : marginBottomMV,
         ...style,
       }}
-      // ui#20 F1: routes through `activatable` (not the bare `!focused`
+      // ui/t:20 F1: routes through `activatable` (not the bare `!focused`
       // this used before) — a SECOND gating site alongside tabIndex/role/
       // onKeyDown above, since this prop sits outside the `activatable`
       // spread. Without this, a real dispatched pointer click during a
@@ -742,7 +742,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           // --scene-focus-ring-offset (default 0), and
           // --scene-focus-ring-radius (default 0 — square; the library
           // doesn't know a consumer's own card rounding, so it never
-          // guesses one, mirroring ui#o28's overridable-default contract
+          // guesses one, mirroring ui/o:28's overridable-default contract
           // — see the object's own borderRadius style declaration below,
           // not gated on focus since the object carries no background/
           // border/overflow of its own in any state, verified at source,
@@ -792,7 +792,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           width: "100%",
           // Establishes a block formatting context in BOTH position modes
           // (mirrors SceneColumn's own data-ui-scene-column exactly, same
-          // ui#17 margin-collapse trap the plan explicitly carries forward
+          // ui/t:17 margin-collapse trap the plan explicitly carries forward
           // — a child's own top margin would otherwise collapse through
           // this object while position:relative, shifting its own top-edge
           // position, then NOT collapse once position:absolute, a real
@@ -800,7 +800,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
           display: "flow-root",
           // Explicit height in BOTH position modes, not just while
           // sandwiched — without this the object's own box SHAPE differs
-          // structurally between modes, not just numerically (same ui#17
+          // structurally between modes, not just numerically (same ui/t:17
           // trap). Gated on !heightOverrideActive (settled), NOT
           // !sandwichedNow (flipped) — a first attempt gating on
           // sandwichedNow directly showed a real 96px height discontinuity

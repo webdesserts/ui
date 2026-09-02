@@ -135,7 +135,7 @@ export interface SceneColumnProps {
  * focused if any of its children are focused.
  *
  * Every column stays IN the Scene's flex row regardless of focus state
- * (ui#17 never-leave-the-flow — no `position: absolute` anywhere in this
+ * (ui/t:17 never-leave-the-flow — no `position: absolute` anywhere in this
  * component, and no Motion `layout` FLIP prop either). Focused columns are
  * `flex: 0 1 auto`, sized to content. Unfocused columns capture their last
  * known size via ResizeObserver and freeze it as an explicit inline width
@@ -178,7 +178,7 @@ function SceneColumnImpl({
   const stackDepths = useContext(StackDepthContext);
   const stackDepth = stackDepths.get(name) ?? 0;
   const firstPaintRef = useContext(SceneFirstPaintContext);
-  // ui#19 slice (c), A2 column-first-claim: null only if this column somehow
+  // ui/t:19 slice (c), A2 column-first-claim: null only if this column somehow
   // rendered outside a Scene (shouldn't happen in practice) — guarded
   // defensively at each call site below rather than assumed non-null.
   const panControl = useContext(PanControlContext);
@@ -186,7 +186,7 @@ function SceneColumnImpl({
   // channel registration further down (topOffsetMV, widthMV, marginMV,
   // columnWidthMV, zMV) needs the SAME instance — a context read, so calling
   // it twice would be harmless but redundant; threaded through as a param
-  // instead (ui#24 Cluster C extraction).
+  // instead (ui/t:24 Cluster C extraction).
   const motionSeam = useMotionSeam();
 
   // duration=0 → instant transitions for tests; otherwise use configured spring.
@@ -209,7 +209,7 @@ function SceneColumnImpl({
   // width-channel/zMV drive gates all reflect whether settling had ALREADY
   // happened as of the PREVIOUS render — the render where it first happens
   // must still count as "not yet settled" so its own value commits instantly
-  // rather than springing from a placeholder. ui#17 criterion 5: columnTransition
+  // rather than springing from a placeholder. ui/t:17 criterion 5: columnTransition
   // (marginTopTransition's own sibling) no longer consumes this — see its own
   // declaration comment for why.
   //
@@ -226,7 +226,7 @@ function SceneColumnImpl({
   // registration with Scene below; the existing geometry/freeze pipeline
   // (deriveColumnFocused/deriveObjectStates prop walk) is untouched.
   const registeredObjectFocusRef = useRef<Map<string, boolean>>(new Map());
-  // Registered SceneObjects' own height-channel targets (ui#21) — parallel
+  // Registered SceneObjects' own height-channel targets (ui/t:21) — parallel
   // to registeredEls, REPORTED by each SceneObject (not DOM-measured here —
   // see GeometryEntry's own `heightTarget` doc comment for why remeasureGeometry
   // must consume this rather than reading offsetHeight on the same node the
@@ -243,7 +243,7 @@ function SceneColumnImpl({
   // The ResizeObserver instance shared by every registered object element
   // plus colRef itself. Created once on mount; membership (join/leave) is
   // driven by SceneObject's own callback ref via observeElement/
-  // unobserveElement below (ui#32 Cluster 2) — keyed to genuine DOM
+  // unobserveElement below (ui/t:32 Cluster 2) — keyed to genuine DOM
   // attach/detach, not to register()'s per-render invocation.
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -253,7 +253,7 @@ function SceneColumnImpl({
   // Content height at the time the column lost focus, used for vertical
   // centering of unfocused columns (so they maintain consistent positioning).
   const [frozenContentHeight, setFrozenContentHeight] = useState(0);
-  // ui#17 never-leave-the-flow: a column that mounts already in-between
+  // ui/t:17 never-leave-the-flow: a column that mounts already in-between
   // (never focused — frozenSize is only ever set on a genuine focus-loss
   // transition, see wasEverFocused below) has no frozen width to pin its
   // content wrapper to. Captured by a deferred-measurement effect further
@@ -274,7 +274,7 @@ function SceneColumnImpl({
   const effectiveViewportHeight = viewportHeight - padding * 2;
 
   // A4 first-paint gate (continued from columnGeometryWasSettled's decl
-  // above, ui#20 criterion 6: useSettledValue) — the StrictMode double-
+  // above, ui/t:20 criterion 6: useSettledValue) — the StrictMode double-
   // invocation rationale for reading the PRE-mutation value here and only
   // ever calling checkColumnGeometrySettled from a layout effect now lives
   // on that hook's own doc comment.
@@ -284,7 +284,7 @@ function SceneColumnImpl({
 
   // Vertical scroll: the full wheel/keyboard/scrollbar/fling write path,
   // maxScroll/pin-state tracking, and the declarative scrollTo effect —
-  // extracted to useColumnScroll (ui#24 Cluster C). Called here, before the
+  // extracted to useColumnScroll (ui/t:24 Cluster C). Called here, before the
   // focus/frozen-size cluster and useColumnAnchoring's own call below, so
   // this hook's internal effects (registry, keyboard, scrollTo — all
   // passive) register in the SAME relative position (before those two) they
@@ -339,7 +339,7 @@ function SceneColumnImpl({
   // starting pointer position and scroll offset at handleContentPointerDown
   // time; isDragging gates handleContentPointerMove. dragStartX (F13 commit
   // 1) was originally needed only for direction disambiguation
-  // (classifyTouchGestureDirection) — ui#19 slice (c) ALSO uses it as the
+  // (classifyTouchGestureDirection) — ui/t:19 slice (c) ALSO uses it as the
   // 1:1 tracking origin once a gesture is decided "horizontal" (A2
   // column-first-claim: this column's own triad keeps tracking instead of
   // releasing to native, see handleContentPointerMove below).
@@ -347,7 +347,7 @@ function SceneColumnImpl({
   const dragStartX = useRef(0);
   const dragStartOffset = useRef(0);
   const isDragging = useRef(false);
-  // ui#19 slice (c): panOffsetRef's value (read via PanControlContext's
+  // ui/t:19 slice (c): panOffsetRef's value (read via PanControlContext's
   // getPanOffset) at handleContentPointerDown time — the 1:1 horizontal
   // tracking origin, mirroring dragStartOffset's own role for the vertical
   // axis exactly.
@@ -368,12 +368,12 @@ function SceneColumnImpl({
   // matters. Reset at every handleContentPointerDown; pushed to by every
   // handleContentPointerMove; consumed once, at release, by
   // handleContentPointerUp. Vertical-axis samples only (`offset` =
-  // scrollOffset) — ui#19 slice (c) adds a SEPARATE ring buffer for
+  // scrollOffset) — ui/t:19 slice (c) adds a SEPARATE ring buffer for
   // horizontal panning below, since mixing the two axes' offsets in one
   // buffer would corrupt computeReleaseVelocity's delta/dt math for
   // whichever axis didn't actually move.
   const velocitySamplesRef = useRef<VelocitySample[]>([]);
-  // ui#19 slice (c): horizontal twin of velocitySamplesRef — `offset` here
+  // ui/t:19 slice (c): horizontal twin of velocitySamplesRef — `offset` here
   // is panOffsetRef's value, not scrollOffset. Same reset/push/consume
   // lifecycle, scoped to gestures touchOwnershipRef decides "horizontal".
   const panVelocitySamplesRef = useRef<VelocitySample[]>([]);
@@ -386,7 +386,7 @@ function SceneColumnImpl({
 
   // Compute depth info for unfocused objects sandwiched between focused siblings.
   // Used to give them peekable depth-card treatment instead of hiding them.
-  // NOT memoized (ui#32): an early memoization attempt (a name:focused
+  // NOT memoized (ui/t:32): an early memoization attempt (a name:focused
   // fingerprint of objectStates, matching what computeWithinColumnDepths
   // itself reads) broke within-column-deck-after-focus-toggle
   // (tests/visual/scene-animation.test.tsx) and was reverted out of
@@ -449,7 +449,7 @@ function SceneColumnImpl({
   // widthTarget's frozenSize?.width branch stays undefined). A never-focused
   // IN-BETWEEN column is the one exception that still needs sizing without
   // ever having been focused — see neverFocusedNaturalWidth's own comment
-  // (ui#17) for that deferred-measurement mechanism.
+  // (ui/t:17) for that deferred-measurement mechanism.
   const wasEverFocused = useRef(columnFocused);
 
   // True only on the very first render. Used to detect a freshly mounted
@@ -526,7 +526,7 @@ function SceneColumnImpl({
     }
   }, [columnFocused]);
 
-  // ui#17 never-leave-the-flow: deferred natural-width capture for a
+  // ui/t:17 never-leave-the-flow: deferred natural-width capture for a
   // column that mounts already in-between and has never been focused (no
   // frozenSize to pin its content wrapper to — see neverFocusedNaturalWidth's
   // own declaration comment; real scenario, not hypothetical — mirrors
@@ -565,7 +565,7 @@ function SceneColumnImpl({
 
   // Geometry remeasurement, F9/F10/F12 scroll-anchoring compensation, and
   // the shared ResizeObserver + per-render remeasure effects that drive
-  // them — extracted to useColumnAnchoring (ui#24 Cluster E). Called here,
+  // them — extracted to useColumnAnchoring (ui/t:24 Cluster E). Called here,
   // after the focus/frozen-size cluster above and before the swap-reset
   // effect below, so this hook's two internal effects (the ResizeObserver
   // useEffect and the per-render useLayoutEffect) register in the SAME
@@ -574,7 +574,7 @@ function SceneColumnImpl({
   // hooks are inserted at its call site.
   //
   // isInBetweenForAnchoring duplicates inBetweenNow/isInBetween's own
-  // expression (declared later in this file, ui#32) rather than reordering
+  // expression (declared later in this file, ui/t:32) rather than reordering
   // those declarations up here — same tradeoff F5 item 2's columnAnimateX
   // comment and inBetweenNow's own comment already document for this file.
   const isInBetweenForAnchoring = !columnFocused && position === "in-between" && stackDepth > 0;
@@ -820,7 +820,7 @@ function SceneColumnImpl({
   const marginTopTransition =
     firstPaintRef.current || !columnGeometryWasSettled ? { duration: 0 } : transition;
 
-  // ui#17 criterion 5 (re-derived, not copied — Motion's `layout` prop is
+  // ui/t:17 criterion 5 (re-derived, not copied — Motion's `layout` prop is
   // gone from this node): F7 item 2's original documented reason for this
   // gate — Motion's `layout` prop snapshotting a stale, mid-settle
   // getBoundingClientRect() and FLIP-animating a spurious correction once
@@ -859,7 +859,7 @@ function SceneColumnImpl({
   // object's DOM element, focus state, and height-channel target in the
   // maps below every render (unconditional-per-render, mirrors the
   // useLayoutEffect that calls this in SceneObject.tsx). Does NOT touch the
-  // shared ResizeObserver (ui#32 Cluster 2) — RO membership is keyed to
+  // shared ResizeObserver (ui/t:32 Cluster 2) — RO membership is keyed to
   // genuine DOM attach/detach via observeElement/unobserveElement below,
   // called from SceneObject's own callback ref, not from this per-render
   // effect. Calling observe()/unobserve() here on every render (the pre-fix
@@ -877,7 +877,7 @@ function SceneColumnImpl({
     };
   }, []);
 
-  // Shared ResizeObserver membership (ui#32 Cluster 2) — keyed to genuine
+  // Shared ResizeObserver membership (ui/t:32 Cluster 2) — keyed to genuine
   // DOM element identity via SceneObject's own callback ref, which fires
   // exactly on attach (mount, or an element swap) and detach (unmount),
   // never on an ordinary re-render. A freshly mounted column's own initial
@@ -906,7 +906,7 @@ function SceneColumnImpl({
     const el = colRef.current;
     if (!el || !registerColumnWithScene) return;
     const focused = Array.from(registeredObjectFocusRef.current.values()).some(Boolean);
-    // ui#20: registry-derived (registeredObjectFocusRef), not the top-level
+    // ui/t:20: registry-derived (registeredObjectFocusRef), not the top-level
     // prop-walk `objectStates` — same S6 registration-architecture reason
     // `focused` above uses the registry: this stays correct regardless of
     // Fragment-wrapping or a custom component returning a SceneObject.
@@ -967,7 +967,7 @@ function SceneColumnImpl({
   useLayoutEffect(() => {
     if (topOffset === topOffsetTargetRef.current && !topOffsetOwnedAnimation.durationJustBecameZero) return;
     topOffsetTargetRef.current = topOffset;
-    // ui#33: duration===0 now shares the jump() branch below instead of a
+    // ui/t:33: duration===0 now shares the jump() branch below instead of a
     // raw .set() — .set() never calls .stop() (probe-confirmed at source),
     // so a live duration flip to 0 mid-spring never stopped the in-flight
     // animate() call or retired the settle counter, leaving both stuck.
@@ -989,7 +989,7 @@ function SceneColumnImpl({
   const composedTop = useTransform<number, number>([topOffsetMV, scrollY], ([t, s]) => -(t + s));
 
   // ---------------------------------------------------------------------
-  // ui#17: owned WIDTH channel, replacing Motion's `layout` FLIP for this
+  // ui/t:17: owned WIDTH channel, replacing Motion's `layout` FLIP for this
   // dimension. `layout` faked width changes via a `transform: scale()`
   // interpolation — proven (probe round, 2026-07-30) to re-snapshot
   // incorrectly whenever a second layout-affecting commit interrupts an
@@ -1009,10 +1009,10 @@ function SceneColumnImpl({
   // is — `frozenSize.height` (captured while stretched-focused) equals
   // `effectiveViewportHeight` (the stretch target) by construction in the
   // common case, so there is nothing to interpolate. An owned height
-  // channel was built, measured, and deliberately deleted (ui#17 gate,
+  // channel was built, measured, and deliberately deleted (ui/t:17 gate,
   // 2026-07-30) once this was confirmed — see outerStyle/inBetweenStyle
   // below for where the frozen height is applied instead (a static value,
-  // matching the pre-ui#17 mechanism, unchanged for this one dimension).
+  // matching the pre-ui/t:17 mechanism, unchanged for this one dimension).
   //
   // Target while FOCUSED: the widest focused object's own measured width
   // (geometryStore, computeFocusedWidth). Target while UNFOCUSED: the
@@ -1021,7 +1021,7 @@ function SceneColumnImpl({
   // never "releases" to natural sizing.
   // ---------------------------------------------------------------------
   const focusedWidthTarget = computeFocusedWidth(objectStates, geometryStore.current);
-  // Glass-stack deck (ui#17): this OUTER node is a PERMANENT zero-footprint
+  // Glass-stack deck (ui/t:17): this OUTER node is a PERMANENT zero-footprint
   // in-flow ANCHOR for an in-between column, not a visually-narrowed
   // sliver. Its footprint springs naturalWidth -> 0 and STAYS at 0 forever
   // once settled — there is no flip back to full width anywhere in this
@@ -1191,7 +1191,7 @@ function SceneColumnImpl({
   //   - Refocus (transient): while focused AND the ANCHOR's OWN width
   //     channel is still mid-spring (widthOverrideActive's own condition
   //     for the focused side, !widthSettled) — this is the fix for the
-  //     refocus-direction width-source asymmetry (ui#17 Slice 1 close-
+  //     refocus-direction width-source asymmetry (ui/t:17 Slice 1 close-
   //     out): without this, the column had NO override at all on refocus
   //     and fell back to filling an anchor still springing from its
   //     decked 0 footprint, producing a real (measured ~175px) width
@@ -1220,7 +1220,7 @@ function SceneColumnImpl({
   // sliver container. Staying position:relative — rather than exiting
   // flow via position:absolute — is what lets the owned footprint-width
   // channel spring this column's flow contribution down to zero frame by
-  // frame, so a sibling reflowing past it (the ui#o9 bystander problem)
+  // frame, so a sibling reflowing past it (the ui/o:9 bystander problem)
   // sees a smooth reshape instead of the column vanishing from flow in a
   // single commit. Deliberately NO overflow:clip (and no explicit width
   // binding here at all, see the style prop below) — the actual glass
@@ -1239,7 +1239,7 @@ function SceneColumnImpl({
 
   // Outer unfocused columns stay in the flex row with their frozen size so the
   // Camera can pan past them. No opacity:0 — the viewport clips visibility.
-  // Frozen width is applied by the owned width channel below (ui#17) —
+  // Frozen width is applied by the owned width channel below (ui/t:17) —
   // single-writer rule, not written here directly. Frozen height stays a
   // static value here — see inBetweenStyle's comment above.
   const outerStyle: React.CSSProperties = {
@@ -1350,7 +1350,7 @@ function SceneColumnImpl({
   // `x` target (always 0 — the anchor never otherwise translates, only
   // the column does, via `columnAnimateX`) — the same x transform channel
   // `animate` always drives, not Motion's `layout` FLIP prop (removed
-  // from this node entirely, ui#17; this entrance slide never depended on
+  // from this node entirely, ui/t:17; this entrance slide never depended on
   // it).
   // When duration=0 (tests), motion skips the initial state immediately.
   //
@@ -1385,7 +1385,7 @@ function SceneColumnImpl({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!columnFocused || !isScrollable) return;
       if (e.pointerType !== "touch" && e.pointerType !== "pen") return;
-      // ui#19 slice (c), A2 column-first-claim: this column's own triad is
+      // ui/t:19 slice (c), A2 column-first-claim: this column's own triad is
       // now the sole consumer for this gesture, on EITHER axis (it decides
       // vertical-vs-horizontal itself below, and never hands off mid-
       // gesture) — stopPropagation so Scene's net-new viewport-level touch
@@ -1402,7 +1402,7 @@ function SceneColumnImpl({
       // samples left over from a PRIOR drag (computeReleaseVelocity has no
       // other way to know they're stale).
       velocitySamplesRef.current = [];
-      // ui#19 slice (c): horizontal twin — same rationale, and the 1:1
+      // ui/t:19 slice (c): horizontal twin — same rationale, and the 1:1
       // tracking origin for whichever axis this gesture decides.
       panVelocitySamplesRef.current = [];
       dragStartPanOffset.current = panControl?.getPanOffset() ?? 0;
@@ -1432,7 +1432,7 @@ function SceneColumnImpl({
       // it no-longer-active so a LATER compensation event doesn't try to
       // re-fling something that's no longer running).
       flingActiveRef.current = false;
-      // ui#27: same interruption — a touch grab supersedes any wheel stream
+      // ui/t:27: same interruption — a touch grab supersedes any wheel stream
       // a pending cliff timer was watching (the jump above already resyncs
       // the model this handler's own way); a stale timer must not fire a
       // later jump into whatever this touch gesture leaves behind. Resets
@@ -1498,12 +1498,12 @@ function SceneColumnImpl({
         // accumulated delta immediately, same as every subsequent move.
       }
 
-      // ui#19 slice (c), A2 column-first-claim: horizontal ownership keeps
+      // ui/t:19 slice (c), A2 column-first-claim: horizontal ownership keeps
       // tracking (an X-variant of the 1:1 finger tracking below) and drives
       // panOffset through the shared clamp+drive path, on EVERY move this
       // gesture decided "horizontal" (not just the one that decided it) —
       // this column's own triad never releases to native anymore (the
-      // pre-ui#19 behavior; there is no native horizontal scroll left to
+      // pre-ui/t:19 behavior; there is no native horizontal scroll left to
       // release to under overflow-x:clip).
       if (touchOwnershipRef.current === "horizontal") {
         if (!panControl) return;
@@ -1559,7 +1559,7 @@ function SceneColumnImpl({
       isDragging.current = false;
       (e.target as HTMLDivElement).releasePointerCapture(e.pointerId);
 
-      // ui#19 slice (c), A2 column-first-claim: a gesture this column's
+      // ui/t:19 slice (c), A2 column-first-claim: a gesture this column's
       // triad decided "horizontal" releases through the shared pan fling
       // path instead of the column's own vertical applyScrollCommand —
       // never both (one classifier decision per gesture, per axis).
@@ -1629,7 +1629,7 @@ function SceneColumnImpl({
     return () => el.removeEventListener("touchmove", handleNativeTouchMove);
   }, [columnFocused, isScrollable]);
 
-  // NOT stabilized (ui#32): `register`/`observeElement`/`unobserveElement`
+  // NOT stabilized (ui/t:32): `register`/`observeElement`/`unobserveElement`
   // are already useCallback([])-stable and `objectGap` is a primitive, but
   // `withinColumnDepths` above is currently left unmemoized (its own
   // comment explains the caution and the reviewed non-reproduction), so
@@ -1799,7 +1799,7 @@ function SceneColumnImpl({
             // previously MotionValue-bound style key on its own when that
             // key stops appearing in the style object; the last pixel
             // value it wrote stays stuck in the DOM forever (found and
-            // reference-fixed in an earlier ui#17 spike investigation of
+            // reference-fixed in an earlier ui/t:17 spike investigation of
             // this exact width-channel family). Writing "auto" explicitly
             // is a real style write Motion still applies, so it actually
             // overwrites the stale pixel rather than silently leaving it.
@@ -1931,7 +1931,7 @@ function SceneColumnImpl({
   );
 }
 
-// React.memo (ui#32): protects against prop-driven re-renders now that
+// React.memo (ui/t:32): protects against prop-driven re-renders now that
 // Scene.tsx's context values are stabilized (§2/§4 of the plan — memo alone
 // does nothing for context-driven re-renders, and context stabilization
 // alone doesn't stop prop-identical re-renders, so both land together).

@@ -536,7 +536,7 @@ describe("Scene padding cluster (S6)", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     const content = getByTestId("content").element() as HTMLElement;
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render() can observe a
     // stale/default value).
     await awaitStyleFlush();
@@ -566,7 +566,7 @@ describe("Scene padding cluster (S6)", () => {
     const { rerender, getByTestId } = await render(build(true));
     await rerender(build(false));
     await waitForAnimationFrame();
-    // ui#17: a single tick measured racy here — escalating to a second per
+    // ui/t:17: a single tick measured racy here — escalating to a second per
     // awaitStyleFlush's own documented double-rAF fallback.
     await awaitStyleFlush();
 
@@ -580,7 +580,7 @@ describe("Scene padding cluster (S6)", () => {
     // the same rationale applied to the x axis).
     const frozenHeight = parseFloat(middleCol.style.height || "0");
     expect(frozenHeight).toBeGreaterThan(0);
-    // ui#17: without `layout`, Motion writes this transform as separate
+    // ui/t:17: without `layout`, Motion writes this transform as separate
     // translateX()/translateZ() functions and OMITS a zero-valued
     // translateY entirely (with `layout` present, it always used the
     // translate3d(x, y, z) form, including an explicit 0px for y) —
@@ -724,7 +724,7 @@ describe("Scene padding cluster (S6)", () => {
       const leftInset = col1.getBoundingClientRect().left - vpRect.left;
       expect(leftInset).toBeCloseTo(padding, 0);
 
-      // At maximum pan (ui#19: reached via a real wheel deltaX through the
+      // At maximum pan (ui/t:19: reached via a real wheel deltaX through the
       // handler, clamped to panBoundsRef.current.min — deltaX intentionally
       // FAR exceeds any plausible range so the clamp, not the raw delta,
       // determines the landing position): the rightmost focused column's
@@ -761,7 +761,7 @@ describe("Scene padding cluster (S6)", () => {
     },
   );
 
-  // SKIPPED (ui#o23, 2026-07-30, one bounded instrumented attempt): traced
+  // SKIPPED (ui/o:23, 2026-07-30, one bounded instrumented attempt): traced
   // to source rather than a locatable small conditional fix. `padding` is
   // applied to the stage as a raw, unanimated CSS property (`padding:
   // padding || undefined` in Scene.tsx's stage style) — it is not a
@@ -778,11 +778,11 @@ describe("Scene padding cluster (S6)", () => {
   // fix is a NEW owned padding channel (a paddingMV imperatively driving
   // stage.style.padding via animate(), mirroring the width channel's own
   // pattern) — comparable in scope to that channel, not a small
-  // conditional tweak, and out of this dispatch's bound. Q2 (ui#17 depth-
+  // conditional tweak, and out of this dispatch's bound. Q2 (ui/t:17 depth-
   // deck spike, same day) also found no real app scenario changes padding
   // mid-session — only a dev-only tuning slider does — which is why a
   // skip-and-follow-up disposition is acceptable here rather than blocking
-  // ui#17 on a new channel. See ui#o23 for the full instrumentation trace
+  // ui/t:17 on a new channel. See ui/o:23 for the full instrumentation trace
   // and fix shape.
   test.skip("overflow mode: a mid-session padding change (16 -> 32) springs the relayout and both edges land at the new padding", async () => {
     const build = (padding: number) => (
@@ -815,7 +815,7 @@ describe("Scene padding cluster (S6)", () => {
     // Change padding — expected (once a padding channel exists) to spring
     // the relayout rather than snap. See this test's own skip comment
     // above for the traced root cause and why it's skipped, not fixed,
-    // inside ui#17.
+    // inside ui/t:17.
     await rerender(build(32));
 
     const readLeftInset = () => col1.getBoundingClientRect().left - vpRect.left;
@@ -832,7 +832,7 @@ describe("Scene padding cluster (S6)", () => {
     const leftInsetAfter = col1.getBoundingClientRect().left - vpRect.left;
     expect(leftInsetAfter).toBeCloseTo(32, 0);
 
-    // ui#19: reach max pan via a real wheel deltaX through the handler
+    // ui/t:19: reach max pan via a real wheel deltaX through the handler
     // (deltaX intentionally far exceeds any plausible range, clamped by
     // panBoundsRef.current.min) — a real spring here, so give it a
     // generous settle window rather than a single frame.

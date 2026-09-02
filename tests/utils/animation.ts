@@ -35,7 +35,7 @@ export function waitForAnimationFrame(): Promise<void> {
 
 /**
  * Wait for Motion's rAF-driven MotionValue writes to flush to the DOM
- * before reading computed geometry (ui#17). Motion's `style`-bound
+ * before reading computed geometry (ui/t:17). Motion's `style`-bound
  * MotionValue writes (e.g. SceneColumn's owned width channel, matching
  * topOffsetMV's established pattern) are rAF-batched, not synchronous
  * within the React commit that changes their target — reading a style
@@ -46,7 +46,7 @@ export function waitForAnimationFrame(): Promise<void> {
  * since rAF callbacks run before the browser's next repaint, the stale
  * value is a pure test-read-timing artifact, never a painted frame).
  * Named for the BEHAVIOR it waits for (not the mechanism), anticipating a
- * future settle-signal primitive (ui#20) as a possible replacement — landed,
+ * future settle-signal primitive (ui/t:20) as a possible replacement — landed,
  * and NOT a fit for this specific job: `data-ui-scene-settled`
  * (`waitForSceneSettled`, this file) waits for the scene to fully settle,
  * which can take many frames for a real spring, while this function's own
@@ -608,8 +608,8 @@ export function assertPaintOrderInvariant(
 
 /**
  * Waits until a Scene's own `data-ui-scene-settled` attribute reads `"true"`
- * (ui#20 criterion 1 — no owned animation currently active), polling real
- * animation frames up to `timeoutMs`. Bounded wait (~600ms per ui#o20) —
+ * (ui/t:20 criterion 1 — no owned animation currently active), polling real
+ * animation frames up to `timeoutMs`. Bounded wait (~600ms per ui/o:20) —
  * throws a legible error naming the wait bound on timeout, rather than
  * silently returning with the scene still unsettled (mirrors the
  * `throw new Error(...)` precedent already established in this suite's own
@@ -634,7 +634,7 @@ export async function waitForSceneSettled(scene: HTMLElement, options: { timeout
 /**
  * Waits for the scene to settle (`waitForSceneSettled`, same bounded-wait/
  * legible-throw contract), then clicks `target`. Named for its own primary
- * consuming action (ui#20's own inertness gating means a click dispatched
+ * consuming action (ui/t:20's own inertness gating means a click dispatched
  * before the scene has settled is a legitimate no-op, not a bug — see
  * SceneObject's `activatable`/`transitionPending` gating) — tests that only
  * need the WAIT half without a click use `waitForSceneSettled` directly.

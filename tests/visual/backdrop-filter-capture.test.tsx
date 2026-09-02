@@ -7,10 +7,10 @@ import { TestWrapper } from "../test-wrapper";
 import { wait } from "../utils/animation";
 
 /**
- * Sentinels for ui#12 (ui#p6). A 2026-07-22 investigation concluded
+ * Sentinels for ui/t:12 (design/ui/p:6). A 2026-07-22 investigation concluded
  * "backdrop-filter has never rendered in this repo's vitest screenshots" —
  * that conclusion was FALSIFIED by direct measurement on 2026-08-06 (full
- * record: "plans/ui#12 Backdrop-Filter Screenshots Plan"). Blur has rendered
+ * record: "plans/ui/t:12 Backdrop-Filter Screenshots Plan"). Blur has rendered
  * through the standard capture path since the visual-testing suite's
  * founding commit; the committed glass baselines already carry the same
  * blur gradient this file measures. The real gap is that the suite's

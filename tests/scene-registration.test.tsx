@@ -896,7 +896,7 @@ describe("SceneColumn unfocused freeze", () => {
 
     // Rendered height is the true size projected ONCE by the depth deck's
     // own perspective (800 * 800/900 ≈ 711.1), not projected TWICE (a buggy
-    // ~711px frozen size projected again would render ~632px). ui#17
+    // ~711px frozen size projected again would render ~632px). ui/t:17
     // anchor/column split: the z/perspective projection paints on the column
     // node now, not the zero-footprint anchor `articleCol` itself (which
     // carries the un-projected frozen height checked above) — see the
@@ -908,7 +908,7 @@ describe("SceneColumn unfocused freeze", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#32 Cluster 2: ResizeObserver churn. SceneObject's own registration
+// ui/t:32 Cluster 2: ResizeObserver churn. SceneObject's own registration
 // effect (no dependency array — must reflect a focus-only change the same
 // commit) used to unconditionally call the shared ResizeObserver's
 // observe()/unobserve() on every render, even when its DOM element never

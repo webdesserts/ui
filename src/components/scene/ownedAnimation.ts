@@ -3,7 +3,7 @@ import { animate, type MotionValue } from "motion/react";
 import { SettleSignalContext } from "./SettleSignalContext";
 
 /**
- * The seam every owned-channel MotionValue animation flows through (ui#17
+ * The seam every owned-channel MotionValue animation flows through (ui/t:17
  * cascade-fix round, Step 2), replacing the hand-wired per-channel
  * claimChannelAnimation/retireChannelAnimation guards Slice 1 close-out
  * originally built directly in SceneColumn. Reason for the move: a
@@ -114,7 +114,7 @@ export function useOwnedAnimation(duration: number | undefined) {
     [claim, retire],
   );
 
-  // ui#33: "did duration just transition to 0 (from something else), as of
+  // ui/t:33: "did duration just transition to 0 (from something else), as of
   // THIS hook instance's own last render." Closes a structural gap in every
   // caller's own target-changed guard (see each caller's own effect): a
   // live duration flip with no accompanying target change never re-enters a

@@ -4,7 +4,7 @@ import type { DebugMotionRecorder } from "./motionRecorder";
 /**
  * Debug overlay section listing every currently-registered MotionValue on
  * Scene's motion seam (cameraX, scrollY/topOffset/z per column,
- * height/marginBottom per within-column depth-deck object — ui#21's
+ * height/marginBottom per within-column depth-deck object — ui/t:21's
  * height/margin channels, replacing the retired withinColumnTop key) with
  * its live
  * value, target (when the driving animate() call reported one — an

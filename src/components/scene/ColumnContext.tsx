@@ -14,7 +14,7 @@ export interface WithinColumnDepthInfo {
 interface ColumnRegistration {
   /**
    * Register a SceneObject's outer element, focus state, and its own
-   * height-channel target (ui#21 — see GeometryEntry's own `heightTarget`
+   * height-channel target (ui/t:21 — see GeometryEntry's own `heightTarget`
    * doc comment for why this must be REPORTED, not DOM-measured, here).
    * Returns an unregister function. `focused` feeds the column's OWN
    * registration with Scene (S6 registration architecture) — it's tracked
@@ -33,13 +33,13 @@ interface ColumnRegistration {
   withinColumnDepths: Map<string, WithinColumnDepthInfo>;
   /**
    * This column's own objectGap (px) — exposed so SceneObject's own
-   * margin-bottom gap-compensation channel (ui#21, mirrors SceneColumn's
+   * margin-bottom gap-compensation channel (ui/t:21, mirrors SceneColumn's
    * own marginMV/-columnGap channel vertically) can read it without a
    * separate prop-drilling path.
    */
   objectGap: number;
   /**
-   * Join/leave the column's shared ResizeObserver (ui#32 Cluster 2). Keyed
+   * Join/leave the column's shared ResizeObserver (ui/t:32 Cluster 2). Keyed
    * to DOM element identity, not render cadence — SceneObject calls these
    * from a callback ref (fires exactly on genuine attach/detach), never
    * from its own per-render registration effect. Calling

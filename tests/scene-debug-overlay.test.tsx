@@ -321,7 +321,7 @@ describe("Scene debug — active springs panel", () => {
     const { rerender, getByTestId } = await render(build(true));
     const scene = getByTestId("scene").element();
     await waitForAnimationFrame();
-    // ui#21 anchor/object split: the object-level spring key registered
+    // ui/t:21 anchor/object split: the object-level spring key registered
     // unconditionally (every SceneObject, regardless of sandwiched state)
     // is now `height:${name}` (the height channel), not the retired
     // `withinColumnTop:${name}` MotionValue.
@@ -535,7 +535,7 @@ describe("Scene debug — paint-order badges", () => {
     await waitForAnimationFrame();
     const badge = scene.querySelector("[data-ui-scene-debug-paint-badge='object:obj-b']");
     expect(badge).not.toBeNull();
-    // ui#21 z-index paint-order channel amendment: object-level depth cards
+    // ui/t:21 z-index paint-order channel amendment: object-level depth cards
     // no longer carry translateZ at all — the badge now reads the object's
     // discrete zIndex write (depth-1 sandwiched -> -1), not a translateZ
     // pixel value.

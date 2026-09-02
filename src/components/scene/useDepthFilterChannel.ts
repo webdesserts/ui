@@ -107,7 +107,7 @@ export function useDepthFilterChannel(options: {
     if (grayscale === targetRef.current && !ownedAnimation.durationJustBecameZero) return;
     targetRef.current = grayscale;
 
-    // ui#33's duration-flip contract: jump() (not .set()) so a live
+    // ui/t:33's duration-flip contract: jump() (not .set()) so a live
     // duration→0 flip mid-spring stops the in-flight animation and retires
     // the settle counter, rather than freezing the channel.
     if (duration === 0) {

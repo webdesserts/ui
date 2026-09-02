@@ -60,9 +60,9 @@ export interface GeometryEntry {
   offsetTop: number;
   /**
    * This object's LIVE rendered height (px), via offsetHeight — a raw DOM
-   * measurement of the object's own outer anchor node. HAZARD (ui#21 delta
+   * measurement of the object's own outer anchor node. HAZARD (ui/t:21 delta
    * claim review Slice 0 spike, source-verified): unlike `width` below,
-   * this is NOT safe to read for a currently-focused object once ui#21's
+   * this is NOT safe to read for a currently-focused object once ui/t:21's
    * own height-override channel lands (SceneObject.tsx) — that channel
    * applies a pixel override DIRECTLY to this SAME anchor node, so
    * `offsetHeight` read here would capture the spring's own in-flight
@@ -82,7 +82,7 @@ export interface GeometryEntry {
    * (permanent), the object's own natural in-flow height while focused or
    * otherwise in-flow (a snapshot taken at rest, when nothing is
    * overriding it — see SceneObject.tsx's naturalHeightRef). Reported by
-   * SceneObject via the extended `register` call (ui#21) — NOT derived
+   * SceneObject via the extended `register` call (ui/t:21) — NOT derived
    * from a DOM read here, since the same node this measures is the one
    * the height channel writes to (see `height`'s own hazard note above).
    * Undefined only during the one-render deferred-measurement window for
@@ -93,7 +93,7 @@ export interface GeometryEntry {
    */
   heightTarget: number | undefined;
   /**
-   * This object's rendered width (px) — the ui#17 owned width channel's
+   * This object's rendered width (px) — the ui/t:17 owned width channel's
    * "after" target. An object's own declared width (e.g. a `cqw` value)
    * resolves against the STAGE's container-query context (Scene.tsx's
    * `containerType: "size"`), not this column's own current box, so it's
@@ -131,7 +131,7 @@ export function computeTopOffset(
 }
 
 /**
- * ui#17: computes the column's own target width while focused — the widest
+ * ui/t:17: computes the column's own target width while focused — the widest
  * currently-focused object's own measured width (multi-focus stacking can
  * have several focused objects of different widths; the column's
  * shrink-to-fit box becomes as wide as the widest one, matching ordinary
@@ -182,7 +182,7 @@ export function computeMeasuredWidth(
 // The owned-channel settle counter's own claim/retire guard now lives at
 // the shared seam every animate()/jump() call for an owned MotionValue
 // flows through — see ownedAnimation.ts's useOwnedAnimation() doc comment
-// (ui#17 cascade-fix round, Step 2) for the full rationale, including why
+// (ui/t:17 cascade-fix round, Step 2) for the full rationale, including why
 // this replaced the hand-wired per-channel guard that originally lived
 // here.
 
@@ -209,13 +209,13 @@ export function computeMeasuredWidth(
  * (the "multi-sandwiched" z-index test's own subject). UNLIKE column-level
  * paint order, object-level DOM order alone does NOT structurally guarantee
  * correct stacking on its own (an object's own inner node sits outside any
- * column's preserve-3d chain — ui#o32, the D-series record), so this invariant is
+ * column's preserve-3d chain — ui/o:32, the D-series record), so this invariant is
  * what the explicit z-index channel is built ON TOP OF, not a substitute
  * for it.
  *
  * `anchorTop` (a cross-object, live geometryStore read of the lower focused
  * sibling's own measured offsetTop) was DELETED from this function's return
- * shape (ui#21 Slice 4 hygiene) — verified zero consumers at tip
+ * shape (ui/t:21 Slice 4 hygiene) — verified zero consumers at tip
  * (SceneObject's peekY computation only ever reads `.depth`) and verified
  * vestigial by the same geometric argument the plan's own Design port
  * section made before implementation: every sandwiched object's own
@@ -223,7 +223,7 @@ export function computeMeasuredWidth(
  * lower focused sibling) once settled, since each collapsed object
  * contributes exactly zero net flow height — the column's peek-offset
  * transform only needs its OWN local depth (`-peekOffset * depth`), never a
- * cross-object measured position. Same shape as ui#17's own stackTargetLeft
+ * cross-object measured position. Same shape as ui/t:17's own stackTargetLeft
  * deletion (a cross-sibling measured value the flow-collapse architecture
  * made unnecessary).
  *
@@ -263,11 +263,11 @@ export function computeWithinColumnDepths(objectStates: ObjectState[]): Map<stri
  * scroll range — a distinct concept from topOffset (strip position): it
  * only ever includes focused content, never unfocused in-flow siblings.
  *
- * Reads `heightTarget`, NOT `height` (ui#21 delta claim review Slice 0 spike
+ * Reads `heightTarget`, NOT `height` (ui/t:21 delta claim review Slice 0 spike
  * finding, ruled): `height` is a live offsetHeight read on the same node
- * ui#21's own height-override channel writes to — summing it here would
+ * ui/t:21's own height-override channel writes to — summing it here would
  * chase the channel's own in-flight spring value mid-transition, the exact
- * "camera chases width" bug class ui#17 already had to fix once (see
+ * "camera chases width" bug class ui/t:17 already had to fix once (see
  * GeometryEntry's own `heightTarget` doc comment for the full mechanism).
  * `heightTarget` is a synchronously-known spring destination instead, safe
  * to sum at any point in a transition. Falls back to `height` only for a

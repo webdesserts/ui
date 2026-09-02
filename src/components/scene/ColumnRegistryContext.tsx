@@ -14,7 +14,7 @@ export interface RegisteredColumn {
   element: HTMLElement;
   /**
    * This column's own direct SceneObject children, in DOM order, with their
-   * current focus state (ui#20 — mirrors `deriveObjectStates`/`ObjectState`
+   * current focus state (ui/t:20 — mirrors `deriveObjectStates`/`ObjectState`
    * exactly, reported here so Scene can detect an OBJECT-level focus-
    * arrangement change — including a within-column swap, where this
    * column's own aggregate `focused` above never changes — without a DOM
@@ -24,7 +24,7 @@ export interface RegisteredColumn {
    */
   objectStates: RegisteredColumnObjectState[];
   /**
-   * The anchor's own owned width-channel target (ui#17 target-derived
+   * The anchor's own owned width-channel target (ui/t:17 target-derived
    * camera aiming) — the SAME value the width channel itself springs
    * toward (focused: computeFocusedWidth's result; in-between/decked:
    * the permanent zero-footprint target once known; a genuinely
