@@ -403,6 +403,190 @@ describe("interiorCanConsume", () => {
       }
     });
   });
+
+  // ui#35: a `flex-direction: column-reverse` scroller (e.g. a bottom-
+  // anchored chat list) reports scrollTop over [-(maxScrollPos), 0] with 0
+  // AT the visual bottom, instead of the usual [0, maxScrollPos] with 0 at
+  // the visual top — interiorCanConsume must compute edges from the real
+  // range rather than assume [0, max], or wheel-up over it always reads
+  // "at its backward edge" and hands the wheel to the next column outward.
+  describe("reversed flex axis (ui#35)", () => {
+    /**
+     * A real overflow-y:auto, display:flex, flex-direction:column-reverse
+     * scroll container with genuine overflow (a filler taller than the
+     * container, flex-shrink:0'd so the flex layout can't shrink it back
+     * down to fit and quietly erase the overflow).
+     */
+    function makeReverseScrollContainer(
+      parent: Element,
+      opts: { overscrollBehaviorY?: string } = {},
+    ): HTMLElement {
+      const container = document.createElement("div");
+      container.style.height = "100px";
+      container.style.overflowY = "auto";
+      container.style.display = "flex";
+      container.style.flexDirection = "column-reverse";
+      if (opts.overscrollBehaviorY) {
+        container.style.overscrollBehaviorY = opts.overscrollBehaviorY;
+      }
+      const filler = document.createElement("div");
+      filler.style.height = "300px";
+      filler.style.flexShrink = "0";
+      container.appendChild(filler);
+      parent.appendChild(container);
+      return container;
+    }
+
+    test("sanity: a real column-reverse overflow-y:auto container anchors at scrollTop 0 and honors a negative scrollTop", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary);
+      try {
+        expect(container.scrollTop).toBe(0);
+        container.scrollTop = -50;
+        expect(container.scrollTop).toBe(-50);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("at the visual bottom (scrollTop 0): wheel-up consumes, wheel-down declines (overscroll-behavior-y: auto)", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary);
+      container.scrollTop = 0;
+      try {
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(true);
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(false);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("mid-scroll (scrollTop -50): both directions consume", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary);
+      container.scrollTop = -50;
+      try {
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(true);
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("at the visual top (scrollTop -(max) = -200): wheel-up declines, wheel-down consumes", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary);
+      container.scrollTop = -(container.scrollHeight - container.clientHeight); // -200
+      try {
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(false);
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("at the visual bottom with overscroll-behavior-y: contain, wheel-down still consumes (dead-stop)", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary, { overscrollBehaviorY: "contain" });
+      container.scrollTop = 0;
+      try {
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("row-reverse (horizontal twin): mid-scroll consumes both directions, at the start edge declines backward", () => {
+      const boundary = makeBoundary();
+      const container = document.createElement("div");
+      container.style.width = "100px";
+      container.style.overflowX = "auto";
+      container.style.display = "flex";
+      container.style.flexDirection = "row-reverse";
+      const filler = document.createElement("div");
+      filler.style.width = "300px";
+      filler.style.height = "10px";
+      filler.style.flexShrink = "0";
+      container.appendChild(filler);
+      boundary.appendChild(container);
+
+      try {
+        container.scrollLeft = -50; // mid-scroll
+        expect(interiorCanConsume(container, boundary, "x", -10)).toBe(true);
+        expect(interiorCanConsume(container, boundary, "x", 10)).toBe(true);
+
+        container.scrollLeft = -(container.scrollWidth - container.clientWidth); // start edge (-200)
+        expect(interiorCanConsume(container, boundary, "x", -10)).toBe(false);
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("fractional reversed backward edge ~0.5px short of the integer min (subpixel/non-integer devicePixelRatio rounding, MDN-documented) still registers as at-edge — declines wheel-up and chains outward, consumes wheel-down (guards the reversed minPos+1 epsilon)", () => {
+      const boundary = makeBoundary();
+      const container = makeReverseScrollContainer(boundary); // scrollHeight=300 clientHeight=100 -> maxScrollPos=200, minPos=-200
+      // Stub scrollTop to the exact fractional value rather than relying on a
+      // real browser's actual clamping to reproduce a specific subpixel
+      // shortfall deterministically (precedent: the non-reversed fractional
+      // test above, and scene.test.tsx:2973's clientHeight stub).
+      Object.defineProperty(container, "scrollTop", { value: -199.5, configurable: true });
+      try {
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(false); // wheel-up declines, chains outward
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true); // wheel-down still consumes
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("display guard: flex-direction:column-reverse on a display:block element does NOT trigger reversed semantics — normal [0,max] range applies", () => {
+      const boundary = makeBoundary();
+      const container = document.createElement("div");
+      container.style.height = "100px";
+      container.style.overflowY = "auto";
+      container.style.display = "block";
+      // A block-display element still gets flex-direction as a computed
+      // value even though it has no layout effect — this genuinely
+      // exercises the `display` guard in isReversedScrollAxis rather than
+      // the flex-direction check alone.
+      container.style.flexDirection = "column-reverse";
+      const filler = document.createElement("div");
+      filler.style.height = "300px";
+      container.appendChild(filler);
+      boundary.appendChild(container);
+      container.scrollTop = 0; // normal backward/start edge (block layout, not reversed)
+      try {
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(false); // wheel-up declines
+        expect(interiorCanConsume(container, boundary, "y", 10)).toBe(true); // wheel-down consumes
+      } finally {
+        boundary.remove();
+      }
+    });
+
+    test("display guard: flex-direction:column-reverse on a display:inline-flex element DOES trigger reversed semantics", () => {
+      const boundary = makeBoundary();
+      const container = document.createElement("div");
+      container.style.height = "100px";
+      // inline-flex is an inline-level box that shrink-wraps to content by
+      // default; an explicit width keeps the flex layout (and the filler's
+      // stretched cross-size) well-defined so this test isolates the
+      // `display` guard rather than an unrelated shrink-to-fit collapse.
+      container.style.width = "100px";
+      container.style.overflowY = "auto";
+      container.style.display = "inline-flex";
+      container.style.flexDirection = "column-reverse";
+      const filler = document.createElement("div");
+      filler.style.height = "300px";
+      filler.style.flexShrink = "0";
+      container.appendChild(filler);
+      boundary.appendChild(container);
+      try {
+        expect(container.scrollTop).toBe(0); // anchors at the visual bottom, same as the display:flex case
+        expect(interiorCanConsume(container, boundary, "y", -10)).toBe(true); // wheel-up consumes at the reversed container's visual bottom
+      } finally {
+        boundary.remove();
+      }
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
