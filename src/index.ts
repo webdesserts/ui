@@ -9,6 +9,10 @@ export {
 export type { BorderSide, ButtonSize } from "./components/Button";
 export { TextInput } from "./components/TextInput";
 export type { TextInputProps } from "./components/TextInput";
+export { Heading } from "./components/Heading";
+export type { HeadingProps, HeadingSize, HeadingElement } from "./components/Heading";
+export { Divider } from "./components/Divider";
+export type { DividerProps, DividerVariant } from "./components/Divider";
 export { cn } from "./utils/cn";
 export {
   Scene,
