@@ -416,8 +416,10 @@ async function captureDeckArm(
 }
 
 // Measured on this exact recipe: 1.00000 with the release reverted, 0.206
-// with it in place. 0.5 separates two clusters an order of magnitude apart —
-// not a threshold that needs tuning.
+// with it in place (re-measured 0.2032 post ui/t:14's viewport-scale fix —
+// consistent nudge from anti-aliasing at a different render scale, not a
+// regression). 0.5 separates two clusters an order of magnitude apart — not
+// a threshold that needs tuning.
 const BLUR_LIVE_MAX_RATIO = 0.5;
 
 describe("blur-live: a glass panel in a focused Scene object samples the decked sibling behind it (ui/t:18)", () => {
