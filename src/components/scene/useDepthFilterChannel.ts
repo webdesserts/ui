@@ -79,29 +79,24 @@ export function useDepthFilterChannel(options: {
   // transition to complete first.
   const [released, setReleased] = useState(grayscale === 0);
 
-  // Adjusted DURING RENDER (React's documented "adjusting state when props
-  // change"), not from the effect below. It has to drop before the browser
-  // paints — a released `"none"` rendered for even one frame of a live spring
-  // shadows the whole transition — and doing that from an effect means a
-  // cascading render on every focus change of every column and every object
-  // in the scene.
+  // The flag is raised and lowered FROM THE EFFECT, not by React's usual
+  // "adjust state while rendering" pattern, and the two eslint suppressions
+  // below are the price of that. The render-phase shape was written, measured
+  // and reverted: adjusting this state during render re-runs the component's
+  // render pass, and `useOwnedAnimation` derives `durationJustBecameZero`
+  // from a ref it mutates DURING render — so the second pass sees the flip
+  // already consumed and reports false. Every owned channel in the component
+  // then early-returns out of its own retarget guard, the in-flight animation
+  // is never stopped, and the settle counter never retires: a live
+  // reduced-motion (duration -> 0) flip mid-transition hangs the scene
+  // outright. Reproduced exactly, on the two tests that guard that flip —
+  // scene-settle-signal's "mixed-duration double interruption" and
+  // scene-physics-accessibility's "reactive consumer" — both red under the
+  // render-phase shape and green under this one.
   //
-  // `grayscale === 0 && (duration === 0 || released)` covers all four ways
-  // this can be reached. A new non-identity target drops the release. A new
-  // identity target keeps it dropped, so the spring is visible, and the
-  // animation's own completion raises it again. An instant-mode flip
-  // (duration → 0) at identity releases immediately, since there is no spring
-  // left to run. And a flip the other way at an already-released identity
-  // keeps the release, rather than stranding a written `grayscale(0)` that
-  // nothing would ever come back to clear.
-  const [prevGrayscale, setPrevGrayscale] = useState(grayscale);
-  const [prevDuration, setPrevDuration] = useState(duration);
-  if (prevGrayscale !== grayscale || prevDuration !== duration) {
-    setPrevGrayscale(grayscale);
-    setPrevDuration(duration);
-    setReleased(grayscale === 0 && (duration === 0 || released));
-  }
-
+  // The effect has no dependency array on purpose, matching every other owned
+  // channel in this family; its own target-changed check is the guard.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     if (grayscale === targetRef.current && !ownedAnimation.durationJustBecameZero) return;
     targetRef.current = grayscale;
@@ -111,9 +106,20 @@ export function useDepthFilterChannel(options: {
     // the settle counter, rather than freezing the channel.
     if (duration === 0) {
       ownedAnimation.jump(grayscaleMV, grayscale);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see the block comment above this effect
+      setReleased(grayscale === 0);
       return;
     }
 
+    // Dropped before the browser paints (layout effect), so the released
+    // `"none"` is never the rendered value for a frame of a live spring —
+    // it would shadow the whole transition if it were. Guarded on the
+    // current value rather than set unconditionally: React re-renders once
+    // before bailing out on an unchanged state value, and a channel
+    // retargeting while already unreleased (a decked column moving deeper)
+    // has no reason to spend that render — this runs on every column and
+    // every object of a scene, on every focus change.
+    if (released) setReleased(false);
     const controls = ownedAnimation.animateTo(grayscaleMV, grayscale, transition, () => {
       // `grayscale` is the target of the animation that actually completed:
       // Motion never completes an animation superseded by a later animate()
