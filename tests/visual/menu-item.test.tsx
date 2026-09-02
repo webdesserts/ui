@@ -326,7 +326,7 @@ describe("MenuItem spread animation", () => {
 // pixels — duration changes don't move a frozen-fraction screenshot, see
 // shared.ts's spreadSetupBase/spreadSelfTriggers doc). MenuItem sweeps a
 // wider axis than buttons so it carries its own slower --spread-in value
-// (300ms vs the shared 250ms default; ui#16 2026-07-23 verdict). The exit
+// (300ms vs the shared 250ms default; ui/t:16 2026-07-23 verdict). The exit
 // duration is unmodified, so rest reads the same 400ms shared default as
 // Button — the hover pin (0.3s vs 0.25s) is what disambiguates the
 // menu-only parametrization from Button's untouched defaults.
@@ -379,7 +379,7 @@ describe("MenuItem/Button spread timing — computed styles", () => {
     expect(afterGeometryDuration(el)).toBe("0.25s");
   });
 
-  // --spread-fill-left default proof (shared.ts, ui#7 round 4 commit 1): a
+  // --spread-fill-left default proof (shared.ts, ui/t:7 round 4 commit 1): a
   // bare MenuItem never sets the var, so the hover-triggered fill's ::after
   // left resolves the 0px fallback — byte-identical to the pre-decomposition
   // inset-0 behavior. getComputedStyle returns the resolved px value, not

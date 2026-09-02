@@ -70,7 +70,7 @@
   background-size: var(--dot-grid-spacing) var(--dot-grid-spacing);
 }
 
-/* Panel-scale glass treatment: fill + blur + a subtle default border (ui#6
+/* Panel-scale glass treatment: fill + blur + a subtle default border (ui/t:6
    Slice 1b). A plain rule in the components layer, deliberately NOT a
    @utility: the border must ship by default but stay overridable in
    general — width and color, not just removal ("you should still be able

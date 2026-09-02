@@ -1,9 +1,9 @@
 /**
- * ui#28 fix: the F10b intra-object anchor descent (findDeepestIntraObjectAnchor,
+ * ui/t:28 fix: the F10b intra-object anchor descent (findDeepestIntraObjectAnchor,
  * walking every row inside the focused anchor object — O(rows) per call, see
  * inputController.ts's own doc comments) used to re-run unconditionally on
  * EVERY commit of SceneColumn's no-deps per-render layout effect, including
- * commits whose only delta was scroll offset (hunt-lag round 2a, ui#o87: 48
+ * commits whose only delta was scroll offset (hunt-lag round 2a, ui/o:87: 48
  * getComputedStyle + 48 getBoundingClientRect per row per 12-event wheel
  * gesture on an anchor="end" column).
  *

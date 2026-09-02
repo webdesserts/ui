@@ -86,7 +86,7 @@ describe("Scene initial layout", () => {
   });
 
   test("a focused column's width transition does not visually distort text content (ui#17 criterion 6, focused-column width path)", async () => {
-    // ui#17 Test-design section ("stretch regression pin"): the FOCUSED
+    // ui/t:17 Test-design section ("stretch regression pin"): the FOCUSED
     // width path (widthTarget = computeFocusedWidth, the widest currently-
     // focused object's own measured width — SceneColumn.tsx's own comment)
     // is a DIFFERENT code path from the in-between/deck path's tests above
@@ -771,12 +771,12 @@ describe("SceneObject click-to-focus", () => {
   test("DELTA-2 (ui#19: pure immunity assertion): tab-focusing a parked (offscreen) column's D3 activation wrapper leaves the camera's horizontal framing unchanged, and Enter still activates it normally", async () => {
     // DELTA-2's original regression was the browser's native scroll-into-
     // view-on-focus dragging the viewport's native scrollLeft out from
-    // under the camera's own stageLeft pan (probe-confirmed pre-ui#19: 0 ->
+    // under the camera's own stageLeft pan (probe-confirmed pre-ui/t:19: 0 ->
     // 782 with stageLeft unchanged) — that mechanism required correcting
     // AFTER the fact (DELTA-2's bare reset, then absorb-and-re-pan). Under
-    // ui#19's unconditional overflow-x:clip, native scroll-into-view cannot
+    // ui/t:19's unconditional overflow-x:clip, native scroll-into-view cannot
     // move scrollLeft at all (probe-confirmed bulletproof — see this
-    // codebase's ui#19 clip probe), so there is nothing to correct; this is
+    // codebase's ui/t:19 clip probe), so there is nothing to correct; this is
     // now a pure immunity assertion, not a correction-cycle test. Layout:
     // three 400px columns in a 500px viewport, only "a" focused — "c" is
     // parked well outside the visible region.
@@ -824,7 +824,7 @@ describe("SceneObject click-to-focus", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Scene horizontal scrollLeft immunity (ui#19 single-writer). History:
+// Scene horizontal scrollLeft immunity (ui/t:19 single-writer). History:
 // DELTA-2's bare `el.scrollLeft = 0` reset-on-focusin restored the correct
 // FINAL resting position but was itself a native scroll mutation landing
 // mid-click-gesture — measured in the consuming app: 21/21 + 27/27 + 24/24
@@ -839,11 +839,11 @@ describe("SceneObject click-to-focus", () => {
 // camera ~450px off canonical for the rest of the interaction. THE LESSON —
 // no Promise/`.then()`-tracked in-flight guards, ever; idempotent re-issue
 // instead (SceneColumn.tsx F17's driveBoundedSpring pattern) — carries
-// forward as a standing rule for every cameraX-driving function ui#19 adds
+// forward as a standing rule for every cameraX-driving function ui/t:19 adds
 // (see Scene.tsx's viewport style comment for the durable constraint this
 // history left behind).
 //
-// ui#19 removes the second writer entirely: overflow-x/-y are
+// ui/t:19 removes the second writer entirely: overflow-x/-y are
 // unconditionally clip, so there is no corrupted scrollLeft to ever
 // reconcile — no correction handler exists anymore. The tests below assert
 // IMMUNITY, not correction.
@@ -979,7 +979,7 @@ describe("Scene horizontal scrollLeft immunity (ui#19)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#19 slice (d): ancestor scroll-chaining mount warning
+// ui/t:19 slice (d): ancestor scroll-chaining mount warning
 // ---------------------------------------------------------------------------
 
 describe("Scene ancestor scroll-chaining warning (ui#19 slice (d))", () => {

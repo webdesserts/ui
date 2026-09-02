@@ -17,7 +17,7 @@ import {
 } from "@/src/components/shared";
 
 /**
- * Select trigger comparison fixtures (ui#7, "Select Primitive Plan (ui)").
+ * Select trigger comparison fixtures (ui/t:7, "Select Primitive Plan (ui)").
  * Literal, hand-styled candidate markup — no <Select> component, no
  * floating-ui — comparing candidates against Michael's 2026-07-23 hover
  * verdict: (b) TextInput's chrome + a right-side chevron (full invert on
@@ -29,7 +29,7 @@ import {
  * record, mirroring glass-panel.test.tsx's candidates-as-baselines precedent.
  *
  * OpenPanel below (used by both candidates' open state) renders real
- * MenuItems — the ui#16 MenuItem selected-state candidates (M1/M2/M3) that
+ * MenuItems — the ui/t:16 MenuItem selected-state candidates (M1/M2/M3) that
  * used to live at the bottom of this file were retired once M1 shipped as
  * the real MenuItem's selected treatment (see menu-item.test.tsx).
  */
@@ -334,7 +334,7 @@ function OpenPanel({ width }: { width: number }) {
 // genuinely different render (21970 vs 21780 bytes, different md5) that
 // every b/c-open screenshot test still passed. This computed-style pin,
 // mirroring commit 2's timing-duration pin pattern, is the actual regression
-// guard for the corner-squaring change ("appears attached" — ui#7).
+// guard for the corner-squaring change ("appears attached" — ui/t:7).
 // ---------------------------------------------------------------------------
 
 describe("Select trigger open panel — computed corner radii", () => {
@@ -371,7 +371,7 @@ describe("Select trigger open panel — computed corner radii", () => {
 // Round 4 computed pins — full-height rail, 2px seam (menu + trigger), 2px
 // offset. The default screenshot comparator's tolerance is proven blind at
 // 2px scale (see the corner-radii pin above) — these are the actual
-// regression guards for "attached-menu detailing" (ui#7 round 4, Michael's
+// regression guards for "attached-menu detailing" (ui/t:7 round 4, Michael's
 // 2026-07-23 ~17:25Z/~20:30Z rulings).
 // ---------------------------------------------------------------------------
 

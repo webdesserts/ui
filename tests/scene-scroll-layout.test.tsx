@@ -29,7 +29,7 @@ describe("Scene alignment & centering (S7 coverage)", () => {
     const contentWrapper = scene.querySelector("[data-ui-scene-column-content]") as HTMLElement;
     const content = getByTestId("content").element() as HTMLElement;
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render() can observe a
     // stale/default value).
     await awaitStyleFlush();
@@ -89,7 +89,7 @@ describe("Scene alignment & centering (S7 coverage)", () => {
     const scene = getByTestId("scene").element() as HTMLElement;
     const stage = scene.querySelector("[data-ui-scene-stage]") as HTMLElement;
 
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render() can observe a
     // stale/default value).
     await awaitStyleFlush();
@@ -566,7 +566,7 @@ describe("Scene horizontal scroll", () => {
     // amount — a stale nonzero pan compounded onto the new canonical would
     // ALSO move stage.left, just to the WRONG place): compare against a
     // fresh, never-panned render of the identical post-rerender layout.
-    // Never asserts on scrollLeft (ui#19 — scrollLeft is not the mechanism
+    // Never asserts on scrollLeft (ui/t:19 — scrollLeft is not the mechanism
     // anymore). Captured before cleanup(), even though .style is a plain
     // property on the (still-referenced) detached element and would read
     // back fine either way — avoids any ambiguity about DOM-connection.
@@ -780,7 +780,7 @@ describe("Scene vertical scroll", () => {
       .element()
       .closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const shortContent = shortColumn.querySelector("[data-ui-scene-column-content]") as HTMLElement;
-    // ui#17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
+    // ui/t:17: see awaitStyleFlush's own doc comment (rAF-batched MotionValue
     // writes — a geometry read immediately after render() can observe a
     // stale/default value).
     await awaitStyleFlush();

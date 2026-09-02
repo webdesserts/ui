@@ -70,7 +70,7 @@ describe("normalizeWheelDelta", () => {
 });
 
 // ---------------------------------------------------------------------------
-// normalizeWheelDeltaX (ui#19 slice (b) — horizontal twin)
+// normalizeWheelDeltaX (ui/t:19 slice (b) — horizontal twin)
 // ---------------------------------------------------------------------------
 
 describe("normalizeWheelDeltaX", () => {
@@ -327,7 +327,7 @@ describe("interiorCanConsume", () => {
     }
   });
 
-  // ui#19 slice (b), A4: F8a's horizontal twin. Mirrors the vertical
+  // ui/t:19 slice (b), A4: F8a's horizontal twin. Mirrors the vertical
   // consumable/at-edge cases above exactly, on the X axis — a consumer's
   // own overflow-x:auto island now gets the same first-refusal deltaY
   // already had, so JS-owned deltaX (panOffset) doesn't hijack native
@@ -404,7 +404,7 @@ describe("interiorCanConsume", () => {
     });
   });
 
-  // ui#35: a `flex-direction: column-reverse` scroller (e.g. a bottom-
+  // ui/t:35: a `flex-direction: column-reverse` scroller (e.g. a bottom-
   // anchored chat list) reports scrollTop over [-(maxScrollPos), 0] with 0
   // AT the visual bottom, instead of the usual [0, maxScrollPos] with 0 at
   // the visual top — interiorCanConsume must compute edges from the real
@@ -1328,8 +1328,8 @@ describe("shouldPreventTouchMove", () => {
     expect(shouldPreventTouchMove("vertical", 1)).toBe(true);
   });
 
-  // ui#19 slice (c): a horizontal claim is now ALSO prevented — under the
-  // pre-ui#19 architecture, "horizontal" released to the browser's own
+  // ui/t:19 slice (c): a horizontal claim is now ALSO prevented — under the
+  // pre-ui/t:19 architecture, "horizontal" released to the browser's own
   // native overflow-x:auto scroll and this deliberately declined to block
   // it; under the single-writer channel there is no native horizontal
   // scroll left to release to (JS owns panning end-to-end via
@@ -1470,7 +1470,7 @@ describe("clampSpringRetargetVelocity", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#27: wheel catch-stop (cliff) detection
+// ui/t:27: wheel catch-stop (cliff) detection
 // ---------------------------------------------------------------------------
 
 describe("shouldCliffStop", () => {

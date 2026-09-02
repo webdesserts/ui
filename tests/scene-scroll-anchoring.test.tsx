@@ -320,7 +320,7 @@ describe("Scene content-growth scroll anchoring (F9)", () => {
     expect(recorder.controls.get(`scrollY:col`)).not.toBe(controlsInFlight);
     expect(targets.get(`scrollY:col`)).toBe(600);
 
-    // ui#17: see awaitStyleFlush's own doc comment — the retargeted
+    // ui/t:17: see awaitStyleFlush's own doc comment — the retargeted
     // spring's velocity tracking updates on Motion's own rAF-driven tick,
     // same rAF-batching rationale as the DOM style writes elsewhere in
     // this file.

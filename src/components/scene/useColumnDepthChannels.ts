@@ -81,7 +81,7 @@ export function useColumnDepthChannels({
   // structurally guaranteed to equal reverse DOM order for every
   // reachable production state (see that function's own comment — the
   // invariant is load-bearing). translateZ here is paint-INERT, not
-  // paint-driving — a multi-round discriminator investigation (ui#o32,
+  // paint-driving — a multi-round discriminator investigation (ui/o:32,
   // the D-series record) forced a genuinely-transformed sibling into an
   // intact preserve-3d chain and it still lost to DOM order; z-index was
   // also tried directly (forced positive, confirmed applied via computed
@@ -119,7 +119,7 @@ export function useColumnDepthChannels({
     if (depthZ === zTargetRef.current && !zOwnedAnimation.durationJustBecameZero) return;
     zTargetRef.current = depthZ;
 
-    // ui#33: duration===0 now shares the jump() branch below instead of a
+    // ui/t:33: duration===0 now shares the jump() branch below instead of a
     // raw .set() — see topOffsetMV's identical fix above for the rationale
     // (.set() never calls .stop(), so a live flip mid-spring never stopped
     // the in-flight animation or retired the settle counter).

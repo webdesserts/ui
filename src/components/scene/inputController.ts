@@ -38,7 +38,7 @@ export function normalizeWheelDelta(e: WheelEvent, viewportHeight: number): numb
 }
 
 /**
- * Horizontal twin of normalizeWheelDelta (ui#19 slice (b) — deltaX now
+ * Horizontal twin of normalizeWheelDelta (ui/t:19 slice (b) — deltaX now
  * drives the camera's panOffset, mirroring deltaY's existing column-scroll
  * routing). Same scaling rules, mirrored onto deltaX/viewportWidth; same
  * pinch-zoom exemption (a ctrl+wheel event carries both delta axes in some
@@ -109,7 +109,7 @@ function isVerticalScrollContainer(el: Element): boolean {
 }
 
 /**
- * Horizontal twin of isVerticalScrollContainer (ui#19 slice (b), F8a's
+ * Horizontal twin of isVerticalScrollContainer (ui/t:19 slice (b), F8a's
  * horizontal counterpart — the wheel handler now routes deltaX to the
  * camera's panOffset, so a consumer's own `overflow-x: auto|scroll` island
  * needs the same first-refusal gate the Y axis already had, or JS-owned
@@ -126,7 +126,7 @@ function isHorizontalScrollContainer(el: Element): boolean {
 /**
  * True when `el`'s scroll axis runs in reverse — `flex-direction:
  * column-reverse` for the y axis, `row-reverse` for the x axis, on a
- * `display: flex`/`inline-flex` container (ui#35). A reversed flex scroller
+ * `display: flex`/`inline-flex` container (ui/t:35). A reversed flex scroller
  * anchors its content at the visual END (e.g. a bottom-anchored chat list)
  * and reports `scrollTop`/`scrollLeft` over `[-(maxScrollPos), 0]` with `0`
  * AT the visual end, rather than the usual `[0, maxScrollPos]` with `0` at
@@ -152,7 +152,7 @@ function effectiveOverscrollBehaviorY(el: Element): string {
   return style.getPropertyValue("overscroll-behavior").trim() || "auto";
 }
 
-/** Horizontal twin of effectiveOverscrollBehaviorY (ui#19 slice (b)). */
+/** Horizontal twin of effectiveOverscrollBehaviorY (ui/t:19 slice (b)). */
 function effectiveOverscrollBehaviorX(el: Element): string {
   const style = getComputedStyle(el);
   const longhand = style.getPropertyValue("overscroll-behavior-x").trim();
@@ -170,7 +170,7 @@ function effectiveOverscrollBehaviorX(el: Element): string {
  * contract plan).
  *
  * - A candidate = `isVerticalScrollContainer(el)` (axis "y") or
- *   `isHorizontalScrollContainer(el)` (axis "x", ui#19 slice (b) — Scene's
+ *   `isHorizontalScrollContainer(el)` (axis "x", ui/t:19 slice (b) — Scene's
  *   wheel handler now routes deltaX to panOffset, so a consumer's own
  *   overflow-x island needs the same first-refusal this axis's Y twin
  *   already had).
@@ -183,7 +183,7 @@ function effectiveOverscrollBehaviorX(el: Element): string {
  *   candidate and the walk continues outward (natural scroll-chaining) to
  *   the next ancestor.
  * - A candidate's scroll range is computed from its computed `flex-direction`
- *   (ui#35): a reversed flex scroller (`column-reverse`/`row-reverse`, e.g. a
+ *   (ui/t:35): a reversed flex scroller (`column-reverse`/`row-reverse`, e.g. a
  *   bottom-anchored chat list) reports its position over
  *   `[-(maxScrollPos), 0]` instead of the usual `[0, maxScrollPos]`, and edge
  *   detection is computed against its real range rather than assuming the
@@ -212,7 +212,7 @@ export function interiorCanConsume(
       // A reversed flex scroller (column-reverse/row-reverse) reports its
       // position over [-(maxScrollPos), 0] instead of the usual
       // [0, maxScrollPos] — compute the REAL range instead of assuming the
-      // non-reversed one (ui#35: assuming [0, max] made a bottom-anchored
+      // non-reversed one (ui/t:35: assuming [0, max] made a bottom-anchored
       // reversed chat list read as permanently "at its backward edge",
       // handing every wheel-up over it to the next column outward).
       const reversed = isReversedScrollAxis(el, axis);
@@ -334,7 +334,7 @@ export function isInteractiveElement(el: Element): boolean {
 /**
  * A plain instruction for how a column's scroll offset should change.
  *
- * `scrollBy`'s `source` is an ALLOWLIST tag (ui#27), not an enumerated
+ * `scrollBy`'s `source` is an ALLOWLIST tag (ui/t:27), not an enumerated
  * exclusion list: it's set ONLY at Scene.tsx's wheel-coalescing flush call
  * site (the sole real trackpad/wheel emitter), so every other `scrollBy`
  * emitter — keyboard (SceneColumn's own keydown handler), the scrollbar
@@ -391,7 +391,7 @@ export type PanCommand =
   | { type: "panToEnd" };
 
 /**
- * Horizontal twin of mapScrollKeyToCommand (ui#19 slice (d) — keyboard
+ * Horizontal twin of mapScrollKeyToCommand (ui/t:19 slice (d) — keyboard
  * parity): today's implicit browser freebie (a focused native scroll
  * container responding to ArrowLeft/ArrowRight/Home/End) dies under
  * overflow-x:clip; this replaces it like-for-like at the panOffset level.
@@ -445,8 +445,8 @@ export interface AnchorCandidate {
 export interface AnchorGeometry {
   offsetTop: number;
   /**
-   * HAZARD (ui#21 delta claim review Slice 0 spike): a live offsetHeight
-   * read, unsafe to sum for a currently-focused object once ui#21's own
+   * HAZARD (ui/t:21 delta claim review Slice 0 spike): a live offsetHeight
+   * read, unsafe to sum for a currently-focused object once ui/t:21's own
    * height-override channel lands — see SceneColumn.tsx's GeometryEntry
    * `heightTarget` doc comment for the full mechanism. Use `heightTarget`
    * below.
@@ -455,7 +455,7 @@ export interface AnchorGeometry {
   /**
    * Synchronously-known height-channel target — see SceneColumn.tsx's
    * GeometryEntry `heightTarget` doc comment. Optional (not just
-   * `| undefined`) so existing construction sites that predate ui#21 and
+   * `| undefined`) so existing construction sites that predate ui/t:21 and
    * have no concept of a height channel (e.g. tests/scene-input-controller.test.ts's
    * own direct AnchorGeometry literals) don't need updating just to add
    * an explicit `undefined` — selectAnchorObject's own `?? geometry.height`
@@ -880,8 +880,8 @@ export function classifyTouchGestureDirection(dx: number, dy: number): TouchGest
  * subtree, so explicit `preventDefault()` is the load-bearing layer, not
  * touch-action alone.
  *
- * True for EITHER decided axis (ui#19 slice (c) extended this from
- * vertical-only: under the pre-ui#19 architecture, "horizontal" released
+ * True for EITHER decided axis (ui/t:19 slice (c) extended this from
+ * vertical-only: under the pre-ui/t:19 architecture, "horizontal" released
  * to the browser's own native overflow-x:auto scroll and deliberately
  * never blocked it here; under the single-writer channel there is no
  * native horizontal scroll left to release to — JS owns panning
@@ -1010,7 +1010,7 @@ export function clampSpringRetargetVelocity(rawVelocity: number): number {
 export const SPRING_RUBBER_BAND_MARGIN_PX = 40;
 
 // ---------------------------------------------------------------------------
-// ui#27: wheel catch-stop (cliff) detection
+// ui/t:27: wheel catch-stop (cliff) detection
 // ---------------------------------------------------------------------------
 //
 // A trackpad catch (finger presses the surface mid-momentum) emits no event
@@ -1067,7 +1067,7 @@ export const WHEEL_CLIFF_DELTA_FLOOR_PX = 3;
 export const WHEEL_CLIFF_OUTSTANDING_FLOOR_PX = 30;
 
 /**
- * Orchestrator-ruled plan amendment (ui#27, post-forecast-gate — the hunt's
+ * Orchestrator-ruled plan amendment (ui/t:27, post-forecast-gate — the hunt's
  * own calibration only ever exercised multi-event streams, and the gap
  * wasn't caught until the full regression sweep): the cliff detector may
  * only ARM once at least two wheel-tagged `scrollBy` commands have landed
@@ -1109,7 +1109,7 @@ export function shouldCliffStop(
 }
 
 /**
- * Pure predicate for the counter-input rebase (ui#o85's F1 finding, folded
+ * Pure predicate for the counter-input rebase (ui/o:85's F1 finding, folded
  * in per its own recommendation): a fresh wheel delta whose sign OPPOSES
  * the outstanding debt's sign is a deliberate reverse-scroll — the target
  * computation should rebase onto the live spring position instead of

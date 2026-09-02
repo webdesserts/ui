@@ -71,7 +71,7 @@ function parseTranslateZ(transform: string): number {
  * reading it only at commit time would show it stale throughout a
  * transition.
  *
- * Two DIFFERENT mechanisms drive paint order depending on card kind (ui#21
+ * Two DIFFERENT mechanisms drive paint order depending on card kind (ui/t:21
  * z-index paint-order channel amendment) — column-level cards still use
  * translateZ (SceneColumn.tsx:~2856's own comment: paint-INERT there,
  * DOM-order actually governs, translateZ is kept for the perspective
@@ -113,7 +113,7 @@ export function PaintOrderBadges({
       badge.style.left = `${rect.left - vpRect.left}px`;
       badge.style.top = `${rect.top - vpRect.top}px`;
       if (card.kind === "column") {
-        // ui#17 anchor/column split: the depth translateZ lives on the column's
+        // ui/t:17 anchor/column split: the depth translateZ lives on the column's
         // inner column node now, not the outer flex anchor `el` itself — read
         // z from the column node when one exists (every column has one; this
         // falls back to `el` defensively, which has no column child to begin
@@ -122,7 +122,7 @@ export function PaintOrderBadges({
         const z = parseTranslateZ(getComputedStyle(zSource).transform);
         badge.textContent = `z:${Math.round(z)}`;
       } else {
-        // ui#21 z-index paint-order channel amendment: object-level depth
+        // ui/t:21 z-index paint-order channel amendment: object-level depth
         // cards no longer carry translateZ at all (removed entirely — see
         // SceneObject's own zIndex comment) — paint order is a discrete
         // zIndex write on the object instead. parseTranslateZ would always

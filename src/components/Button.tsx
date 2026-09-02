@@ -488,7 +488,7 @@ interface MenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
   function MenuItem({ selected = false, className, children, ...props }, ref) {
-    // M1 "border extended a little" (ui#16 2026-07-23 verdict): full invert
+    // M1 "border extended a little" (ui/t:16 2026-07-23 verdict): full invert
     // is reserved for focus, so selected gets a quiet surface-raised fill +
     // primary text plus a static left bar recolored to the invert token via
     // the same per-instance --spread-bg-rest override IconButton's danger
@@ -502,7 +502,7 @@ export const MenuItem = forwardRef<HTMLButtonElement, MenuItemProps>(
     // 250ms default (shared.ts): a menu row sweeps its long axis (~270px)
     // where buttons sweep their short axis (~40px) — the same duration reads
     // far faster over more travel. 300ms is Michael's live A/B verdict
-    // (ui#16 2026-07-23), true for both single- and double-line menus. The
+    // (ui/t:16 2026-07-23), true for both single- and double-line menus. The
     // exit inherits the shared 400ms default unchanged (var(--spread-out,
     // 400ms) in shared.ts) — the live A/B found it wasn't the animate-in that
     // felt off. Unconditional, unlike --spread-bg-rest above.

@@ -447,7 +447,7 @@ describe("Scene scroll edge cases", () => {
       }),
     );
 
-    // Input is rAF-coalesced as of F17 (both axes, ui#19 extended the
+    // Input is rAF-coalesced as of F17 (both axes, ui/t:19 extended the
     // buffering to deltaX too) — both writes are buffered and applied on
     // the NEXT real animation frame, from the SAME dispatched event.
     await waitForAnimationFrame();
@@ -639,7 +639,7 @@ describe("Scene wheel input controller (S5)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#19 slice (b): horizontal pan (deltaX -> panOffset)
+// ui/t:19 slice (b): horizontal pan (deltaX -> panOffset)
 // ---------------------------------------------------------------------------
 
 describe("Scene horizontal pan (ui#19 slice (b))", () => {
@@ -824,7 +824,7 @@ describe("Scene horizontal pan (ui#19 slice (b))", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#19 slice (d): horizontal pan keyboard parity
+// ui/t:19 slice (d): horizontal pan keyboard parity
 // ---------------------------------------------------------------------------
 
 describe("Scene horizontal pan keyboard parity (ui#19 slice (d))", () => {
@@ -1080,7 +1080,7 @@ describe("Scene outer unfocused column positioning", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui#27: keyboard-scope regression for the wheel cliff detector. The
+// ui/t:27: keyboard-scope regression for the wheel cliff detector. The
 // detector's silence-timer mechanism observes the same applyScrollCommand
 // entry point keyboard/scrollbar-thumb-drag commands flow through — an
 // origin tag (`source: "wheel"`, set only at Scene's wheel-flush call site)

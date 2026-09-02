@@ -21,7 +21,7 @@ import { queryDebugObjects } from "./debugObjectQuery";
  *    (topOffsetMV, zMV, scrollY, cameraX, SceneObject's within-column
  *    heightMV/marginBottomMV, replacing the retired topMV) or for
  *    SceneObject's own declarative opacity/filter animate (z moved to a
- *    discrete, non-animated zIndex channel — ui#21's z-index paint-order
+ *    discrete, non-animated zIndex channel — ui/t:21's z-index paint-order
  *    channel amendment) — none of these were ever wired to any
  *    onAnimationStart callback at all.
  *    Probe-confirmed on the dev app's Debug mode demo: an object's outline

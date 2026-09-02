@@ -5,7 +5,7 @@ import { TestWrapper } from "../test-wrapper";
 /**
  * Shared fixture builder for the dominant Scene test shape: a flat
  * SceneColumn > SceneObject > div nest, one object per column, wrapped in
- * TestWrapper + Scene (ui#o45 / ui#23). Replaces hand-rolled JSX at
+ * TestWrapper + Scene (ui/o:45 / ui/t:23). Replaces hand-rolled JSX at
  * structurally-identical call sites — genuinely bespoke shapes (Fragment-
  * wrapped columns, custom-component-wrapped columns, div-wrapped objects,
  * multi-object columns needing per-object control beyond this shape) stay
@@ -13,11 +13,11 @@ import { TestWrapper } from "../test-wrapper";
  */
 export type SceneObjectSpec = {
   name: string;
-  /** Required — never silently defaulted (ui#o45's non-vacuity rule). */
+  /** Required — never silently defaulted (ui/o:45's non-vacuity rule). */
   focused: boolean;
-  /** Required — never silently defaulted (ui#o45's non-vacuity rule). */
+  /** Required — never silently defaulted (ui/o:45's non-vacuity rule). */
   width: number | string;
-  /** Required — never silently defaulted (ui#o45's non-vacuity rule). */
+  /** Required — never silently defaulted (ui/o:45's non-vacuity rule). */
   height: number | string;
   /** Defaults to `${name}-content`, the file's dominant convention. */
   testId?: string;

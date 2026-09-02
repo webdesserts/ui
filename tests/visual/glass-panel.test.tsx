@@ -5,17 +5,17 @@ import { page, commands } from "vitest/browser";
 import { TestWrapper } from "../test-wrapper";
 
 /**
- * Backdrop-filter screenshot coverage (ui#12, ui#p6): every glass baseline
+ * Backdrop-filter screenshot coverage (ui/t:12, design/ui/p:6): every glass baseline
  * in this file DOES render blur — a 2026-07-22 investigation's "blur has
  * never rendered" conclusion was factually wrong about these baselines,
  * falsified by direct measurement 2026-08-06 (full record:
- * "plans/ui#12 Backdrop-Filter Screenshots Plan"). What's actually true:
+ * "plans/ui/t:12 Backdrop-Filter Screenshots Plan"). What's actually true:
  * this suite's screenshot comparator (@blazediff/core) is structurally
  * blind to a production-magnitude (8px, dark low-contrast) blur difference
  * — an on/off diff over a 2.16-megapixel capture reports zero mismatched
  * pixels, so no `.png` baseline here can ever catch a blur regression, even
  * though the blur is genuinely present in the pixels. The computed-style
- * pins in "backdrop-filter computed-style pins (ui#12)" below are the
+ * pins in "backdrop-filter computed-style pins (ui/t:12)" below are the
  * standing substitute for that missing screenshot-level coverage. See
  * `tests/visual/backdrop-filter-capture.test.tsx` for the two permanent
  * sentinels this finding produced — in particular its "comparator-
@@ -25,8 +25,8 @@ import { TestWrapper } from "../test-wrapper";
  */
 
 /**
- * Glass panel comparison fixtures (ui#6 Slice 1a, "Glass Parity Plan
- * (ui#6)"). Every shipped glass example (dev site + the Button/IconButton/
+ * Glass panel comparison fixtures (ui/t:6 Slice 1a, "Glass Parity Plan
+ * (ui/t:6)"). Every shipped glass example (dev site + the Button/IconButton/
  * ButtonGroup fixtures) is a small control in a ~1rem crop; this renders
  * candidate treatments at TaskDetail's real proportions instead — a
  * near-full-height wide column — over two backdrop scenarios, so
@@ -72,7 +72,7 @@ const CANDIDATES: Record<
   // via the shipped `glass-panel` class (src/tokens/semantic.css) instead of
   // the literal utility string: these 4 baselines passing with zero
   // `--update` is the byte-identity proof that the class encodes exactly
-  // what was approved here (ui#6 Slice 1b).
+  // what was approved here (ui/t:6 Slice 1b).
   baselineBorder: {
     light: { className: "glass-panel" },
     dark: { className: "glass-panel" },
@@ -250,7 +250,7 @@ describe("Glass panel dot-grid with cards backdrop", () => {
 });
 
 // ---------------------------------------------------------------------------
-// glass-panel utility (ui#6 Slice 1b) — the shipped `.glass-panel` rule
+// glass-panel utility (ui/t:6 Slice 1b) — the shipped `.glass-panel` rule
 // (src/tokens/semantic.css) composes bg-glass-bg + border-rule-subtle +
 // backdrop-blur into one class. The border ships by default but must remain
 // overridable in general — width and color, not just removal (Michael: "you
@@ -288,7 +288,7 @@ describe("glass-panel utility overrides", () => {
 });
 
 // ---------------------------------------------------------------------------
-// backdrop-filter computed-style pins (ui#12) — the standing substitute for
+// backdrop-filter computed-style pins (ui/t:12) — the standing substitute for
 // screenshot-level blur coverage (see the file-top doc comment). Two
 // recipes, one pin each: the `.glass-panel` class itself (this file's
 // `baselineBorder` candidate, src/tokens/semantic.css) and the raw utility

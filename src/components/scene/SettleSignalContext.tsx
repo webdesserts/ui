@@ -24,7 +24,7 @@ import { createContext } from "react";
  * `animationCancel`, never its `onComplete` — confirmed at source
  * (motion-dom's value/index.mjs). A column mid-transition can retarget a
  * channel several times before anything naturally completes (measured
- * directly, ui#17 Slice 1 close-out: a single unfocus-then-refocus
+ * directly, ui/t:17 Slice 1 close-out: a single unfocus-then-refocus
  * produced a byte-reproducible 324→424→409→324 cameraX retarget
  * sequence, a full 100px swing, purely from firing on every individual
  * channel's own settle event while OTHER channels were still mid-flight).
@@ -33,14 +33,14 @@ import { createContext } from "react";
  * "worth re-measuring against." Firing only at the count's zero-crossing
  * is what makes the fire mean "the scene is actually quiet now."
  *
- * Minimal precursor for ui#20's own settle-registry design (Michael ruled
- * ui#17 lands first so ui#20 can hook the final animation topology) —
+ * Minimal precursor for ui/t:20's own settle-registry design (Michael ruled
+ * ui/t:17 lands first so ui/t:20 can hook the final animation topology) —
  * this begin/end counter IS the registry-lite shape, one step closer to
- * ui#20's own begin/end-counter design than the single-signal version it
- * replaced. ui#20 KEEPS this scalar counter rather than replacing it with
+ * ui/t:20's own begin/end-counter design than the single-signal version it
+ * replaced. ui/t:20 KEEPS this scalar counter rather than replacing it with
  * a per-channel-keyed registry: `useOwnedAnimation()`'s claim/retire guard
  * (ownedAnimation.ts) already proved interruption-correct per channel, so
- * the aggregate zero-crossing this pair produces is exactly what ui#20's
+ * the aggregate zero-crossing this pair produces is exactly what ui/t:20's
  * `data-ui-scene-settled`/`onTransitionEnd`/inertness-gating layer (Scene.tsx,
  * SceneObject.tsx) needs — see Scene.tsx's own `transitionPending` doc
  * comment for how that layer is built on top of this signal.

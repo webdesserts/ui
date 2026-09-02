@@ -3,7 +3,7 @@ import { useCallback, useRef } from "react";
 /**
  * Tracks whether a numeric measurement has "settled" — arrived at the SAME
  * nonzero value across two consecutive commits — permanently latching true
- * once it has (never resets false again). ui#20 criterion 6: the shared
+ * once it has (never resets false again). ui/t:20 criterion 6: the shared
  * primitive behind Scene.tsx's `vpWidthSettledRef`/`lastVpWidthRef` (gates
  * the pan-bounds write) and SceneColumn.tsx's
  * `columnGeometrySettledRef`/`lastEffectiveViewportHeightRef` (gates
@@ -15,7 +15,7 @@ import { useCallback, useRef } from "react";
  * clientWidth, effective viewport height) arriving stably across React
  * commits during mount/resize, not an owned MotionValue animation's
  * claim/retire lifecycle. A scene can be geometry-unsettled here with zero
- * owned animations running (board ui#o41).
+ * owned animations running (board ui/o:41).
  *
  * WHY two consecutive commits, not one: a late-arriving correction (e.g. a
  * horizontal scrollbar's space reservation toggling on, or an

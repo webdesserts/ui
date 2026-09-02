@@ -28,9 +28,9 @@ export interface DepthTreatment {
  * reads only `opacity`/`grayscale` (both still animate-driven, this file's
  * own invariant below) — its `translateZ` is computed here but never
  * consumed; object-level paint order is a SEPARATE, discrete zIndex write
- * (`-depth`, not derived from this function at all — ui#21's z-index
+ * (`-depth`, not derived from this function at all — ui/t:21's z-index
  * paint-order channel amendment, object-level translateZ never actually
- * reached the object, ui#o32).
+ * reached the object, ui/o:32).
  *
  * depth=1 → opacity 0.8, grayscale 0.25, translateZ -100px
  * depth=2 → opacity 0.6, grayscale 0.50, translateZ -200px

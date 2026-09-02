@@ -12,7 +12,7 @@ import { captureFlipCommit, findGbcrOutliers, gbcrDeltasOf, type GBCRBox } from 
 import { buildScene } from "./utils/sceneFixtures";
 
 // ---------------------------------------------------------------------------
-// Glass-stack deck rework (ui#17): anchor/column flip geometry and channel
+// Glass-stack deck rework (ui/t:17): anchor/column flip geometry and channel
 // coordination. Representative fixtures throughout (constraint 4) — width
 // declared directly on SceneObject's own style prop, never a child div.
 // ---------------------------------------------------------------------------
@@ -342,7 +342,7 @@ describe("Glass-stack deck: margin/width lockstep (forecast edit E2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Target-derived camera aiming (ui#17 cascade-fix, d9cee3a): two behavioral
+// Target-derived camera aiming (ui/t:17 cascade-fix, d9cee3a): two behavioral
 // pins ordered by the delta claim review, since the ruling itself never
 // became a committed test. Both drive a standard left/middle/right toggle
 // (same fixture shape as the zero-pixel-flip tests above) and read every
@@ -489,12 +489,12 @@ describe("Glass-stack deck: camera-recentering commit-aim pins (delta claim revi
 });
 
 describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)", () => {
-  // Repaired (ui#21 arc, shipped-sensor repair): the original synchronous-
+  // Repaired (ui/t:21 arc, shipped-sensor repair): the original synchronous-
   // read pair (click, then read zMV/elementsFromPoint on the SAME tick, no
   // polling at all) was defeat-check-confirmed vacuous — a bounded sever
   // stayed green because no time had passed for the spring to move at all,
   // so `Math.abs(zAfter - zBefore) < 1` held trivially regardless of sign.
-  // Ports the ui#21 within-column arc's own settle-anchored/overlap-window
+  // Ports the ui/t:21 within-column arc's own settle-anchored/overlap-window
   // designs to this column-level pair, chosen PER DIRECTION from real
   // measured geometry (not assumed to mirror the vertical case):
   // "unfocus direction" — middle's decked column overlaps "right"'s column
@@ -506,7 +506,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
   // frames every run, 3/3 deterministic, gone by settle) — overlap-window,
   // K=10 (comfortably below the measured 25-frame window).
   //
-  // Mechanism truth, stated plainly (D-series, ui#o32/o33): BOTH channels
+  // Mechanism truth, stated plainly (D-series, ui/o:32/o33): BOTH channels
   // available at this DOM position are structurally non-operative.
   // translateZ is paint-inert (D1/D2 discriminators: an isolated,
   // genuinely-transformed sibling still lost to DOM order under an intact
@@ -595,7 +595,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
     (getByTestId("toggle").element() as HTMLElement).click();
     await pollForColumnZRetarget(recorder, zMV, zBefore);
 
-    // ui#20 criterion 6 migration: `z:middle` is one of the owned
+    // ui/t:20 criterion 6 migration: `z:middle` is one of the owned
     // MotionValue channels routed through useOwnedAnimation() (confirmed at
     // source — SceneColumn's zOwnedAnimation.animateTo call), so
     // data-ui-scene-settled becoming true is a direct, correct signal that
@@ -710,7 +710,7 @@ describe("Glass-stack deck: z-/paint-order at the flip commit (forecast edit E2)
 describe("Glass-stack deck: double-interruption, minimal (forecast edit E1 — gates entry to Slice 2)", () => {
   // 4-column fixture: "left"/"right" always focused, "mid-a" toggles, and
   // "mid-b" never toggles but is the BYSTANDER whose own stackDepth
-  // changes as a side effect of "mid-a"'s transition — the exact ui#o9
+  // changes as a side effect of "mid-a"'s transition — the exact ui/o:9
   // shape (a sibling reflowing past a column that never itself changed
   // focus). "mid-a" starts focused, is toggled off (pushing both mid-a
   // and mid-b into deck state, mid-b at some depth), interrupted ~150ms
@@ -964,7 +964,7 @@ describe("Scene depth deck stacking", () => {
     const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const rightCol = getByTestId("content-right").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    // ui#17 selector audit: middleCol is decked (in-between) — its own
+    // ui/t:17 selector audit: middleCol is decked (in-between) — its own
     // anchor is a permanent zero-footprint node (width target 0), so its
     // gBCR reports the collapsed position, not the visible column node's. Read
     // the column node instead for a decked column's own geometry (rightCol
@@ -976,7 +976,7 @@ describe("Scene depth deck stacking", () => {
 
     // In-between column should overlap with the right focused column's area
     // — specifically, offset by exactly the default peekOffset (12px)
-    // foreshortened by the column node's own depth-1 perspective factor (ui#17
+    // foreshortened by the column node's own depth-1 perspective factor (ui/t:17
     // Slice 3 fold-in: the 50px slop was flagged by the E4 rider as a real
     // weakness — wide enough to pass even reading the wrong node, see the
     // measured-factor derivation the "peeks left by exactly peekOffset"
@@ -1022,7 +1022,7 @@ describe("Scene depth deck stacking", () => {
     const middleRect = middleCol.getBoundingClientRect();
 
     // The column's rendered (projected) width should be less than its frozen width (300px).
-    // ui#17 never-leave-the-flow: narrower now for two compounding reasons —
+    // ui/t:17 never-leave-the-flow: narrower now for two compounding reasons —
     // perspective projection (translateZ pushing it back in 3D) AND a real
     // CSS width shrink to the peek-width footprint (see widthTarget's
     // comment in SceneColumn.tsx) — this assertion doesn't need to
@@ -1031,14 +1031,14 @@ describe("Scene depth deck stacking", () => {
   });
 
   test("in-between column clips a full-width content wrapper instead of rewrapping it (ui#17 criterion 6, no text distortion)", async () => {
-    // ui#17 never-leave-the-flow: the OUTER column's width channel targets
+    // ui/t:17 never-leave-the-flow: the OUTER column's width channel targets
     // a narrow peek-width footprint (see widthTarget's comment in
     // SceneColumn.tsx) so the flex row reshapes smoothly — but the INNER
     // content wrapper stays pinned at the frozen full width (see the
     // wrapper's own style comment), clipped by the outer's overflow:clip.
     // A crushed (un-pinned) wrapper would rewrap any text content at 300px
     // narrower than its natural size — the exact visual distortion
-    // criterion 6 bans (ui#o21, the Chat-tab text-stretch observation this
+    // criterion 6 bans (ui/o:21, the Chat-tab text-stretch observation this
     // ticket traces back to). Starts col-middle FOCUSED and unfocuses it
     // (rather than mounting it already unfocused) so the pin is sourced
     // from frozenSize.width, populated by a genuine focus-loss transition
@@ -1101,7 +1101,7 @@ describe("Scene depth deck stacking", () => {
 
     // offsetWidth alone is a layout metric, deliberately immune to any
     // transform (that immunity is WHY it's used above) — which also makes
-    // it structurally blind to a transform-based stretch, the exact ui#o21
+    // it structurally blind to a transform-based stretch, the exact ui/o:21
     // bug shape (a scale transform faking a width change). This assertion
     // closes that gap by checking PROPORTIONALITY rather than raw size:
     // the wrapper's rendered aspect ratio (gBCR — unaffected by the outer
@@ -1111,7 +1111,7 @@ describe("Scene depth deck stacking", () => {
     // depth-1 translateZ/perspective projection every in-between column
     // already carries — ~0.889x both axes, part of the deck's own 3D
     // visual, not a bug) preserves this ratio; a NON-uniform, horizontal-
-    // only stretch (the actual ui#o21 shape) does not. A raw gBCR-width-
+    // only stretch (the actual ui/o:21 shape) does not. A raw gBCR-width-
     // vs-offsetWidth comparison (tried first) false-positived on that
     // legitimate perspective shrink (266.67 vs 300, the exact depth-1
     // 8/9 factor) — aspect ratio is what actually distinguishes the two.
@@ -1125,7 +1125,7 @@ describe("Scene depth deck stacking", () => {
   });
 
   test("a column that mounts already in-between (never focused) still clips a full-width content wrapper (ui#17 criterion 6, never-focused-deck-card gap)", async () => {
-    // ui#17: mirrors dev/pages/ScenePage.tsx's own "Depth deck stacking"
+    // ui/t:17: mirrors dev/pages/ScenePage.tsx's own "Depth deck stacking"
     // demo shape (Middle A/Middle B both mount with focused=false, never
     // toggled) — real, not hypothetical (confirmed by reading that demo's
     // own useState initializers before writing this test). A column that
@@ -1185,7 +1185,7 @@ describe("Scene depth deck stacking", () => {
     // Same aspect-ratio distortion check as the sibling test above (see
     // its own comment for the full rationale and defeat-check evidence) —
     // offsetWidth alone is transform-immune and so structurally blind to
-    // the ui#o21 stretch shape; this catches it via proportionality.
+    // the ui/o:21 stretch shape; this catches it via proportionality.
     const middleWrapperRect2 = middleWrapper.getBoundingClientRect();
     const renderedAspect2 = middleWrapperRect2.width / middleWrapperRect2.height;
     const layoutAspect2 = middleWrapper.offsetWidth / middleWrapper.offsetHeight;
@@ -1221,7 +1221,7 @@ describe("Scene depth deck stacking", () => {
     expect(middle1.getAttribute("data-ui-scene-stack-depth")).toBe("2");
     expect(middle2.getAttribute("data-ui-scene-stack-depth")).toBe("1");
 
-    // Depth-2 (middle1) should appear smaller than depth-1 (middle2). ui#17
+    // Depth-2 (middle1) should appear smaller than depth-1 (middle2). ui/t:17
     // anchor/column split: the perspective projection that shrinks apparent
     // width lives on the column node's own z-transform, not the anchor.
     const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
@@ -1255,7 +1255,7 @@ describe("Scene depth deck stacking", () => {
     // Depth is measured from right focused column:
     // col-middle2 (adjacent to right) → depth-1, higher opacity
     // col-middle1 (further from right) → depth-2, lower opacity
-    // ui#17 anchor/column split: opacity is an `animate`-driven depth-deck
+    // ui/t:17 anchor/column split: opacity is an `animate`-driven depth-deck
     // visual now applied on the column node, not the anchor.
     const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
     const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
@@ -1288,7 +1288,7 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
-    // ui#17 selector audit: the depth-deck's translateZ lives on the COLUMN
+    // ui/t:17 selector audit: the depth-deck's translateZ lives on the COLUMN
     // node (see zMV's own declaration in SceneColumn.tsx), not the
     // zero-footprint anchor — this test is specifically about that
     // transform, unlike the sibling "appears smaller than natural size"
@@ -1319,7 +1319,7 @@ describe("Scene depth deck stacking", () => {
     await waitForAnimationFrame();
 
     const middleCol = getByTestId("content-middle").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
-    // ui#17 anchor/column split: the depth-deck greyscale filter is an
+    // ui/t:17 anchor/column split: the depth-deck greyscale filter is an
     // `animate`-driven property on the column node now, not the anchor.
     const middleColumnNode = middleCol.querySelector("[data-ui-scene-column]") as HTMLElement;
     const filter = window.getComputedStyle(middleColumnNode).filter;
@@ -1350,7 +1350,7 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    // ui#17 anchor/column split: greyscale is a column-node property now.
+    // ui/t:17 anchor/column split: greyscale is a column-node property now.
     const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
     const columnNode2 = middle2.querySelector("[data-ui-scene-column]") as HTMLElement;
     const filter1 = window.getComputedStyle(columnNode1).filter;
@@ -1382,7 +1382,7 @@ describe("Scene depth deck stacking", () => {
     // again with the default peekOffset — cleanup() between renders keeps the
     // two mounts from colliding on shared data-testids within this one test.
     const flush = await render(scene(0));
-    // ui#17 anchor/column split: the fan (columnAnimateX) and the perspective
+    // ui/t:17 anchor/column split: the fan (columnAnimateX) and the perspective
     // foreshortening (z) are both `animate`-driven properties on the column
     // node now, not the zero-footprint anchor — so this reads the REAL
     // rendered gap between the COLUMN NODES (gBCR) rather than the anchor, same
@@ -1428,7 +1428,7 @@ describe("Scene depth deck stacking", () => {
     // translateX (-peekOffset at depth-1) composes with the SAME
     // translateZ/perspective transform that also shrinks the column node's
     // rendered width, so the visible peek is peekOffset foreshortened by
-    // that column node's own projection factor, not a flat 12px (ui#17 selector
+    // that column node's own projection factor, not a flat 12px (ui/t:17 selector
     // audit — re-derived from a flat ±5px placeholder that was itself
     // flagged as asserted-not-derived; same measured-factor discipline
     // the "custom peekOffset" test below uses, deriving the factor from
@@ -1463,7 +1463,7 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
     const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement;
 
-    // ui#17 anchor/column split: gBCR of the COLUMN node, not the anchor —
+    // ui/t:17 anchor/column split: gBCR of the COLUMN node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment for why.
     const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
@@ -1474,7 +1474,7 @@ describe("Scene depth deck stacking", () => {
     // Each successive depth level peeks by one additional peekOffset
     // increment (12px default) — but each depth's OWN nominal shift
     // (-peekOffset * stackDepth) is foreshortened by that same depth's own
-    // perspective projection factor (ui#17 selector audit — re-derived
+    // perspective projection factor (ui/t:17 selector audit — re-derived
     // from a flat ±5px placeholder; same measured-factor discipline the
     // "custom peekOffset" test below uses).
     const naturalWidth = 200;
@@ -1505,7 +1505,7 @@ describe("Scene depth deck stacking", () => {
     const middle1 = getByTestId("content-middle1").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-2
     const middle2 = getByTestId("content-middle2").element().closest("[data-ui-scene-column-anchor]") as HTMLElement; // depth-1
 
-    // ui#17 anchor/column split: gBCR of the COLUMN node, not the anchor —
+    // ui/t:17 anchor/column split: gBCR of the COLUMN node, not the anchor —
     // see the "depth-1 ... peeks left by exactly peekOffset" test's own
     // comment.
     const columnNode1 = middle1.querySelector("[data-ui-scene-column]") as HTMLElement;
@@ -1556,7 +1556,7 @@ describe("Scene depth deck stacking", () => {
     // With no peek offset, every in-between column renders flush at the
     // same left edge regardless of depth — the pre-A5 behavior, where only
     // perspective projection (not a manual x offset) distinguished depths.
-    // ui#17 selector audit: reads the COLUMN (columnAnimateX = 0 at
+    // ui/t:17 selector audit: reads the COLUMN (columnAnimateX = 0 at
     // peekOffset=0, so the column node's own static (0,0)-within-anchor position
     // means this should read identically to the anchor here, but the column node
     // is the node whose position actually matters for what's visible — see

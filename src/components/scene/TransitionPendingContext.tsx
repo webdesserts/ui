@@ -3,9 +3,9 @@ import { createContext } from "react";
 /**
  * True while a Scene-wide focus transition (mount entrance, or any focus-
  * arrangement change) is pending settle — false once the settle counter
- * (SettleSignalContext) reaches zero (ui#20). Has two remaining consumers
+ * (SettleSignalContext) reaches zero (ui/t:20). Has two remaining consumers
  * in SceneObject.tsx, both race-prevention rather than content inertness
- * (which gates on `focused` alone since ui#31/Option A — see Scene.tsx's
+ * (which gates on `focused` alone since ui/t:31/Option A — see Scene.tsx's
  * own transitionPending doc comment for the full design, including the
  * deliberate ambient-overlap tradeoff): `activatable` blocks retargeting
  * focus to a different, still-unfocused object while a transition is

@@ -3,8 +3,8 @@ import { waitForAnimationFrame } from "./animation";
 // ---------------------------------------------------------------------------
 // Shared paint/layout-space geometry sampling for the glass-stack deck
 // sensor family — the o31-o38 sensor-doctrine lineage extended from
-// column-level measurement (ui#17, scene-glass-stack-deck.test.tsx) to
-// object-level measurement (ui#21, scene-within-column-deck.test.tsx). One
+// column-level measurement (ui/t:17, scene-glass-stack-deck.test.tsx) to
+// object-level measurement (ui/t:21, scene-within-column-deck.test.tsx). One
 // shared module is the evidence the two families are the same sensor
 // applied at two structural depths, not two independent implementations
 // that happen to agree.
@@ -28,7 +28,7 @@ import { waitForAnimationFrame } from "./animation";
  * first post-flip frame" methodology the spike's own trace-refocus.log
  * used.
  *
- * Layout-box geometry (ui#17 target-derived-aiming round, Part B's
+ * Layout-box geometry (ui/t:17 target-derived-aiming round, Part B's
  * structurally final form, superseding an earlier gBCR-rebased-against-
  * anchor draft of this same helper): `offsetLeft`/`offsetTop` (relative
  * to `offsetParent`, which is verified elsewhere to be the object's own

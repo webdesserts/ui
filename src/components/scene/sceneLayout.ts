@@ -111,7 +111,7 @@ export function computeColumnPositions(
  * the rightmost focused column, depth 2 is the next one further left, etc.
  * Columns that are not in-between get depth 0 (unused sentinel value).
  *
- * Load-bearing invariant (D-series, ui#o32): because depth is assigned by
+ * Load-bearing invariant (D-series, ui/o:32): because depth is assigned by
  * walking backward through DOM order from the rightmost focused column,
  * depth is structurally guaranteed to equal reverse DOM order for every
  * state this function can produce. Column-level paint order (SceneColumn.tsx,

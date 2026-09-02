@@ -117,7 +117,7 @@ describe("Scene scrollbar — thumb tracks scrollY per frame during a coast (F16
 });
 
 /**
- * ui#4: pins the thumb's position-mapping formula (Scrollbar.tsx) —
+ * ui/t:4: pins the thumb's position-mapping formula (Scrollbar.tsx) —
  * `thumbTop = (scrollOffset / maxScroll) * (trackHeight - thumbHeight)`,
  * where `thumbHeight = Math.max(20, (trackHeight / contentHeight) *
  * trackHeight)` and `contentHeight = maxScroll + trackHeight` — against the
@@ -269,7 +269,7 @@ describe("Scene scrollbar — thumb position mapping (ui#4)", () => {
 });
 
 /**
- * ui#27: RESOLVED (product call, not open) — the wheel cliff detector
+ * ui/t:27: RESOLVED (product call, not open) — the wheel cliff detector
  * scopes to wheel-sourced commands only (`source: "wheel"`, set exclusively
  * at Scene.tsx's wheel-flush call site). Michael's ruling was specifically
  * about trackpad catches; thumb-drag is direct manipulation with different

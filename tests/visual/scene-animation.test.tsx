@@ -231,7 +231,7 @@ describe("mid-animation capture (focus → unfocus)", () => {
 
     // Tighter tolerance because slower springs produce less jitter between frames.
     // Tolerance widened 2026-07-15 as a stopgap for wall-clock jitter — a
-    // member of the ui#o25/o27/o30/o35/o36 rotating load-sensitive
+    // member of the ui/o:25/o27/o30/o35/o36 rotating load-sensitive
     // visual-flake family (Scene Test Audit 2026-08-03); still wait()-based,
     // not converted to the motionSeam pinnable pipeline.
     //
@@ -531,7 +531,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // misleading name. This reasoning does NOT apply to the sibling depth-deck
   // tests below (they have a real, documented WAAPI filter/opacity track —
   // Bug 2b's fix explicitly moved filter/opacity/z onto `animate={}`).
-  // Tracked under ui#o94 (structural no-freezable-animation finding) — the
+  // Tracked under ui/o:94 (structural no-freezable-animation finding) — the
   // fragility here is structural (no freezable track exists for this
   // fixture), not load-contention.
   it.skip("layout-flip-frozen-at-50pct", async () => {
@@ -622,7 +622,7 @@ describe("layout FLIP mid-capture (unfocused → focused)", () => {
   // of its reported duration that would still look "mid-flight"). A wait()
   // here captures the same settled state camera-pan-mid-spring's approach
   // would produce, just non-deterministically. Kept skipped. Tracked under
-  // ui#o94 (structural no-freezable-animation finding) — same
+  // ui/o:94 (structural no-freezable-animation finding) — same
   // structural-not-load-contention caveat as layout-flip-frozen-at-50pct's
   // citation above.
   it.skip("layout-flip-mid-spring-wait", async () => {
@@ -728,7 +728,7 @@ describe("within-column depth deck (SceneObject depth treatment)", () => {
     // Three objects in one focused column: top and bottom focused, middle in
     // the within-column depth deck at depth-1. Snapshots the resting state.
     // Locks in the peek-offset position, zIndex, opacity, and grayscale for
-    // the middle object's own object node (ui#21 — translateZ was removed entirely
+    // the middle object's own object node (ui/t:21 — translateZ was removed entirely
     // for object-level depth cards, see the z-index paint-order channel
     // amendment; this baseline predates that split and needs a designer's
     // eyes before regenerating, not touched here).
@@ -1001,7 +1001,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
     const { container, rerender } = await render(scene(false, false));
     await waitForAnimationFrame();
 
-    // ui#21 anchor/object split: the depth-card opacity treatment lives on
+    // ui/t:21 anchor/object split: the depth-card opacity treatment lives on
     // the OBJECT NODE now, not the zero-footprint anchor `data-ui-scene-id` used
     // to carry it.
     const xEl = () => container.querySelector('[data-ui-scene-object="x"]') as HTMLElement;
@@ -1064,7 +1064,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
   // depth-scaled peek-offset transform still spring independently of any
   // depth-treatment mechanism, so X still moves through the same overlap
   // geometry — it just isn't visually dimmed/receded while doing so; the
-  // ui#21 z-index channel's own sign-inversion sever reaches the SAME
+  // ui/t:21 z-index channel's own sign-inversion sever reaches the SAME
   // conclusion for the SAME structural reason, see this file's own commit
   // history). depth-reshape-mid-spring above IS the decisive defeat-check
   // for that
@@ -1108,7 +1108,7 @@ describe("within-column depth-deck spring regressions (H8)", () => {
 
     await rerender(scene(true, true));
 
-    // ui#21 anchor/object split: overlap geometry and paint order are
+    // ui/t:21 anchor/object split: overlap geometry and paint order are
     // driven by the OBJECT NODE now (position:absolute, the peek-offset
     // transform, and the zIndex channel) — the zero-footprint anchor
     // `data-ui-scene-id` collapses to zero height once sandwiched and no
@@ -1256,7 +1256,7 @@ describe("depth-deck bug-fix regressions", () => {
   // real `layout` FLIP, not just declarative animate-prop values) —
   // probably needs either a motion/react-side workaround or accepting this
   // test at ~90%, not 100%, reliability. Tracked as the confirmed concrete
-  // member of ui#o25/ui#o36 (rotating load/timing-sensitive visual-flake
+  // member of ui/o:25/ui/o:36 (rotating load/timing-sensitive visual-flake
   // class) in the Scene Test Audit's gap map.
   it.skip("refocus-from-depth-deck-mid-spring", async () => {
     // Setup: Left (focused) + Middle A (in depth deck, depth-1) + Right (focused).

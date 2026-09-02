@@ -138,7 +138,7 @@ describe("SceneObject keyboard focus management", () => {
 
       const btn = getByTestId("btn-in-object").element() as HTMLElement;
       expect(document.activeElement).toBe(btn);
-      // ui#20 remap: two-phase focus (F2) now calls .focus() TWICE on a
+      // ui/t:20 remap: two-phase focus (F2) now calls .focus() TWICE on a
       // focus-gain — phase 1 lands on the anchor immediately (mid-
       // transition-safe, since the anchor sits outside the inert content
       // wrapper), phase 2 moves focus to the first focusable descendant
@@ -385,7 +385,7 @@ describe("Scene reduced motion", () => {
   });
 
   /**
-   * ui#33 commit 3 extension: accepts an initial match state (existing
+   * ui/t:33 commit 3 extension: accepts an initial match state (existing
    * callers keep today's always-matching default) and captures the
    * `change` listener a REAL live-reduced-motion consumer registers,
    * instead of the inert `vi.fn()` stub `addEventListener` used to be.
@@ -501,7 +501,7 @@ describe("Scene reduced motion", () => {
     expect(scene.hasAttribute("data-ui-scene-reduced-motion")).toBe(false);
   });
 
-  // ⚠️ REDESIGNED at the forecast gate (2026-08-06, ui#33 commit 3 — plan
+  // ⚠️ REDESIGNED at the forecast gate (2026-08-06, ui/t:33 commit 3 — plan
   // §4): Motion's own useReducedMotion() is mount-time-only (a
   // module-singleton matchMedia listener writing a plain module-scoped
   // ref, read into useState ONCE at first mount with the setter discarded
@@ -509,7 +509,7 @@ describe("Scene reduced motion", () => {
   // imports, the singleton this describes). A mounted Scene structurally
   // cannot react to a live OS reduced-motion toggle through that hook;
   // only a remount ever picks one up. A test built on Motion's hook would
-  // therefore pass trivially forever regardless of whether ui#33's freeze
+  // therefore pass trivially forever regardless of whether ui/t:33's freeze
   // fix (commit 2) even exists — vacuous. The REACHABLE production path
   // for a live flip is a consumer wiring its OWN matchMedia listener and
   // feeding Scene's PUBLIC `duration` prop directly, exactly as any real
