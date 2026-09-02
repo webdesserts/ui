@@ -7,6 +7,8 @@ import { IconButtonPage } from "./pages/IconButtonPage";
 import { ButtonGroupPage } from "./pages/ButtonGroupPage";
 import { MenuItemPage } from "./pages/MenuItemPage";
 import { TextInputPage } from "./pages/TextInputPage";
+import { HeadingPage } from "./pages/HeadingPage";
+import { DividerPage } from "./pages/DividerPage";
 import { GlassPage } from "./pages/GlassPage";
 import { SelectCandidatesPage } from "./pages/SelectCandidatesPage";
 import { ColorsPage } from "./pages/ColorsPage";
@@ -21,6 +23,8 @@ const pages = {
   buttongroup: { label: "ButtonGroup", section: "Components", component: ButtonGroupPage },
   menuitem: { label: "MenuItem", section: "Components", component: MenuItemPage },
   textinput: { label: "TextInput", section: "Components", component: TextInputPage },
+  heading: { label: "Heading", section: "Components", component: HeadingPage },
+  divider: { label: "Divider", section: "Components", component: DividerPage },
   scene: { label: "Scene", section: "Components", component: ScenePage },
   glass: { label: "Glass", section: "Components", component: GlassPage },
   selectcandidates: { label: "Select (candidates)", section: "Components", component: SelectCandidatesPage },

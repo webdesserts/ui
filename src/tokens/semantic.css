@@ -46,6 +46,16 @@
 
   --radius-sm: 2px;
   --radius-md: 4px;
+
+  --text-heading-sm: 14px;
+  --text-heading-md: 18px;
+  --text-heading-lg: 24px;
+  --text-heading-xl: 36px;
+
+  --leading-heading-sm: 20px;
+  --leading-heading-md: 32px;
+  --leading-heading-lg: 46px;
+  --leading-heading-xl: 64px;
 }
 
 /* Reusable dot-grid background. Composes with surface utilities:
