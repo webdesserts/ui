@@ -60,7 +60,13 @@ export function useDepthFilterChannel(options: {
   transition: Transition;
   /** Motion-seam registration, or null outside a test harness. */
   motionSeam: MotionSeamRegistration | null;
-  /** Whole seam key, caller-assembled (e.g. `depthFilter:${name}`). */
+  /**
+   * Whole seam key, caller-assembled. SceneColumn and SceneObject share this
+   * channel but must use distinct prefixes (`columnDepthFilter:${name}` /
+   * `objectDepthFilter:${name}`) — the seam registry is a flat map, and a
+   * column and an object with the same `name` would otherwise collide onto
+   * one entry (ui/t:18 claim gate, probe 9).
+   */
   seamKey: string;
 }): string | MotionValue<string> {
   const { grayscale, duration, transition, motionSeam, seamKey } = options;
@@ -96,7 +102,7 @@ export function useDepthFilterChannel(options: {
   //
   // The effect has no dependency array on purpose, matching every other owned
   // channel in this family; its own target-changed check is the guard.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberate every-render effect (no dependency array by design), matching every other owned channel in this family — its own target-changed check (targetRef comparison) is the guard, not the dependency array.
   useLayoutEffect(() => {
     if (grayscale === targetRef.current && !ownedAnimation.durationJustBecameZero) return;
     targetRef.current = grayscale;

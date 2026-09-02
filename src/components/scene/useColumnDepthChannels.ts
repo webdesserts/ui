@@ -73,7 +73,7 @@ export function useColumnDepthChannels({
     duration,
     transition: columnTransition,
     motionSeam,
-    seamKey: `depthFilter:${name}`,
+    seamKey: `columnDepthFilter:${name}`,
   });
   // Column-level paint order is DOM-order-driven in practice, and that's
   // design-correct: computeStackDepths (Scene.tsx) assigns depth by

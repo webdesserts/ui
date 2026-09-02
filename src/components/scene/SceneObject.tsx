@@ -413,7 +413,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
     duration,
     transition,
     motionSeam,
-    seamKey: `depthFilter:${name}`,
+    seamKey: `objectDepthFilter:${name}`,
   });
 
   // ---------------------------------------------------------------------

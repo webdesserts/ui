@@ -3,7 +3,8 @@ import { useState } from "react";
 import { render } from "vitest-browser-react";
 import { Scene, SceneObject, SceneColumn } from "../src";
 import { TestWrapper } from "./test-wrapper";
-import { waitForAnimationFrame, wait } from "./utils/animation";
+import { waitForAnimationFrame, wait, createMotionSeamRecorder } from "./utils/animation";
+import { MotionSeamContext } from "../src/components/scene/motionSeam";
 
 // ---------------------------------------------------------------------------
 // Backdrop roots (ui/t:18). A glass surface's `backdrop-filter` samples the
@@ -327,5 +328,58 @@ describe("Scene backdrop roots: releasing the filter keeps the depth transition 
     const { grayscales, opacities } = await sampleToggle("refocus");
     assertRamped(grayscales, 0, 0.25, "greyscale");
     assertRamped(opacities, 0.8, 1, "opacity");
+  });
+});
+
+describe("Scene backdrop roots: the depth-filter channel's seam keys don't collide", () => {
+  /**
+   * SceneColumn and SceneObject share `useDepthFilterChannel` (ui/t:18), and
+   * both register into the same flat motion-seam map. A column and an object
+   * that share a `name` must not collapse onto one seam entry — the F4
+   * active-springs debug panel lists every registered key as visible text,
+   * and any test that pins or reads through the seam relies on each channel
+   * having its own key. Distinct prefixes (`columnDepthFilter:` /
+   * `objectDepthFilter:`) are what keep the two namespaces disjoint (claim
+   * gate probe 9, which demonstrated the collision before this fix: five
+   * keys registered for six live channels).
+   */
+  test("a column and an object sharing a name register distinct depth-filter seam keys", async () => {
+    const recorder = createMotionSeamRecorder();
+    await render(
+      <TestWrapper fullPage>
+        <MotionSeamContext.Provider value={recorder}>
+          <Scene>
+            <SceneColumn name="dup">
+              <SceneObject name="dup" focused style={{ width: 200, height: 300 }}>
+                content
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="left">
+              <SceneObject name="left-o" focused style={{ width: 200, height: 300 }}>
+                content
+              </SceneObject>
+            </SceneColumn>
+            <SceneColumn name="right">
+              <SceneObject name="right-o" focused style={{ width: 200, height: 300 }}>
+                content
+              </SceneObject>
+            </SceneColumn>
+          </Scene>
+        </MotionSeamContext.Provider>
+      </TestWrapper>,
+    );
+    await wait(1200);
+
+    const depthFilterKeys = [...recorder.values.keys()].filter((key) => /depthfilter:/i.test(key));
+    expect(depthFilterKeys.sort(), "one seam key per column/object depth-filter channel, six live channels").toEqual(
+      [
+        "columnDepthFilter:dup",
+        "columnDepthFilter:left",
+        "columnDepthFilter:right",
+        "objectDepthFilter:dup",
+        "objectDepthFilter:left-o",
+        "objectDepthFilter:right-o",
+      ].sort(),
+    );
   });
 });

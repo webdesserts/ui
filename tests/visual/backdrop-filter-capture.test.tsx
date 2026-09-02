@@ -482,11 +482,22 @@ describe("blur-live: a glass panel in a focused Scene object samples the decked 
     // needs `transform-style: preserve-3d` on the scene viewport, the stage
     // and every column anchor — and backdrop-filter does not sample across a
     // 3D rendering context. Established by leave-one-out ablation on the live
-    // DOM: flattening any single one of those three levels leaves the ratio
-    // at 0.806, and only flattening ALL of them together brings it to 0.157.
-    // Removing perspective is irrelevant (0.157 either way). Restoring
-    // cross-column sampling therefore means restructuring how the deck
-    // renders depth, which is a different ticket.
+    // DOM: no single one of those three levels restores sampling on its own;
+    // only flattening ALL of them together does. Removing perspective is
+    // irrelevant either way. Restoring cross-column sampling therefore means
+    // restructuring how the deck renders depth, which is a different ticket.
+    //
+    // The exact ratios below are NOT a stable baseline — do not treat them as
+    // a target to reproduce. Two independent runs landed on different
+    // numbers (this branch's own ablation: single-level ~0.806, all-three
+    // ~0.157; the ui/t:18 claim gate's independent reproduction: single-level
+    // 1.00000, all-three 0.02702) because flattening `transform-style` also
+    // removes perspective foreshortening, which changes the fixture's
+    // measured overlap region as a side effect (335x424 vs 368x480 across the
+    // gate's own arms) — a confounded leave-one-out, not a repeatable
+    // measurement. Both runs land on the same side of BLUR_LIVE_MAX_RATIO in
+    // both the single-level and all-three cases, which is the only claim
+    // this test (and the qualitative statement above) relies on.
     //
     // If this ever flips green, cross-column glass has started working —
     // revisit this file and the ticket rather than deleting the test.
