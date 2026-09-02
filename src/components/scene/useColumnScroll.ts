@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { animate, useMotionValue, type MotionValue } from "motion/react";
 import type { Transition } from "motion/react";
 import type { MotionSeamRegistration } from "./motionSeam";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
 import {
   isInteractiveElement,
   mapScrollKeyToCommand,
@@ -177,10 +178,7 @@ export function useColumnScroll(params: UseColumnScrollParams): UseColumnScrollR
   // "change" event or an elapsed animation frame tick — neither guaranteed
   // in a same-tick grab->release) was specific to the RELEASE-time read
   // this file no longer makes.
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`scrollY:${name}`, scrollY);
-    return () => motionSeam?.unregisterMotionValue?.(`scrollY:${name}`);
-  }, [motionSeam, scrollY, name]);
+  useMotionSeamRegistration(motionSeam, `scrollY:${name}`, scrollY);
 
   // Drives scrollY in parallel with the existing scrollOffset React state at
   // every write site below (wheel/keyboard/swap-reset/scrollbar). duration=0

@@ -1,10 +1,12 @@
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useMotionValue } from "motion/react";
 import { ColumnContext } from "./SceneColumn";
-import { computeDepthTreatment, formatGrayscale } from "./depth";
+import { computeDepthTreatment } from "./depth";
+import { useDepthFilterChannel } from "./useDepthFilterChannel";
 import { useSceneConfig, computeSceneTransition } from "./useSceneConfig";
 import { useIsSceneFirstPaint } from "./SceneFirstPaintContext";
 import { useMotionSeam } from "./motionSeam";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
 import { useOwnedAnimation } from "./ownedAnimation";
 import { TransitionPendingContext } from "./TransitionPendingContext";
 import { TransitionPendingRefContext } from "./TransitionPendingRefContext";
@@ -254,10 +256,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
       : naturalHeight;
 
   const heightMV = useMotionValue(heightTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`height:${name}`, heightMV);
-    return () => motionSeam?.unregisterMotionValue?.(`height:${name}`);
-  }, [motionSeam, heightMV, name]);
+  useMotionSeamRegistration(motionSeam, `height:${name}`, heightMV);
 
   const heightTargetRef = useRef(heightTarget);
   // Whether the channel's most recent spring has FULLY settled — gates
@@ -368,10 +367,7 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
   // ---------------------------------------------------------------------
   const marginBottomTarget = sandwichedNow && inFlowKnownHeight ? -objectGap : 0;
   const marginBottomMV = useMotionValue(marginBottomTarget);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`marginBottom:${name}`, marginBottomMV);
-    return () => motionSeam?.unregisterMotionValue?.(`marginBottom:${name}`);
-  }, [motionSeam, marginBottomMV, name]);
+  useMotionSeamRegistration(motionSeam, `marginBottom:${name}`, marginBottomMV);
 
   const marginBottomTargetRef = useRef(marginBottomTarget);
   const marginBottomOwnedAnimation = useOwnedAnimation(duration);
@@ -403,6 +399,22 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         ? { opacity: withinDepth.opacity, grayscale: withinDepth.grayscale }
         : { opacity: 0.8, grayscale: 0.25 }
     : undefined;
+
+  // Owned greyscale channel — released to no filter at all once settled at
+  // identity, so a focused object never roots the backdrop of a glass
+  // surface a consumer renders as its child (ui/t:18). The card names
+  // SceneColumn, but this node emitted `filter: grayscale(0)` too — for
+  // EVERY object inside a Scene, focused included — and it sits BELOW the
+  // column on such a surface's ancestor chain, so releasing only the column
+  // would have left the nearer backdrop root in place and changed nothing a
+  // consumer can see. See useDepthFilterChannel's own doc comment.
+  const depthFilter = useDepthFilterChannel({
+    grayscale: depthTreatment?.grayscale ?? 0,
+    duration,
+    transition,
+    motionSeam,
+    seamKey: `objectDepthFilter:${name}`,
+  });
 
   // ---------------------------------------------------------------------
   // z-index channel (replaces the object-level translateZ/zMV channel a
@@ -746,10 +758,14 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
               animate: {
                 opacity: depthTreatment.opacity,
                 y: peekY,
-                // Always emit a valid filter string — motion cannot
-                // interpolate between undefined and a filter string, which
-                // caused the unfocus pop (bug 2b, H8).
-                filter: formatGrayscale(depthTreatment.grayscale),
+                // filter is NOT here — it is an owned channel now, bound
+                // through the style prop below so it can be RELEASED at rest
+                // (ui/t:18). The anti-snap invariant that put it here in the
+                // first place (motion cannot interpolate between undefined
+                // and a filter string — the unfocus pop, bug 2b, H8) still
+                // holds and is still what the owned channel exists to
+                // satisfy: it carries a live numeric greyscale across the
+                // release rather than handing Motion a keyword to re-parse.
               },
               transition,
             }
@@ -757,6 +773,15 @@ export function SceneObject({ name, focused, children, onActivate, style, classN
         style={{
           position: sandwichedNow ? "absolute" : "relative",
           top: 0,
+          // Owned greyscale channel — a real filter string only while the
+          // depth treatment is live, and NO filter property at all once it
+          // settles back at identity, so a focused object stops rooting the
+          // backdrop of any glass surface inside it. Left undefined outside
+          // a Scene, where there is no depth treatment and this node never
+          // wrote a filter to begin with. Released the same way this file's
+          // other channels release: an explicit written value, never an
+          // omitted key. See useDepthFilterChannel's own doc comment.
+          filter: depthTreatment ? depthFilter : undefined,
           // Explicit width in BOTH position modes, mirroring the height
           // comment below — the anchor's own width (the consumer's `style`
           // prop, e.g. `width: 480`) is static, never sprung by this

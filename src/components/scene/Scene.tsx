@@ -17,6 +17,7 @@ import { ScrollCommandRegistryContext } from "./ScrollCommandRegistryContext";
 import { AnimationCallbackContext, type AnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { MotionSeamContext, type MotionSeamRegistration } from "./motionSeam";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
 import {
   normalizeWheelDelta,
   normalizeWheelDeltaX,
@@ -393,10 +394,7 @@ function SceneViewport({
   // the stage's `left` (camera pan) can be driven off React's render cycle,
   // matching SceneColumn's scrollY/composedTop seam.
   const cameraX = useMotionValue(0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue("cameraX", cameraX);
-    return () => motionSeam?.unregisterMotionValue?.("cameraX");
-  }, [motionSeam, cameraX]);
+  useMotionSeamRegistration(motionSeam, "cameraX", cameraX);
 
   // Routes every cameraX.jump()/animate() call site in this component
   // (driveCameraX's own recentering below, the touch-fling inertia, the

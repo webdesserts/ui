@@ -21,7 +21,8 @@ import { useAnimationCallbacks } from "./AnimationCallbackContext";
 import { SceneFirstPaintContext } from "./SceneFirstPaintContext";
 import { PanControlContext } from "./PanControlContext";
 import { useMotionSeam } from "./motionSeam";
-import { computeDepthTreatment, formatGrayscale } from "./depth";
+import { useMotionSeamRegistration } from "./useMotionSeamRegistration";
+import { useColumnDepthChannels } from "./useColumnDepthChannels";
 import { Scrollbar } from "./Scrollbar";
 import { useColumnAnchoring } from "./useColumnAnchoring";
 import { useColumnScroll } from "./useColumnScroll";
@@ -940,13 +941,7 @@ function SceneColumnImpl({
   // (when `top` was driven via motion's `animate={{top}}` prop). Seeded to
   // this render's topOffset so the very first commit needs no drive.
   const topOffsetMV = useMotionValue(topOffset);
-  // F4 active-springs debug panel: register the MotionValue itself (not just
-  // its controls, below) so the panel can read its live value/velocity —
-  // mirrors scrollY's identical registration effect above.
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`topOffset:${name}`, topOffsetMV);
-    return () => motionSeam?.unregisterMotionValue?.(`topOffset:${name}`);
-  }, [motionSeam, topOffsetMV, name]);
+  useMotionSeamRegistration(motionSeam, `topOffset:${name}`, topOffsetMV);
   // The last target actually driven into topOffsetMV — compared against the
   // fresh per-render topOffset below to detect a real swap (vs. an unrelated
   // re-render where topOffset is unchanged).
@@ -1056,10 +1051,7 @@ function SceneColumnImpl({
       : frozenSize?.width;
 
   const widthMV = useMotionValue(widthTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`width:${name}`, widthMV);
-    return () => motionSeam?.unregisterMotionValue?.(`width:${name}`);
-  }, [motionSeam, widthMV, name]);
+  useMotionSeamRegistration(motionSeam, `width:${name}`, widthMV);
 
   const widthTargetRef = useRef(widthTarget);
   // Whether this channel has EVER driven a real (defined) target — false
@@ -1123,10 +1115,7 @@ function SceneColumnImpl({
   // currently rendered.
   const marginTarget = inBetweenNow && inBetweenKnownWidth ? -columnGap : 0;
   const marginMV = useMotionValue(marginTarget);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`margin:${name}`, marginMV);
-    return () => motionSeam?.unregisterMotionValue?.(`margin:${name}`);
-  }, [motionSeam, marginMV, name]);
+  useMotionSeamRegistration(motionSeam, `margin:${name}`, marginMV);
 
   const marginTargetRef = useRef(marginTarget);
   const marginOwnedAnimation = useOwnedAnimation(duration);
@@ -1165,10 +1154,7 @@ function SceneColumnImpl({
       ? computeMeasuredWidth(objectStates, geometryStore.current)
       : undefined;
   const columnWidthMV = useMotionValue(columnWidthTarget ?? 0);
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`columnWidth:${name}`, columnWidthMV);
-    return () => motionSeam?.unregisterMotionValue?.(`columnWidth:${name}`);
-  }, [motionSeam, columnWidthMV, name]);
+  useMotionSeamRegistration(motionSeam, `columnWidth:${name}`, columnWidthMV);
 
   const columnWidthTargetRef = useRef(columnWidthTarget);
   const columnWidthHasHadTargetRef = useRef(columnWidthTarget !== undefined);
@@ -1324,80 +1310,21 @@ function SceneColumnImpl({
   // Same `!columnFocused` guard as isInBetween above, and for the same
   // reason (F5 item 2).
   const columnAnimateX = isInBetween ? -peekOffset * stackDepth : 0;
-  // translateZ pushes in-between columns back in 3D space. The stage's
-  // perspective (800px) projects them smaller: depth-1 → 800/900 ≈ 0.89×,
-  // depth-2 → 800/1000 = 0.80×, depth-3 → 800/1100 ≈ 0.73×.
-  // Focused columns explicitly sit at translateZ(0) to participate in the 3D
-  // stacking context and always render in front of in-between columns.
-  // columnDepth must be declared AFTER isInBetween (variable ordering).
-  const columnDepth = isInBetween ? computeDepthTreatment(stackDepth) : { opacity: 1, grayscale: 0, translateZ: 0 };
-  // Only in-between columns get depth-scaled opacity. Outer columns are fully
-  // opaque — the viewport clips their visibility, not opacity:0.
-  const depthOpacity = columnDepth.opacity;
-  // Greyscale increases with depth: depth-1 → 25%, depth-2 → 50%, etc.
-  // Reinforces the sense of receding into the background.
-  const depthGreyscale = columnDepth.grayscale;
-  const depthZ = columnDepth.translateZ;
-  // Column-level paint order is DOM-order-driven in practice, and that's
-  // design-correct: computeStackDepths (Scene.tsx) assigns depth by
-  // walking backward from the rightmost focused column, so depth is
-  // structurally guaranteed to equal reverse DOM order for every
-  // reachable production state (see that function's own comment — the
-  // invariant is load-bearing). translateZ here is paint-INERT, not
-  // paint-driving — a multi-round discriminator investigation (ui#o32,
-  // the D-series record) forced a genuinely-transformed sibling into an
-  // intact preserve-3d chain and it still lost to DOM order; z-index was
-  // also tried directly (forced positive, confirmed applied via computed
-  // style) and was EQUALLY inert, consistent with the well-documented CSS
-  // behavior that z-index has no effect on children of a
-  // transform-style:preserve-3d element — actual 3D depth governs there,
-  // and that 3D depth-sort is itself the thing the D-series found broken
-  // (isolated per-anchor subtrees don't compare against each other).
-  // translateZ is retained purely for the perspective-projection
-  // foreshortening visual cue (depth-1 → 0.89×, etc.), not for paint
-  // order. If a future feature ever breaks the depth ≡ reverse-DOM-order
-  // invariant (e.g. reordering columns independent of focus/depth),
-  // column-level paint order needs an explicit mechanism — object level
-  // (SceneObject.tsx) already has this via its own z-index channel,
-  // built for exactly this reason (an object's own inner node sits outside any
-  // column's preserve-3d chain, so DOM order there does NOT structurally
-  // guarantee correctness the way it does at column level).
-
-  // z-clearance coupling (Michael's ruled invariant, Scene F2 spike 2):
-  // objects overlapping in 2D screen space must never change relative paint
-  // order — a z-crossing (moving from "behind" toward "in front") is only
-  // legal once the pair is disjoint. The invariant is enforced structurally
-  // by DOM order today (see computeStackDepths), not by any gating here —
-  // an RAF-poll-based front-ward-retarget gate was tried and reverted:
-  // unsafe under concurrent test-suite load (see commit history for the
-  // full investigation). zMV below is kept only for its debug-observability
-  // value (pinnable/observable motion-seam treatment, same as
-  // topOffset/scrollY/cameraX).
-  const zMV = useMotionValue(depthZ);
-  // F4 active-springs debug panel: register the MotionValue itself, same
-  // rationale as topOffsetMV/scrollY above.
-  useEffect(() => {
-    motionSeam?.registerMotionValue(`z:${name}`, zMV);
-    return () => motionSeam?.unregisterMotionValue?.(`z:${name}`);
-  }, [motionSeam, zMV, name]);
-  const zTargetRef = useRef(depthZ);
-  const zOwnedAnimation = useOwnedAnimation(duration);
-
-  useLayoutEffect(() => {
-    if (depthZ === zTargetRef.current && !zOwnedAnimation.durationJustBecameZero) return;
-    zTargetRef.current = depthZ;
-
-    // ui#33: duration===0 now shares the jump() branch below instead of a
-    // raw .set() — see topOffsetMV's identical fix above for the rationale
-    // (.set() never calls .stop(), so a live flip mid-spring never stopped
-    // the in-flight animation or retired the settle counter).
-    if (duration === 0 || firstPaintRef.current || !columnGeometryWasSettled) {
-      zOwnedAnimation.jump(zMV, depthZ);
-    } else {
-      const controls = zOwnedAnimation.animateTo(zMV, depthZ, transition);
-      motionSeam?.registerControls(`z:${name}`, controls);
-      motionSeam?.registerTarget?.(`z:${name}`, depthZ);
-    }
+  // Column-level depth deck: the opacity, greyscale filter and translateZ
+  // the column node renders, plus the owned channels behind the last two.
+  // Extracted whole (ui/t:18) — see useColumnDepthChannels for the design,
+  // the paint-order finding behind translateZ's inertness, and the
+  // backdrop-root reason the filter is released at rest.
+  const { depthOpacity, depthZ, depthFilter, zMV } = useColumnDepthChannels({
+    isInBetween,
+    stackDepth,
+    duration,
+    transition,
+    columnTransition,
+    motionSeam,
+    name,
+    firstPaintRef,
+    columnGeometryWasSettled,
   });
 
   // In-between columns stay top-aligned at the stage row's own top edge
@@ -1790,12 +1717,16 @@ function SceneColumnImpl({
             opacity: depthOpacity,
             // z is NOT here, see zMV's declaration above (z-clearance
             // coupling) and the style prop below.
+            // filter is NOT here either — it is an owned channel now, bound
+            // through the style prop below so it can be RELEASED at rest
+            // (ui/t:18). The anti-snap invariant that put it here in the
+            // first place (motion cannot interpolate between undefined and a
+            // filter string — the unfocus pop, bug 2b) still holds and is
+            // still what the owned channel exists to satisfy: it carries a
+            // live numeric greyscale across the release rather than handing
+            // Motion a keyword to re-parse.
             x: columnAnimateX,
             y: inBetweenY,
-            // Always emit a valid filter string — motion cannot interpolate
-            // between undefined and a filter string, which caused the
-            // unfocus pop (bug 2b).
-            filter: formatGrayscale(depthGreyscale),
           }}
           transition={columnTransition}
           style={{
@@ -1848,6 +1779,15 @@ function SceneColumnImpl({
             // write would depend on undocumented same-frame-ordering
             // internals.
             z: duration === 0 ? depthZ : zMV,
+            // Owned greyscale channel — a real filter string only while the
+            // depth treatment is live, and NO filter property at all once it
+            // settles back at identity, so a focused column stops rooting
+            // the backdrop of any glass surface inside it. Same
+            // pixels-mid-spring/live-CSS-at-rest release shape as `width`
+            // below, and released the same way it is: an explicit written
+            // value ("none"), never an omitted key. See
+            // useDepthFilterChannel's own doc comment.
+            filter: depthFilter,
             // Michael's ruling — pixels only mid-spring, live CSS at rest.
             // Active while the column's own override is active (see
             // columnWidthOverrideActive's own comment); released once
