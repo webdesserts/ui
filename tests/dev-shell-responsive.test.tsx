@@ -183,9 +183,13 @@ describe("desktop (1280px) — unchanged", () => {
     if (!hamburger) throw new Error("hamburger button not found");
     const topBar = hamburger.parentElement?.parentElement as HTMLElement | null;
     if (!topBar) throw new Error("mobile top bar not found");
-    // The drawer's outer wrapper carries both `md:hidden` and `fixed`,
-    // which disambiguates it from the top bar (which never carries `fixed`).
-    const drawerWrapper = container.querySelector(".md\\:hidden.fixed") as HTMLElement | null;
+    // The drawer nav's parent is its outer wrapper (see NavDrawer in
+    // dev/App.tsx). An id lookup, not a class selector, keeps this query
+    // independent of the `md:hidden` class the assertion below is itself
+    // proving is present.
+    const drawerNav = document.getElementById("mobile-nav-drawer");
+    if (!drawerNav) throw new Error("nav#mobile-nav-drawer not found in the DOM");
+    const drawerWrapper = drawerNav.parentElement as HTMLElement | null;
     if (!drawerWrapper) throw new Error("mobile drawer wrapper not found");
 
     expect(getComputedStyle(sidebar).display).toBe("block");
