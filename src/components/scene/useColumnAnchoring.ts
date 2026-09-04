@@ -119,7 +119,16 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
   // Fingerprint of the last-remeasured geometry, used to bail out of forcing
   // a re-render (geometryVersion bump) when a ResizeObserver callback fires
   // but nothing actually moved.
-  const geometryFingerprintRef = useRef("");
+  // Numeric previous-geometry snapshot for the epsilon compare (see the
+  // remeasure body's scroll-crash fix comment) — null until first measure.
+  // Numeric snapshot of the geometry as of the last ACCEPTED bump — the
+  // epsilon compare runs against THIS (not the previous measurement), so
+  // sub-tolerance per-frame deltas accumulate across frames until they
+  // cross the tolerance and land a bump. Accumulation is what keeps the
+  // wheel-coalescing contract (tests/scene-wheel-coalescing.test.tsx):
+  // comparing frame-to-frame would suppress a real 1px-per-frame growth
+  // forever, lagging the spring's maxScroll clamp behind the content.
+  const geometryLastBumpedGeometryRef = useRef<Map<string, GeometryEntry> | null>(null);
   // Bumped (via setGeometryVersion) only when the ResizeObserver-driven
   // remeasure finds a real change — forces a re-render so topOffset/
   // contentHeight recompute from the fresh geometry. The value itself is
@@ -184,11 +193,53 @@ export function useColumnAnchoring(params: UseColumnAnchoringParams): void {
       el.setAttribute("data-ui-scene-debug-geometry-height", String(Math.round(height)));
       el.setAttribute("data-ui-scene-debug-geometry-width", String(Math.round(width)));
     }
-    const fingerprint = Array.from(geometryStore.current.entries())
-      .map(([objName, g]) => `${objName}:${Math.round(g.offsetTop)}:${Math.round(g.heightTarget ?? g.height)}:${Math.round(g.width)}`)
-      .join(",");
-    const changed = fingerprint !== geometryFingerprintRef.current;
-    geometryFingerprintRef.current = fingerprint;
+    // Scroll-crash fix (2026-09-04, iris, ui#35): the fingerprint used to
+    // compare Math.round()-quantized STRINGS — but during an anchor
+    // compensation the wrapper's spring is mid-flight, and the measured
+    // offsetTop jitters by sub-pixel fractions across its rounding
+    // boundary, so the rounded string kept flipping between adjacent
+    // integers. Every flip reported "changed", the per-render layout
+    // effect then bumped geometryVersion synchronously, and the
+    // render → re-measure → flip cycle spun until React's nested-update
+    // limit killed the whole tree ("Maximum update depth exceeded" →
+    // blank screen) — reproducibly, whenever the user scrolled a focused
+    // column with a tall focused object in Firefox AND Safari.
+    //
+    // Fix: compare numerically with a small tolerance instead of exact
+    // rounded strings. Sub-pixel spring jitter (well under 1.5px) no
+    // longer reads as a geometry change, so the bump settles; a REAL
+    // layout change (≥1.5px on any field) still bumps exactly as before.
+    // Keeping the bump synchronous preserves the wheel-coalescing
+    // rebase contract (tests/scene-wheel-coalescing.test.tsx) — a
+    // deferred bump was tried first and broke criterion 3's 250ms
+    // reversal-tail bound.
+    const EPSILON_PX = 1.5;
+    let changed = geometryLastBumpedGeometryRef.current === null;
+    const prev = geometryLastBumpedGeometryRef.current;
+    if (prev !== null) {
+      if (prev.size !== geometryStore.current.size) {
+        changed = true;
+      } else {
+        for (const [objName, g] of geometryStore.current) {
+          const p = prev.get(objName);
+          if (!p) {
+            changed = true;
+            break;
+          }
+          const h = g.heightTarget ?? g.height;
+          const ph = p.heightTarget ?? p.height;
+          if (
+            Math.abs(g.offsetTop - p.offsetTop) > EPSILON_PX ||
+            Math.abs(h - ph) > EPSILON_PX ||
+            Math.abs(g.width - p.width) > EPSILON_PX
+          ) {
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+    geometryLastBumpedGeometryRef.current = new Map(geometryStore.current);
     return changed;
     // Deliberately NOT listing contentWrapperRef/geometryStore/registeredEls/
     // registeredHeightTargetsRef here: they're all stable ref objects (a
