@@ -28,7 +28,9 @@ export function SelectPage() {
           hover treatment while the menu is open; options reuse MenuItem's
           selected treatment. Keyboard: Enter selects and returns focus, Escape
           closes without change, Tab closes and advances. Canonical values and
-          display labels are deliberately separate.
+          display labels are deliberately separate. Select does not participate
+          in native form submission — `name` does not submit the selected
+          value; form integration is consumer-owned.
         </p>
       </header>
 

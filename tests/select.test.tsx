@@ -273,10 +273,91 @@ describe("Select — dismissal", () => {
   });
 });
 
+describe("Select — disabled semantics", () => {
+  it("forwards native disabled to the trigger, skips it in sequential focus, and suppresses caller events", async () => {
+    const onClick = vi.fn();
+    const screen = await render(
+      <TestWrapper>
+        <div style={{ width: 240 }}>
+          <button data-testid="before">Before</button>
+          <Select
+            aria-label="Fruit"
+            value="banana-canonical"
+            options={FRUITS}
+            onChange={() => {}}
+            disabled
+            onClick={onClick}
+          />
+          <button data-testid="after">After</button>
+        </div>
+      </TestWrapper>,
+    );
+    const el = triggerElement();
+    // Native disabled is authoritative — styles key off `not-disabled:` and
+    // the browser suppresses activation events on disabled buttons.
+    expect(el.disabled).toBe(true);
+    // force: Playwright refuses to click disabled elements; forcing still
+    // proves the browser suppresses activation events on native-disabled
+    // buttons, so the caller's handler never fires.
+    await trigger().click({ force: true });
+    expect(onClick).not.toHaveBeenCalled();
+    // Sequential focus skips the disabled trigger entirely.
+    (screen.container.querySelector('[data-testid="before"]') as HTMLElement).focus();
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement).toBe(
+      screen.container.querySelector('[data-testid="after"]'),
+    );
+  });
+});
+
+describe("Select — availability transitions while open", () => {
+  it("rerendering disabled while open closes the panel with truthful state and never stale-reopens", async () => {
+    const onChange = vi.fn();
+    const screen = await render(
+      <Harness value="banana-canonical" onChange={onChange} />,
+    );
+    await trigger().click();
+    await expect.element(listbox()).toBeInTheDocument();
+
+    await screen.rerender(
+      <Harness value="banana-canonical" onChange={onChange} disabled />,
+    );
+    expect(listbox().query()).toBeNull();
+    expect(triggerElement().getAttribute("aria-expanded")).toBe("false");
+    expect(triggerElement().disabled).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Availability returning must not resurrect a panel nobody reopened.
+    await screen.rerender(<Harness value="banana-canonical" onChange={onChange} />);
+    expect(triggerElement().getAttribute("aria-expanded")).toBe("false");
+    expect(listbox().query()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("clearing options while open closes the panel and keeps aria-expanded truthful", async () => {
+    const onChange = vi.fn();
+    const screen = await render(
+      <Harness value="banana-canonical" onChange={onChange} />,
+    );
+    await trigger().click();
+    await expect.element(listbox()).toBeInTheDocument();
+
+    await screen.rerender(
+      <Harness value="banana-canonical" onChange={onChange} options={[]} />,
+    );
+    expect(listbox().query()).toBeNull();
+    expect(document.querySelector('[role="option"]')).toBeNull();
+    expect(triggerElement().getAttribute("aria-expanded")).toBe("false");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("Select — disabled and empty states", () => {
   it("disabled Select does not open and stays aria-expanded=false", async () => {
     await render(<Harness disabled />);
-    await trigger().click();
+    // force: skip Playwright's enabled actionability wait; the native-disabled
+    // browser still suppresses activation, so the panel must not open.
+    await trigger().click({ force: true });
     expect(listbox().query()).toBeNull();
     expect(triggerElement().getAttribute("aria-expanded")).toBe("false");
   });

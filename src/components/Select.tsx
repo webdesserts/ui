@@ -61,6 +61,11 @@ export interface SelectOption {
 // relationship, button type, and the controlled value/onChange. Everything
 // else on the native button surface (id, aria-label/labelledby, data-*,
 // event and class props) passes through to the trigger.
+//
+// Native form limitation: Select does NOT participate in native form
+// submission. A `name` prop does not submit the selected value with a parent
+// <form>, and no hidden input is rendered — form integration remains
+// consumer-owned.
 export interface SelectProps
   extends Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -177,8 +182,19 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const selectedLabel = selectedIndex === -1 ? undefined : options[selectedIndex].label;
   const canOpen = !disabled && options.length > 0;
 
+  // Availability invariant: an already-open panel must close when the Select
+  // becomes disabled or its options empty. Resetting the stale `open` state
+  // during render (React's documented state-adjustment pattern) also prevents
+  // availability returning from resurrecting a panel nobody reopened. The
+  // derived `isOpen` below keeps aria-expanded/panel rendering truthful in
+  // the SAME commit.
+  const isOpen = open && canOpen;
+  if (open && !isOpen) {
+    setOpen(false);
+  }
+
   const { refs, floatingStyles, context } = useFloating({
-    open,
+    open: isOpen,
     onOpenChange: setOpen,
     placement,
     middleware: [
@@ -198,10 +214,10 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const click = useClick(context, { enabled: canOpen });
   // Escape is handled manually (below) so it can return focus to the trigger;
   // the library's escape dismissal would close without the focus contract.
-  const dismiss = useDismiss(context, { enabled: open, escapeKey: false });
+  const dismiss = useDismiss(context, { enabled: isOpen, escapeKey: false });
   const role = useRole(context, { role: "listbox" });
   const listNavigation = useListNavigation(context, {
-    enabled: open,
+    enabled: isOpen,
     listRef,
     activeIndex,
     selectedIndex: selectedIndex === -1 ? null : selectedIndex,
@@ -230,6 +246,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   }
 
   function select(option: SelectOption) {
+    // Availability guard: a stale option activation (e.g. after the Select was
+    // disabled or emptied mid-interaction) must not commit a value.
+    if (!canOpen) return;
     // Exactly one onChange per selection — Enter/click/space all funnel here.
     onChange(option.value);
     closeAndReturnFocus();
@@ -247,7 +266,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
       props.onKeyDown?.(event);
       if (event.defaultPrevented) return;
-      if (!open) return;
+      if (!isOpen) return;
       if (event.key === "Escape") {
         closeAndReturnFocus();
       } else if (event.key === "Tab") {
@@ -304,7 +323,8 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       {...triggerProps}
       type="button"
       role="combobox"
-      aria-expanded={open}
+      disabled={disabled}
+      aria-expanded={isOpen}
       aria-haspopup="listbox"
       aria-invalid={invalid || undefined}
       className={cn(
@@ -338,7 +358,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       </span>
       <SelectIcon size={12} className="shrink-0 ml-2" />
     </button>
-    {open && (
+    {isOpen && (
       <div
         ref={refs.setFloating}
         {...panelProps}
