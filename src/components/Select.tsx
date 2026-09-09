@@ -410,4 +410,3 @@ function SelectIcon({ size = 12, className }: { size?: number; className?: strin
     </svg>
   );
 }
-
