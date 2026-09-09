@@ -10,7 +10,7 @@ import { TextInputPage } from "./pages/TextInputPage";
 import { HeadingPage } from "./pages/HeadingPage";
 import { DividerPage } from "./pages/DividerPage";
 import { GlassPage } from "./pages/GlassPage";
-import { SelectCandidatesPage } from "./pages/SelectCandidatesPage";
+import { SelectPage } from "./pages/SelectPage";
 import { ColorsPage } from "./pages/ColorsPage";
 import { ScenePage } from "./pages/ScenePage";
 
@@ -27,7 +27,7 @@ const pages = {
   divider: { label: "Divider", section: "Components", component: DividerPage },
   scene: { label: "Scene", section: "Components", component: ScenePage },
   glass: { label: "Glass", section: "Components", component: GlassPage },
-  selectcandidates: { label: "Select (candidates)", section: "Components", component: SelectCandidatesPage },
+  select: { label: "Select", section: "Components", component: SelectPage },
   colors: { label: "Colors", section: "Tokens", component: ColorsPage },
 } as const;
 
