@@ -13,6 +13,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "."),
     },
+    // @floating-ui/react must share the SAME react module instance as
+    // vitest-browser-react's copy — without this its pre-bundled chunk got a
+    // separate/null React ("Cannot read properties of null (reading
+    // 'useId')" on first render).
+    dedupe: ["react", "react-dom"],
   },
   test: {
     exclude: [...configDefaults.exclude, ".claude/worktrees/**"],

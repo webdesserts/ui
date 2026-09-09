@@ -29,6 +29,7 @@
     "clsx": "^2.0.0"
   },
   "peerDependencies": {
+    "@floating-ui/react": "^0.27.20",
     "motion": "^12.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@blazediff/core": "1.9.1",
+    "@floating-ui/react": "^0.27.20",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",

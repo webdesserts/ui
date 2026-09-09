@@ -9,6 +9,8 @@ export {
 export type { BorderSide, ButtonSize } from "./components/Button";
 export { TextInput } from "./components/TextInput";
 export type { TextInputProps } from "./components/TextInput";
+export { Select } from "./components/Select";
+export type { SelectProps, SelectOption } from "./components/Select";
 export { Heading } from "./components/Heading";
 export type { HeadingProps, HeadingSize, HeadingElement } from "./components/Heading";
 export { Divider } from "./components/Divider";

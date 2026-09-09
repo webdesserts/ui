@@ -32,7 +32,7 @@ export default defineConfig({
       // instead of leaving it as an import, discovered via a first build
       // that produced dist/_virtual/* and dist/node_modules/react/* chunks
       // not in the expected 44-file mirror).
-      external: ["react", "react-dom", "react/jsx-runtime", "react/compiler-runtime", "motion/react", "clsx"],
+      external: ["react", "react-dom", "react/jsx-runtime", "react/compiler-runtime", "motion/react", "clsx", "@floating-ui/react"],
       output: {
         // Load-bearing: preserves the current 44-file dist/ shape (1:1 with
         // src/) instead of collapsing to a single bundle — tree-shaking and
