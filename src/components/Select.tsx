@@ -362,7 +362,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       <div
         ref={refs.setFloating}
         {...panelProps}
-        className={PANEL}
+        className={cn(PANEL, "z-50")}
         style={
           {
             ...floatingStyles,
