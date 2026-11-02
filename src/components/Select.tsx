@@ -10,6 +10,7 @@ import {
   offset,
   size as floatingSize,
   autoUpdate,
+  FloatingPortal,
 } from "@floating-ui/react";
 import type { Placement } from "@floating-ui/react";
 import { cn } from "../utils/cn";
@@ -359,6 +360,10 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       <SelectIcon size={12} className="shrink-0 ml-2" />
     </button>
     {isOpen && (
+      // Portaled to <body>: an ancestor with a backdrop filter (a glass
+      // panel) would otherwise switch off the panel's own blur, and an
+      // ancestor's overflow could clip it.
+      <FloatingPortal>
       <div
         ref={refs.setFloating}
         {...panelProps}
@@ -379,6 +384,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
         <div aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-interactive-border" />
         {optionItems}
       </div>
+      </FloatingPortal>
     )}
     </>
   );
